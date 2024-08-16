@@ -1,0 +1,19 @@
+# Environment variables
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+venv/
+
+# OAuth tokens
+data/token.json
+
+# Output
+output/
+
+# IDE files
+.vscode/
+.idea/
