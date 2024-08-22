@@ -1,0 +1,27 @@
+body {
+    width: 400px;
+    padding: 20px;
+    font-family: Arial, sans-serif;
+  }
+  
+  h1 {
+    text-align: center;
+    color: #4285F4;
+  }
+  
+  .insight {
+    border: 1px solid #ddd;
+    padding: 10px;
+    margin-bottom: 10px;
+    border-radius: 5px;
+  }
+  
+  .insight h3 {
+    margin-top: 0;
+    color: #4285F4;
+  }
+  
+  #loading, #error {
+    text-align: center;
+    margin-top: 20px;
+  }
