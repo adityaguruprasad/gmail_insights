@@ -21,6 +21,22 @@ BLOCKED_ACTIONS = {
 
 _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 _PHONE_RE = re.compile(r"\b(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4}\b")
+_ROLE_TAG_RE = re.compile(
+    r"(?im)^(\s*)(system|assistant|user|developer|tool)\s*:\s*"
+)
+_INSTRUCTION_PHRASE_RE = re.compile(
+    r"(?i)\b("
+    r"ignore\s+(all\s+)?(previous|prior|above)\s+instructions?"
+    r"|disregard\s+(all\s+)?(previous|prior|above)\s+instructions?"
+    r"|forget\s+(all\s+)?(previous|prior|above)\s+instructions?"
+    r"|follow\s+these\s+instructions?"
+    r"|act\s+as\s+(an?|the)\b"
+    r"|you\s+are\s+(now\s+)?(chatgpt|assistant|system)\b"
+    r")\b"
+)
+_INSTRUCTION_XML_TAG_RE = re.compile(
+    r"(?i)</?\s*(system|assistant|user|instruction|instructions|prompt|directive|policy)\b[^>]*>"
+)
 
 
 def _normalize_actions(actions) -> List[str]:
@@ -63,3 +79,15 @@ def redact_sensitive_content(text: str) -> str:
     redacted = _EMAIL_RE.sub("[REDACTED_EMAIL]", text)
     redacted = _PHONE_RE.sub("[REDACTED_PHONE]", redacted)
     return redacted
+
+
+def sanitize_untrusted_email_text(text: str) -> str:
+    """Neutralize prompt-injection framing while preserving semantic text."""
+    if not text:
+        return ""
+
+    sanitized = text.replace("\r\n", "\n").replace("\r", "\n")
+    sanitized = _ROLE_TAG_RE.sub(r"\1[quoted-role \2] ", sanitized)
+    sanitized = _INSTRUCTION_PHRASE_RE.sub(r"[quoted-instruction: \1]", sanitized)
+    sanitized = _INSTRUCTION_XML_TAG_RE.sub("[quoted-xml-tag]", sanitized)
+    return sanitized
