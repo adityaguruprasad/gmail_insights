@@ -6,6 +6,10 @@ from googleapiclient.discovery import build
 from src.email.fetcher import get_emails_from_domains, get_emails_by_query
 from src.email.processor import extract_insights
 from src.email.safety import safety_metadata
+from src.email.query_validator import (
+    QueryInsightsValidationError,
+    validate_query_insights_payload,
+)
 from src.config.settings import TARGET_DOMAINS, CHROME_EXTENSION_ID
 
 app = Flask(__name__)
@@ -49,12 +53,18 @@ def get_insights():
 def query_insights():
     payload = request.json or {}
     token = payload.get("token")
-    query = payload.get("query", "in:inbox")
-    max_results = int(payload.get("max_results", 25))
-    requested_actions = payload.get("requested_actions")
 
     if not token:
         return jsonify({"error": "No token provided"}), 400
+
+    try:
+        validated_payload = validate_query_insights_payload(payload)
+    except QueryInsightsValidationError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    query = validated_payload["query"]
+    max_results = validated_payload["max_results"]
+    requested_actions = validated_payload["requested_actions"]
 
     safety = safety_metadata(requested_actions)
     if safety["blocked_actions"]:
