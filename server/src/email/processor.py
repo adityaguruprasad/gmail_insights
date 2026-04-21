@@ -11,17 +11,35 @@ from src.email.safety import (
 logger = logging.getLogger(__name__)
 anthropic = Anthropic(api_key=ANTHROPIC_API_KEY)
 
+PROMPT_TRUNCATION_MARKER = " [TRUNCATED]"
+PROMPT_FIELD_MAX_SUBJECT = 300
+PROMPT_FIELD_MAX_SENDER = 320
+PROMPT_FIELD_MAX_DATE = 80
+PROMPT_FIELD_MAX_SNIPPET = 600
+PROMPT_FIELD_MAX_CONTENT = 4000
+
+
+def _truncate_for_prompt(value, max_length: int) -> str:
+    text = str(value) if value is not None else ""
+    if len(text) <= max_length:
+        return text
+    return text[:max_length] + PROMPT_TRUNCATION_MARKER
+
 
 def _build_prompt(email, redact_sensitive: bool = True) -> str:
-    content = email.get("content", "")
+    content = _truncate_for_prompt(email.get("content", ""), PROMPT_FIELD_MAX_CONTENT)
     if redact_sensitive:
         content = redact_sensitive_content(content)
     content = sanitize_untrusted_email_text(content)
 
-    subject = sanitize_untrusted_email_text(email.get("subject", "(No Subject)"))
-    sender = sanitize_untrusted_email_text(email.get("sender", "Unknown Sender"))
-    snippet = sanitize_untrusted_email_text(email.get("snippet", ""))
-    date_value = sanitize_untrusted_email_text(email.get("date", ""))
+    subject = _truncate_for_prompt(email.get("subject", "(No Subject)"), PROMPT_FIELD_MAX_SUBJECT)
+    subject = sanitize_untrusted_email_text(subject)
+    sender = _truncate_for_prompt(email.get("sender", "Unknown Sender"), PROMPT_FIELD_MAX_SENDER)
+    sender = sanitize_untrusted_email_text(sender)
+    snippet = _truncate_for_prompt(email.get("snippet", ""), PROMPT_FIELD_MAX_SNIPPET)
+    snippet = sanitize_untrusted_email_text(snippet)
+    date_value = _truncate_for_prompt(email.get("date", ""), PROMPT_FIELD_MAX_DATE)
+    date_value = sanitize_untrusted_email_text(date_value)
 
     archive_context = "archived" if email.get("is_archived") else "in inbox"
 
