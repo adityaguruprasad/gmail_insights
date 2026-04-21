@@ -2,6 +2,7 @@ import importlib
 import sys
 import types
 import unittest
+from unittest.mock import patch
 
 
 anthropic_stub = types.ModuleType("anthropic")
@@ -72,6 +73,34 @@ class ProcessorPromptTests(unittest.TestCase):
             "You may propose a safe draft outline and archive recommendation only.",
             prompt,
         )
+
+    def test_extract_insights_applies_output_guardrail(self):
+        email = {
+            "id": "email-1",
+            "subject": "Invoice follow-up",
+            "sender": "ops@example.com",
+            "is_archived": False,
+        }
+        completion = (
+            "Summary: Payment follow-up.\n"
+            "Action items:\n"
+            "- Reply to confirm receipt.\n"
+            "- Forward this to accounting.\n"
+            "Draft assistance: Create a short draft outline.\n"
+            "Archive suggestion: No, still active."
+        )
+
+        with patch.object(
+            processor.anthropic.completions,
+            "create",
+            return_value=types.SimpleNamespace(completion=completion),
+        ):
+            result = processor.extract_insights(email, redact_sensitive=False)
+
+        self.assertIn("[Unsafe action suggestion removed]", result["summary"])
+        self.assertIn("Draft assistance: Create a short draft outline.", result["summary"])
+        self.assertIn("Archive suggestion: No, still active.", result["summary"])
+        self.assertNotIn("blocked_suggestions", result)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,14 @@
+import logging
+
 from anthropic import Anthropic, HUMAN_PROMPT, AI_PROMPT
 from src.config.settings import ANTHROPIC_API_KEY
-from src.email.safety import redact_sensitive_content, sanitize_untrusted_email_text
+from src.email.safety import (
+    neutralize_unsafe_action_suggestions,
+    redact_sensitive_content,
+    sanitize_untrusted_email_text,
+)
 
+logger = logging.getLogger(__name__)
 anthropic = Anthropic(api_key=ANTHROPIC_API_KEY)
 
 
@@ -51,10 +58,21 @@ def extract_insights(email, redact_sensitive: bool = True):
         prompt=prompt,
     )
 
+    guarded_summary, blocked_suggestions = neutralize_unsafe_action_suggestions(
+        response.completion.strip()
+    )
+
+    if blocked_suggestions:
+        logger.warning(
+            "Blocked unsafe suggestion(s) in model output for email_id=%s: %s",
+            email.get("id"),
+            ", ".join(blocked_suggestions),
+        )
+
     return {
         "id": email.get("id"),
         "subject": email.get("subject"),
         "sender": email.get("sender"),
         "is_archived": email.get("is_archived", False),
-        "summary": response.completion.strip(),
+        "summary": guarded_summary,
     }
