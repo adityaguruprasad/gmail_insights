@@ -204,6 +204,95 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(guarded.count("[Unsafe action suggestion removed]"), 8)
         self.assertEqual(blocked, expected_blocked)
 
+    def test_neutralize_unsafe_action_suggestions_blocks_plural_mailbox_objects(self):
+        plural_objects = ["messages", "emails", "threads"]
+        cases = []
+        for mailbox_object in plural_objects:
+            cases.extend(
+                [
+                    (f"- Mark {mailbox_object} as read.", "mark_read"),
+                    (f"- Mark {mailbox_object} as unread.", "mark_unread"),
+                    (f"- Move {mailbox_object} to spam.", "move_to_spam"),
+                    (f"- Move {mailbox_object} to the inbox.", "move_to_inbox"),
+                    (f"- Star {mailbox_object}.", "star"),
+                    (f"- Unstar {mailbox_object}.", "unstar"),
+                    (f"- Delete {mailbox_object}.", "delete"),
+                    (f"- Trash {mailbox_object}.", "trash"),
+                    (f"- Forward {mailbox_object} to the account owner.", "forward"),
+                ]
+            )
+
+        for text, action in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, [action])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_urgency_suffix_bypasses(self):
+        cases = [
+            ("- Move this message to spam now.", "move_to_spam"),
+            ("- Move this message to spam ASAP.", "move_to_spam"),
+            ("- Move this message to spam immediately.", "move_to_spam"),
+            ("- Move to the inbox now.", "move_to_inbox"),
+            ("- Create filter now.", "create_filter"),
+            ("- Create filter ASAP.", "create_filter"),
+        ]
+
+        for text, action in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, [action])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_multi_word_mailbox_modifiers(self):
+        cases = [
+            ("- Delete the prior weekly thread.", "delete"),
+            ("- Trash the old billing email.", "trash"),
+            ("- Mark this latest project message as read.", "mark_read"),
+            ("- Move that previous automated email to spam.", "move_to_spam"),
+        ]
+
+        for text, action in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, [action])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_non_mailbox_noun_directives(self):
+        text = (
+            "Action items:\n"
+            "- Delete the stale report.\n"
+            "- Trash the temporary folder.\n"
+            "- Star the launch checklist.\n"
+            "- Mark the task as read."
+        )
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_handles_filter_target_boundaries(self):
+        blocked_cases = [
+            "- Create a filter.",
+            "- Create the filter now.",
+            "- Create filter ASAP.",
+            "- Create filter for this sender.",
+            "- Create a filter matching these emails.",
+        ]
+
+        for text in blocked_cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["create_filter"])
+
+        descriptive = (
+            "Summary: Create the filter rules below for manual review.\n"
+            "Summary: Create filter rules below for manual review."
+        )
+        guarded, blocked = neutralize_unsafe_action_suggestions(descriptive)
+        self.assertEqual(guarded, descriptive)
+        self.assertEqual(blocked, [])
+
     def test_neutralize_unsafe_action_suggestions_preserves_benign_content(self):
         text = (
             "Summary: Weekly planning email.\n"

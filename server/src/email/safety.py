@@ -59,6 +59,27 @@ _INSTRUCTION_PHRASE_RE = re.compile(
 _INSTRUCTION_XML_TAG_RE = re.compile(
     r"(?i)</?\s*(system|assistant|user|instruction|instructions|prompt|directive|policy)\b[^>]*>"
 )
+_DIRECTIVE_START = r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?"
+_RECOMMENDATION_PREFIX = (
+    r"(?i)\b(?:you\s+should|you\s+must|next\s+step(?:s)?|action\s+item(?:s)?|"
+    r"recommended\s+action(?:s)?)\b.*"
+)
+_MAILBOX_OBJECT_NOUN = r"(?:message|messages|email|emails|thread|threads)"
+_MAILBOX_OBJECT_PRONOUN = (
+    rf"(?:(?:this|that)(?:\s+(?:(?:[\w-]+\s+){{0,3}})?{_MAILBOX_OBJECT_NOUN})?|it|them|all)"
+)
+_MAILBOX_OBJECT_DETERMINER_PHRASE = (
+    rf"(?:the|an|a)\s+(?:(?:[\w-]+\s+){{0,3}})?{_MAILBOX_OBJECT_NOUN}"
+)
+_MAILBOX_OBJECT = (
+    rf"(?:{_MAILBOX_OBJECT_PRONOUN}|{_MAILBOX_OBJECT_DETERMINER_PHRASE}|{_MAILBOX_OBJECT_NOUN})"
+)
+_TARGET_END = r"(?=\s*(?:$|[.!?,:;]|\b(?:now|asap|immediately)\b\s*(?:$|[.!?,:;])))"
+_FILTER_CONNECTOR = r"\s+(?:for|from|that|to|matching|with|where|when)\b"
+_FILTER_TARGET = (
+    rf"(?:(?:a|an|the)\s+filter(?:{_FILTER_CONNECTOR}|{_TARGET_END})|"
+    rf"filter(?:{_FILTER_CONNECTOR}|{_TARGET_END}))"
+)
 _DIRECTIVE_PATTERNS = {
     "send": [
         re.compile(r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?send\s+(?:to|the|this|that|it|them|an|a)\b"),
@@ -77,24 +98,21 @@ _DIRECTIVE_PATTERNS = {
         re.compile(r"(?i)\b(?:just|now|immediately|then|next)\b.*\breply\s+to\b"),
     ],
     "delete": [
-        re.compile(r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?delete\s+(?:the|this|that|it|them|all|an|a)\b"),
+        re.compile(rf"{_DIRECTIVE_START}delete\s+{_MAILBOX_OBJECT}\b"),
         re.compile(
-            r"(?i)\b(?:you\s+should|you\s+must|next\s+step(?:s)?|action\s+item(?:s)?|recommended\s+action(?:s)?)\b"
-            r".*\bdelete\s+(?:the|this|that|it|them|all|an|a)\b"
+            rf"{_RECOMMENDATION_PREFIX}\bdelete\s+{_MAILBOX_OBJECT}\b"
         ),
     ],
     "trash": [
-        re.compile(r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?trash\s+(?:the|this|that|it|them|all|an|a)\b"),
+        re.compile(rf"{_DIRECTIVE_START}trash\s+{_MAILBOX_OBJECT}\b"),
         re.compile(
-            r"(?i)\b(?:you\s+should|you\s+must|next\s+step(?:s)?|action\s+item(?:s)?|recommended\s+action(?:s)?)\b"
-            r".*\btrash\s+(?:the|this|that|it|them|all|an|a)\b"
+            rf"{_RECOMMENDATION_PREFIX}\btrash\s+{_MAILBOX_OBJECT}\b"
         ),
     ],
     "forward": [
-        re.compile(r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?forward\s+(?:to|the|this|that|it|them)\b"),
+        re.compile(rf"{_DIRECTIVE_START}forward\s+(?:to|{_MAILBOX_OBJECT})\b"),
         re.compile(
-            r"(?i)\b(?:you\s+should|you\s+must|next\s+step(?:s)?|action\s+item(?:s)?|recommended\s+action(?:s)?)\b"
-            r".*\bforward\s+(?:to|the|this|that|it|them)\b"
+            rf"{_RECOMMENDATION_PREFIX}\bforward\s+(?:to|{_MAILBOX_OBJECT})\b"
         ),
     ],
     "modify_labels": [
@@ -107,45 +125,39 @@ _DIRECTIVE_PATTERNS = {
         ),
     ],
     "mark_read": [
-        re.compile(r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?mark\s+(?:as\s+read|(?:(?:the|this|that|it|them|all|an|a)(?:\s+(?:message|email|thread))?|message|email|thread)\s+(?:as\s+)?read)\b"),
+        re.compile(rf"{_DIRECTIVE_START}mark\s+(?:as\s+read|{_MAILBOX_OBJECT}\s+(?:as\s+)?read)\b"),
         re.compile(
-            r"(?i)\b(?:you\s+should|you\s+must|next\s+step(?:s)?|action\s+item(?:s)?|recommended\s+action(?:s)?)\b"
-            r".*\bmark\s+(?:as\s+read|(?:(?:the|this|that|it|them|all|an|a)(?:\s+(?:message|email|thread))?|message|email|thread)\s+(?:as\s+)?read)\b"
+            rf"{_RECOMMENDATION_PREFIX}\bmark\s+(?:as\s+read|{_MAILBOX_OBJECT}\s+(?:as\s+)?read)\b"
         ),
     ],
     "mark_unread": [
-        re.compile(r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?mark\s+(?:as\s+unread|(?:(?:the|this|that|it|them|all|an|a)(?:\s+(?:message|email|thread))?|message|email|thread)\s+(?:as\s+)?unread)\b"),
+        re.compile(rf"{_DIRECTIVE_START}mark\s+(?:as\s+unread|{_MAILBOX_OBJECT}\s+(?:as\s+)?unread)\b"),
         re.compile(
-            r"(?i)\b(?:you\s+should|you\s+must|next\s+step(?:s)?|action\s+item(?:s)?|recommended\s+action(?:s)?)\b"
-            r".*\bmark\s+(?:as\s+unread|(?:(?:the|this|that|it|them|all|an|a)(?:\s+(?:message|email|thread))?|message|email|thread)\s+(?:as\s+)?unread)\b"
+            rf"{_RECOMMENDATION_PREFIX}\bmark\s+(?:as\s+unread|{_MAILBOX_OBJECT}\s+(?:as\s+)?unread)\b"
         ),
     ],
     "star": [
-        re.compile(r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?star\s+(?:the|this|that|it|them|all|an|a)\b"),
+        re.compile(rf"{_DIRECTIVE_START}star\s+{_MAILBOX_OBJECT}\b"),
         re.compile(
-            r"(?i)\b(?:you\s+should|you\s+must|next\s+step(?:s)?|action\s+item(?:s)?|recommended\s+action(?:s)?)\b"
-            r".*\bstar\s+(?:the|this|that|it|them|all|an|a)\b"
+            rf"{_RECOMMENDATION_PREFIX}\bstar\s+{_MAILBOX_OBJECT}\b"
         ),
     ],
     "unstar": [
-        re.compile(r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?unstar\s+(?:the|this|that|it|them|all|an|a)\b"),
+        re.compile(rf"{_DIRECTIVE_START}unstar\s+{_MAILBOX_OBJECT}\b"),
         re.compile(
-            r"(?i)\b(?:you\s+should|you\s+must|next\s+step(?:s)?|action\s+item(?:s)?|recommended\s+action(?:s)?)\b"
-            r".*\bunstar\s+(?:the|this|that|it|them|all|an|a)\b"
+            rf"{_RECOMMENDATION_PREFIX}\bunstar\s+{_MAILBOX_OBJECT}\b"
         ),
     ],
     "move_to_spam": [
-        re.compile(r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?move\s+(?:(?:(?:the|this|that|it|them|all|an|a)(?:\s+(?:message|email|thread))?|message|email|thread)\s+)?to\s+spam\b(?=\s*(?:$|[.!?,:;]))"),
+        re.compile(rf"{_DIRECTIVE_START}move\s+(?:{_MAILBOX_OBJECT}\s+)?to\s+spam\b{_TARGET_END}"),
         re.compile(
-            r"(?i)\b(?:you\s+should|you\s+must|next\s+step(?:s)?|action\s+item(?:s)?|recommended\s+action(?:s)?)\b"
-            r".*\bmove\s+(?:(?:(?:the|this|that|it|them|all|an|a)(?:\s+(?:message|email|thread))?|message|email|thread)\s+)?to\s+spam\b(?=\s*(?:$|[.!?,:;]))"
+            rf"{_RECOMMENDATION_PREFIX}\bmove\s+(?:{_MAILBOX_OBJECT}\s+)?to\s+spam\b{_TARGET_END}"
         ),
     ],
     "move_to_inbox": [
-        re.compile(r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?move\s+(?:(?:(?:the|this|that|it|them|all|an|a)(?:\s+(?:message|email|thread))?|message|email|thread)\s+)?to\s+(?:the\s+)?inbox\b(?=\s*(?:$|[.!?,:;]))"),
+        re.compile(rf"{_DIRECTIVE_START}move\s+(?:{_MAILBOX_OBJECT}\s+)?to\s+(?:the\s+)?inbox\b{_TARGET_END}"),
         re.compile(
-            r"(?i)\b(?:you\s+should|you\s+must|next\s+step(?:s)?|action\s+item(?:s)?|recommended\s+action(?:s)?)\b"
-            r".*\bmove\s+(?:(?:(?:the|this|that|it|them|all|an|a)(?:\s+(?:message|email|thread))?|message|email|thread)\s+)?to\s+(?:the\s+)?inbox\b(?=\s*(?:$|[.!?,:;]))"
+            rf"{_RECOMMENDATION_PREFIX}\bmove\s+(?:{_MAILBOX_OBJECT}\s+)?to\s+(?:the\s+)?inbox\b{_TARGET_END}"
         ),
     ],
     "snooze": [
@@ -156,10 +168,9 @@ _DIRECTIVE_PATTERNS = {
         ),
     ],
     "create_filter": [
-        re.compile(r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?create\s+(?:(?:a|an|the)\s+filter|filter(?:\s+(?:for|from|that|to|matching|with|where|when)\b|(?=\s*(?:$|[.!?,:;]))))"),
+        re.compile(rf"{_DIRECTIVE_START}create\s+{_FILTER_TARGET}"),
         re.compile(
-            r"(?i)\b(?:you\s+should|you\s+must|next\s+step(?:s)?|action\s+item(?:s)?|recommended\s+action(?:s)?)\b"
-            r".*\bcreate\s+(?:(?:a|an|the)\s+filter|filter(?:\s+(?:for|from|that|to|matching|with|where|when)\b|(?=\s*(?:$|[.!?,:;]))))"
+            rf"{_RECOMMENDATION_PREFIX}\bcreate\s+{_FILTER_TARGET}"
         ),
     ],
 }
