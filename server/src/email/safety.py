@@ -76,6 +76,10 @@ _MAILBOX_OBJECT_DETERMINER_PHRASE = (
 _MAILBOX_OBJECT = (
     rf"(?:{_MAILBOX_OBJECT_PRONOUN}|{_MAILBOX_OBJECT_DETERMINER_PHRASE}|{_MAILBOX_OBJECT_NOUN})"
 )
+_SNOOZE_MAILBOX_OBJECT = (
+    rf"(?:all\s+(?:(?:my|your|our|the|these|those)\s+)?(?:[\w-]+\s+){{0,3}}"
+    rf"{_MAILBOX_OBJECT_NOUN}|{_MAILBOX_OBJECT})"
+)
 _LABEL_TARGET = r"(?:(?:the|an|a)\s+)?(?:(?:[\w-]+\s+){0,5})?labels?"
 _LABEL_MUTATION_VERB = r"(?:add|remove|apply|change|modify)"
 _DELETE_TARGET = rf"delete\s+{_MAILBOX_OBJECT}\b"
@@ -84,6 +88,16 @@ _PERMANENT_DELETE_TARGET = rf"\bpermanent(?:ly)?\s+{_DELETE_TARGET}"
 _GENERIC_DELETE_RECOMMENDATION_LEAD_IN = rf"(?:(?!{_PERMANENT_DELETE_TARGET}).)*"
 _URGENCY_SUFFIX = r"(?:right\s+now|now|asap|immediately|as\s+soon\s+as\s+possible)(?:\s+please)?"
 _TARGET_END = rf"(?=\s*(?:$|[.!?,:;]|\b{_URGENCY_SUFFIX}\b\s*(?:$|[.!?,:;])))"
+_SNOOZE_TIME_SUFFIX = (
+    r"(?:until\s+[\w-]+(?:\s+[\w-]+){0,3}|"
+    r"for\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+[\w-]+(?:\s+[\w-]+){0,2}|"
+    r"for\s+(?:the\s+)?weekend|"
+    r"in\s+(?:the\s+)?(?:morning|afternoon|evening)|"
+    r"later|tomorrow)"
+)
+_SNOOZE_TARGET_END = (
+    rf"(?=\s*(?:$|[.!?,:;]|\b(?:{_URGENCY_SUFFIX}|{_SNOOZE_TIME_SUFFIX}|please)\b\s*(?:$|[.!?,:;])))"
+)
 _FILTER_CONNECTOR = r"\s+(?:for|from|that|to|matching|with|where|when)\b"
 _FILTER_TARGET = (
     rf"(?:(?:a|an|the)\s+filter(?:{_FILTER_CONNECTOR}|{_TARGET_END})|"
@@ -181,10 +195,9 @@ _DIRECTIVE_PATTERNS = {
         ),
     ],
     "snooze": [
-        re.compile(r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?snooze\s+(?:the|this|that|it|them|all|an|a)\b"),
+        re.compile(rf"{_DIRECTIVE_START}snooze\s+{_SNOOZE_MAILBOX_OBJECT}\b{_SNOOZE_TARGET_END}"),
         re.compile(
-            r"(?i)\b(?:you\s+should|you\s+must|next\s+step(?:s)?|action\s+item(?:s)?|recommended\s+action(?:s)?)\b"
-            r".*\bsnooze\s+(?:the|this|that|it|them|all|an|a)\b"
+            rf"{_RECOMMENDATION_PREFIX}\bsnooze\s+{_SNOOZE_MAILBOX_OBJECT}\b{_SNOOZE_TARGET_END}"
         ),
     ],
     "create_filter": [

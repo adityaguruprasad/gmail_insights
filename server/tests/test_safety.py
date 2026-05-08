@@ -204,6 +204,39 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(guarded.count("[Unsafe action suggestion removed]"), 8)
         self.assertEqual(blocked, expected_blocked)
 
+    def test_neutralize_unsafe_action_suggestions_blocks_snooze_mailbox_directives(self):
+        cases = [
+            "- Snooze the thread until tomorrow.",
+            "Snooze threads ASAP.",
+            "Snooze the prior weekly thread tomorrow.",
+            "Snooze emails for 2 days.",
+            "Snooze it right now.",
+            "Snooze them later.",
+            "Snooze all now please.",
+            "Snooze the message please.",
+            "Snooze all my pending emails.",
+            "Snooze this for the weekend.",
+            "Snooze the thread in the afternoon.",
+            "You should snooze this immediately.",
+            "Recommended action: snooze messages until Monday.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["snooze"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_snooze_descriptions(self):
+        text = (
+            "Summary: The message was snoozed yesterday.\n"
+            "Summary: Gmail snooze settings are documented.\n"
+            "Summary: Snooze reminders can help users triage mail."
+        )
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
     def test_neutralize_unsafe_action_suggestions_blocks_named_label_mutations(self):
         cases = [
             "Apply Work label to this email.",
