@@ -3,11 +3,15 @@
 from collections.abc import Iterable, Mapping
 from typing import Any, Dict, List
 
+from src.email.safety import ALLOWED_ACTIONS, BLOCKED_ACTIONS
+
 DEFAULT_QUERY = "in:inbox"
 DEFAULT_MAX_RESULTS = 25
 MAX_QUERY_LENGTH = 512
 MIN_RESULTS = 1
 MAX_RESULTS = 100
+MAX_ACTION_LENGTH = 64
+SUPPORTED_ACTIONS = ALLOWED_ACTIONS | BLOCKED_ACTIONS
 
 
 class QueryInsightsValidationError(ValueError):
@@ -22,13 +26,47 @@ def _normalize_requested_actions(actions: Any) -> List[str] | None:
     if actions is None:
         return None
     if isinstance(actions, str):
-        parts = [part.strip() for part in actions.split(",")]
+        raw_parts = actions.split(",")
+    elif isinstance(actions, Mapping):
+        raise QueryInsightsValidationError("Invalid requested_actions: must be action names")
     elif isinstance(actions, Iterable):
-        parts = [str(part).strip() for part in actions]
+        raw_parts = []
+        for part in actions:
+            if isinstance(part, str):
+                raw_parts.append(part)
+            elif part is None or isinstance(part, Mapping) or isinstance(part, Iterable):
+                raise QueryInsightsValidationError(
+                    "Invalid requested_actions: entries must be scalar action names"
+                )
+            else:
+                raw_parts.append(str(part))
     else:
-        parts = [str(actions).strip()]
+        raise QueryInsightsValidationError(
+            "Invalid requested_actions: must be a comma-separated string or a list of action names"
+        )
 
-    return [part.lower() for part in parts if part]
+    normalized = []
+    for raw_part in raw_parts:
+        part = raw_part.strip()
+        if not part:
+            continue
+        if len(part) > MAX_ACTION_LENGTH:
+            raise QueryInsightsValidationError(
+                f"Invalid requested_actions: action names must be {MAX_ACTION_LENGTH} characters or fewer"
+            )
+        if any(ord(char) < 32 or ord(char) == 127 for char in raw_part):
+            raise QueryInsightsValidationError(
+                "Invalid requested_actions: control characters are not allowed"
+            )
+
+        action = part.lower()
+        if action not in SUPPORTED_ACTIONS:
+            raise QueryInsightsValidationError(
+                f"Invalid requested_actions: unsupported action '{action}'"
+            )
+        normalized.append(action)
+
+    return normalized
 
 
 def _validate_query(raw_query: Any) -> str:

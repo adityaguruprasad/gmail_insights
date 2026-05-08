@@ -60,6 +60,62 @@ class QueryInsightsValidationTests(unittest.TestCase):
         self.assertIn("control characters", response.get_json()["error"])
         mock_gmail.assert_not_called()
 
+    def test_unknown_requested_actions_rejected_before_gmail(self):
+        with patch("app._gmail_service_from_token") as mock_gmail:
+            response = self.client.post(
+                "/query_insights",
+                json={
+                    "token": "test-token",
+                    "query": "in:inbox",
+                    "requested_actions": "read,send_email",
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+        body = response.get_json()
+        self.assertIn("requested_actions", body["error"])
+        self.assertIn("send_email", body["error"])
+        mock_gmail.assert_not_called()
+
+    def test_structured_requested_actions_rejected_before_gmail(self):
+        cases = [
+            {"read": True},
+            ["read", ["draft"]],
+        ]
+
+        for requested_actions in cases:
+            with self.subTest(requested_actions=requested_actions):
+                with patch("app._gmail_service_from_token") as mock_gmail:
+                    response = self.client.post(
+                        "/query_insights",
+                        json={
+                            "token": "test-token",
+                            "query": "in:inbox",
+                            "requested_actions": requested_actions,
+                        },
+                    )
+
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("requested_actions", response.get_json()["error"])
+                mock_gmail.assert_not_called()
+
+    def test_requested_action_control_characters_rejected_before_gmail(self):
+        with patch("app._gmail_service_from_token") as mock_gmail:
+            response = self.client.post(
+                "/query_insights",
+                json={
+                    "token": "test-token",
+                    "query": "in:inbox",
+                    "requested_actions": "read,\nsummarize",
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+        body = response.get_json()
+        self.assertIn("requested_actions", body["error"])
+        self.assertIn("control characters", body["error"])
+        mock_gmail.assert_not_called()
+
     def test_empty_query_defaults_to_inbox(self):
         with patch("app._gmail_service_from_token", return_value=object()), patch(
             "app.get_emails_by_query", return_value=[]
@@ -74,6 +130,33 @@ class QueryInsightsValidationTests(unittest.TestCase):
         self.assertEqual(body["query"], "in:inbox")
         mock_fetch.assert_called_once()
         self.assertEqual(mock_fetch.call_args.kwargs["query"], "in:inbox")
+
+    def test_valid_comma_separated_requested_actions_are_normalized(self):
+        service = object()
+        with patch("app._gmail_service_from_token", return_value=service), patch(
+            "app.get_emails_by_query", return_value=[{"id": "email-1"}]
+        ) as mock_fetch:
+            response = self.client.post(
+                "/query_insights",
+                json={
+                    "token": "test-token",
+                    "query": "from:alerts",
+                    "max_results": 3,
+                    "requested_actions": " READ, draft, archive_suggestion, ",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(
+            body["safety"],
+            {
+                "mode": "read_only",
+                "effective_actions": ["archive_suggestion", "draft", "read"],
+                "blocked_actions": [],
+            },
+        )
+        mock_fetch.assert_called_once_with(service, query="from:alerts", max_results=3)
 
     def test_blocked_requested_actions_still_rejected(self):
         with patch("app._gmail_service_from_token") as mock_gmail:
