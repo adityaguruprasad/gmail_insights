@@ -62,6 +62,12 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(effective, ["read", "summarize"])
         self.assertEqual(blocked, [])
 
+    def test_unsubscribe_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(["unsubscribe"])
+        self.assertEqual(effective, ["read", "summarize"])
+        self.assertEqual(blocked, ["unsubscribe"])
+        self.assertNotIn("unsubscribe", effective)
+
     def test_safety_metadata_read_only_mode(self):
         safety = safety_metadata("draft,archive_suggestion")
         self.assertEqual(safety["mode"], "read_only")
@@ -203,6 +209,74 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertIn("Summary: Customer needs help with billing.", guarded)
         self.assertEqual(guarded.count("[Unsafe action suggestion removed]"), 8)
         self.assertEqual(blocked, expected_blocked)
+
+    def test_neutralize_unsafe_action_suggestions_blocks_unsubscribe_directives(self):
+        cases = [
+            "Unsubscribe from this sender.",
+            "Please unsubscribe me from these emails.",
+            "Recommended action: unsubscribe from the newsletter.",
+            "- Unsubscribe from the weekly digest newsletter now.",
+            "Action item: unsubscribe the user from this mailing list.",
+            "Unsubscribe from this service.",
+            "Unsubscribe from the site.",
+            "Unsubscribe from example.com domain.",
+            "Unsubscribe from the Acme brand.",
+            "Unsubscribe from notifications.",
+            "Unsubscribe from promotions.",
+            "Unsubscribe from alerts.",
+            "Unsubscribe from marketing.",
+            "Unsubscribe at https://example.com/optout.",
+            "Unsubscribe via https://example.com/optout.",
+            "Unsubscribe using https://example.com/optout.",
+            "Unsubscribe via the opt-out URL.",
+            "Recommended action: unsubscribe using the opt out link.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["unsubscribe"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_unsubscribe_directives(self):
+        cases = [
+            (
+                "Unsubscribe\nfrom this sender.",
+                "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+            ),
+            (
+                "Please unsubscribe me\nfrom these emails.",
+                "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+            ),
+            (
+                "Recommended action: unsubscribe\nfrom the newsletter.",
+                "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+            ),
+            (
+                "Unsubscribe at\nhttps://example.com/optout.",
+                "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+            ),
+            (
+                "Recommended action: unsubscribe using\nthe opt-out URL.",
+                "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+            ),
+        ]
+
+        for text, expected_guarded in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, expected_guarded)
+                self.assertEqual(blocked, ["unsubscribe"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_unsubscribe_descriptions(self):
+        text = (
+            "Summary: The message contains an unsubscribe link.\n"
+            "Summary: Unsubscribe instructions are included at the bottom.\n"
+            "Summary: The user already unsubscribed yesterday."
+        )
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
 
     def test_neutralize_unsafe_action_suggestions_blocks_snooze_mailbox_directives(self):
         cases = [

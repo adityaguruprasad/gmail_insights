@@ -25,6 +25,7 @@ BLOCKED_ACTIONS = {
     "move_to_inbox",
     "snooze",
     "create_filter",
+    "unsubscribe",
 }
 
 _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
@@ -103,6 +104,31 @@ _FILTER_TARGET = (
     rf"(?:(?:a|an|the)\s+filter(?:{_FILTER_CONNECTOR}|{_TARGET_END})|"
     rf"filter(?:{_FILTER_CONNECTOR}|{_TARGET_END}))"
 )
+_UNSUBSCRIBE_TARGET_NOUN = (
+    r"(?:senders?|newsletters?|mailing\s+lists?|lists?|subscriptions?|"
+    r"messages?|emails?|threads?|services?|sites?|websites?|domains?|"
+    r"brands?|notifications?|promotions?|alerts?|marketing)"
+)
+_UNSUBSCRIBE_URL_TARGET = (
+    r"(?:https?://[^\s<>)\]]+|www\.[^\s<>)\]]+|[\w.-]+\.[A-Za-z]{2,}(?:/[^\s<>)\]]*)?)"
+)
+_UNSUBSCRIBE_OPT_OUT_TARGET = (
+    rf"(?:{_UNSUBSCRIBE_URL_TARGET}|(?:the\s+)?(?:opt[-\s]?out\s+)?(?:url|link|page|form|site|website))"
+)
+_UNSUBSCRIBE_TARGET = (
+    r"(?:"
+    r"(?:me|us|the\s+user)\s+from\s+"
+    r"(?:this|that|these|those|the|a|an)?\s*"
+    r"(?:[\w.-]+\s+){0,4}"
+    rf"{_UNSUBSCRIBE_TARGET_NOUN}\b"
+    r"|from\s+"
+    r"(?:this|that|these|those|the|a|an)?\s*"
+    r"(?:[\w.-]+\s+){0,4}"
+    rf"{_UNSUBSCRIBE_TARGET_NOUN}\b"
+    rf"|(?:at|via|using)\s+{_UNSUBSCRIBE_OPT_OUT_TARGET}"
+    r")"
+)
+_DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {"modify_labels", "unsubscribe"}
 _DIRECTIVE_PATTERNS = {
     "send": [
         re.compile(r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?send\s+(?:to|the|this|that|it|them|an|a)\b"),
@@ -206,6 +232,12 @@ _DIRECTIVE_PATTERNS = {
             rf"{_RECOMMENDATION_PREFIX}\bcreate\s+{_FILTER_TARGET}"
         ),
     ],
+    "unsubscribe": [
+        re.compile(rf"{_DIRECTIVE_START}unsubscribe\s+{_UNSUBSCRIBE_TARGET}{_TARGET_END}"),
+        re.compile(
+            rf"{_RECOMMENDATION_PREFIX}\bunsubscribe\s+{_UNSUBSCRIBE_TARGET}{_TARGET_END}"
+        ),
+    ],
 }
 _ACTION_WORD_PATTERNS = {
     "send": re.compile(r"(?i)\bsend\b"),
@@ -214,7 +246,6 @@ _ACTION_WORD_PATTERNS = {
     "permanent_delete": re.compile(r"(?i)\bpermanent(?:ly)?\s+delete\b"),
     "trash": re.compile(r"(?i)\btrash\b"),
     "forward": re.compile(r"(?i)\bforward\b"),
-    "modify_labels": re.compile(r"(?i)\blabels?\b"),
     "mark_read": re.compile(r"(?i)\bmark\b.*\bread\b"),
     "mark_unread": re.compile(r"(?i)\bmark\b.*\bunread\b"),
     "star": re.compile(r"(?i)\bstar\b"),
@@ -323,10 +354,10 @@ def neutralize_unsafe_action_suggestions(text: str) -> Tuple[str, List[str]]:
         blocked_found.update(actions)
         matched_any_line = False
         for action in actions:
-            if action == "modify_labels":
-                # Split-line label mutations rely on direct directive matches here
+            if action in _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS:
+                # Split-line directives for these actions rely on direct matches
                 # instead of generic action words to avoid over-matching benign
-                # verbs or label mentions on neighboring lines.
+                # verbs or mentions on neighboring lines.
                 if (
                     action not in direct_actions_by_index[index]
                     and action not in direct_actions_by_index[index + 1]
