@@ -60,10 +60,12 @@ _INSTRUCTION_XML_TAG_RE = re.compile(
     r"(?i)</?\s*(system|assistant|user|instruction|instructions|prompt|directive|policy)\b[^>]*>"
 )
 _DIRECTIVE_START = r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?"
-_RECOMMENDATION_PREFIX = (
-    r"(?i)\b(?:you\s+should|you\s+must|next\s+step(?:s)?|action\s+item(?:s)?|"
-    r"recommended\s+action(?:s)?)\b.*"
+_RECOMMENDATION_KEYWORD = (
+    r"(?:you\s+should|you\s+must|next\s+step(?:s)?|action\s+item(?:s)?|"
+    r"recommended\s+action(?:s)?)"
 )
+_RECOMMENDATION_START = rf"(?i)\b{_RECOMMENDATION_KEYWORD}\b"
+_RECOMMENDATION_PREFIX = rf"{_RECOMMENDATION_START}.*"
 _MAILBOX_OBJECT_NOUN = r"(?:message|messages|email|emails|thread|threads)"
 _MAILBOX_OBJECT_PRONOUN = (
     rf"(?:(?:this|that)(?:\s+(?:(?:[\w-]+\s+){{0,3}})?{_MAILBOX_OBJECT_NOUN})?|it|them|all)"
@@ -74,6 +76,10 @@ _MAILBOX_OBJECT_DETERMINER_PHRASE = (
 _MAILBOX_OBJECT = (
     rf"(?:{_MAILBOX_OBJECT_PRONOUN}|{_MAILBOX_OBJECT_DETERMINER_PHRASE}|{_MAILBOX_OBJECT_NOUN})"
 )
+_DELETE_TARGET = rf"delete\s+{_MAILBOX_OBJECT}\b"
+_PERMANENT_DELETE_TARGET = rf"\bpermanent(?:ly)?\s+{_DELETE_TARGET}"
+# Keep generic delete from also matching the delete verb inside a permanent-delete directive.
+_GENERIC_DELETE_RECOMMENDATION_LEAD_IN = rf"(?:(?!{_PERMANENT_DELETE_TARGET}).)*"
 _URGENCY_SUFFIX = r"(?:right\s+now|now|asap|immediately|as\s+soon\s+as\s+possible)(?:\s+please)?"
 _TARGET_END = rf"(?=\s*(?:$|[.!?,:;]|\b{_URGENCY_SUFFIX}\b\s*(?:$|[.!?,:;])))"
 _FILTER_CONNECTOR = r"\s+(?:for|from|that|to|matching|with|where|when)\b"
@@ -99,9 +105,15 @@ _DIRECTIVE_PATTERNS = {
         re.compile(r"(?i)\b(?:just|now|immediately|then|next)\b.*\breply\s+to\b"),
     ],
     "delete": [
-        re.compile(rf"{_DIRECTIVE_START}delete\s+{_MAILBOX_OBJECT}\b"),
+        re.compile(rf"{_DIRECTIVE_START}{_DELETE_TARGET}"),
         re.compile(
-            rf"{_RECOMMENDATION_PREFIX}\bdelete\s+{_MAILBOX_OBJECT}\b"
+            rf"{_RECOMMENDATION_START}{_GENERIC_DELETE_RECOMMENDATION_LEAD_IN}\b{_DELETE_TARGET}"
+        ),
+    ],
+    "permanent_delete": [
+        re.compile(rf"{_DIRECTIVE_START}{_PERMANENT_DELETE_TARGET}"),
+        re.compile(
+            rf"{_RECOMMENDATION_PREFIX}{_PERMANENT_DELETE_TARGET}"
         ),
     ],
     "trash": [
@@ -179,6 +191,7 @@ _ACTION_WORD_PATTERNS = {
     "send": re.compile(r"(?i)\bsend\b"),
     "reply": re.compile(r"(?i)\breply\b"),
     "delete": re.compile(r"(?i)\bdelete\b"),
+    "permanent_delete": re.compile(r"(?i)\bpermanent(?:ly)?\s+delete\b"),
     "trash": re.compile(r"(?i)\btrash\b"),
     "forward": re.compile(r"(?i)\bforward\b"),
     "modify_labels": re.compile(r"(?i)\blabels?\b"),
