@@ -8,6 +8,7 @@ processor_stub.extract_insights = lambda email: email
 sys.modules.setdefault("src.email.processor", processor_stub)
 
 import app as app_module
+from src.email.query_validator import MAX_ACTION_LENGTH
 
 
 class QueryInsightsValidationTests(unittest.TestCase):
@@ -116,6 +117,25 @@ class QueryInsightsValidationTests(unittest.TestCase):
         self.assertIn("control characters", body["error"])
         mock_gmail.assert_not_called()
 
+    def test_whitespace_padded_requested_action_over_max_rejected_before_gmail(self):
+        padded_action = (" " * MAX_ACTION_LENGTH) + "read"
+
+        with patch("app._gmail_service_from_token") as mock_gmail:
+            response = self.client.post(
+                "/query_insights",
+                json={
+                    "token": "test-token",
+                    "query": "in:inbox",
+                    "requested_actions": padded_action,
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+        body = response.get_json()
+        self.assertIn("requested_actions", body["error"])
+        self.assertIn(str(MAX_ACTION_LENGTH), body["error"])
+        mock_gmail.assert_not_called()
+
     def test_empty_query_defaults_to_inbox(self):
         with patch("app._gmail_service_from_token", return_value=object()), patch(
             "app.get_emails_by_query", return_value=[]
@@ -157,6 +177,25 @@ class QueryInsightsValidationTests(unittest.TestCase):
             },
         )
         mock_fetch.assert_called_once_with(service, query="from:alerts", max_results=3)
+
+    def test_duplicate_requested_actions_are_normalized_once(self):
+        service = object()
+        with patch("app._gmail_service_from_token", return_value=service), patch(
+            "app.get_emails_by_query", return_value=[]
+        ), patch("app.safety_metadata", wraps=app_module.safety_metadata) as mock_safety:
+            response = self.client.post(
+                "/query_insights",
+                json={
+                    "token": "test-token",
+                    "query": "in:inbox",
+                    "requested_actions": ["READ", "read", "draft", "READ", "draft"],
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        mock_safety.assert_called_once_with(["read", "draft"])
+        self.assertEqual(body["safety"]["effective_actions"], ["draft", "read"])
 
     def test_blocked_requested_actions_still_rejected(self):
         with patch("app._gmail_service_from_token") as mock_gmail:

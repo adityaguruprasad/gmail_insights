@@ -46,24 +46,29 @@ def _normalize_requested_actions(actions: Any) -> List[str] | None:
         )
 
     normalized = []
+    seen = set()
     for raw_part in raw_parts:
-        part = raw_part.strip()
-        if not part:
-            continue
-        if len(part) > MAX_ACTION_LENGTH:
+        if len(raw_part) > MAX_ACTION_LENGTH:
             raise QueryInsightsValidationError(
-                f"Invalid requested_actions: action names must be {MAX_ACTION_LENGTH} characters or fewer"
+                f"Invalid requested_actions: action entries must be {MAX_ACTION_LENGTH} characters or fewer"
             )
         if any(ord(char) < 32 or ord(char) == 127 for char in raw_part):
             raise QueryInsightsValidationError(
                 "Invalid requested_actions: control characters are not allowed"
             )
 
+        part = raw_part.strip()
+        if not part:
+            continue
+
         action = part.lower()
         if action not in SUPPORTED_ACTIONS:
             raise QueryInsightsValidationError(
                 f"Invalid requested_actions: unsupported action '{action}'"
             )
+        if action in seen:
+            continue
+        seen.add(action)
         normalized.append(action)
 
     return normalized
