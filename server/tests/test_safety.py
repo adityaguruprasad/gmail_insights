@@ -68,6 +68,20 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(blocked, ["unsubscribe"])
         self.assertNotIn("unsubscribe", effective)
 
+    def test_external_follow_up_actions_are_supported_but_blocked(self):
+        actions = [
+            "click_link",
+            "open_link",
+            "open_attachment",
+            "download_attachment",
+        ]
+
+        effective, blocked = evaluate_requested_actions(actions)
+
+        self.assertEqual(effective, ["read", "summarize"])
+        self.assertEqual(blocked, sorted(actions))
+        self.assertFalse(set(actions).intersection(effective))
+
     def test_safety_metadata_read_only_mode(self):
         safety = safety_metadata("draft,archive_suggestion")
         self.assertEqual(safety["mode"], "read_only")
@@ -273,6 +287,58 @@ class SafetyPolicyTests(unittest.TestCase):
             "Summary: The message contains an unsubscribe link.\n"
             "Summary: Unsubscribe instructions are included at the bottom.\n"
             "Summary: The user already unsubscribed yesterday."
+        )
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_external_follow_up_directives(self):
+        cases = [
+            ("Click the link.", "click_link"),
+            ("Click here.", "click_link"),
+            ("Open the URL.", "open_link"),
+            ("Visit https://example.com.", "open_link"),
+            ("Visit example.com.", "open_link"),
+            ("Follow the reset link.", "click_link"),
+            ("Download the attachment.", "download_attachment"),
+            ("Open the attached PDF.", "open_attachment"),
+            ("Recommended action: click the tracking link.", "click_link"),
+            ("Action item: please first click the link.", "click_link"),
+            ("Recommended action: open the attached invoice.", "open_attachment"),
+        ]
+
+        for text, action in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, [action])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_external_follow_up_directives(self):
+        cases = [
+            ("Click the\nlink.", "click_link"),
+            ("Open the\nURL.", "open_link"),
+            ("Visit\nhttps://example.com.", "open_link"),
+            ("Follow the reset\nlink.", "click_link"),
+            ("Download the\nattachment.", "download_attachment"),
+            ("Open the attached\nPDF.", "open_attachment"),
+            ("Recommended action: click\nthe tracking link.", "click_link"),
+        ]
+
+        for text, action in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, [action])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_link_and_attachment_descriptions(self):
+        text = (
+            "Summary: The email contains a link.\n"
+            "The attachment is a quarterly report.\n"
+            "Link review is needed before any user action.\n"
+            "Draft assistance: mention the attachment without opening it."
         )
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)

@@ -26,6 +26,10 @@ BLOCKED_ACTIONS = {
     "snooze",
     "create_filter",
     "unsubscribe",
+    "click_link",
+    "open_link",
+    "open_attachment",
+    "download_attachment",
 }
 
 _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
@@ -128,7 +132,43 @@ _UNSUBSCRIBE_TARGET = (
     rf"|(?:at|via|using)\s+{_UNSUBSCRIBE_OPT_OUT_TARGET}"
     r")"
 )
-_DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {"modify_labels", "unsubscribe"}
+_ACTION_SUGGESTION_START = (
+    rf"(?i)^\s*(?:[-*]|\d+[.)])?\s*"
+    rf"(?:(?:{_RECOMMENDATION_KEYWORD})\s*:?\s*)?"
+    r"(?:(?:please|first|then|next|just|now|also)\s+){0,4}"
+)
+_LINK_NOUN = r"(?:link|url|website|webpage|page|site)"
+_DOMAIN_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+_BARE_DOMAIN_TARGET = (
+    rf"(?:{_DOMAIN_LABEL}\.)+[A-Za-z]{{2,}}(?:/[^\s<>)\]]{{1,2048}})?"
+)
+_EXTERNAL_URL_TARGET = (
+    rf"(?:https?://[^\s<>)\]]{{1,2048}}|www\.[^\s<>)\]]{{1,2048}}|"
+    rf"{_BARE_DOMAIN_TARGET})"
+)
+_LINK_TARGET = (
+    rf"(?:{_EXTERNAL_URL_TARGET}|"
+    rf"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){{0,4}}{_LINK_NOUN})"
+)
+_CLICK_LINK_TARGET = rf"(?:here|{_LINK_TARGET})"
+_ATTACHED_FILE_NOUN = (
+    r"(?:file|files|pdf|pdfs|document|documents|doc|docs|spreadsheet|spreadsheets|"
+    r"image|images|invoice|invoices|report|reports|form|forms)"
+)
+_ATTACHMENT_TARGET = (
+    rf"(?:"
+    rf"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){{0,3}}attachments?\b|"
+    rf"(?:(?:the|this|that|an?|your)\s+)?attached\s+{_ATTACHED_FILE_NOUN}\b"
+    rf")"
+)
+_DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
+    "modify_labels",
+    "unsubscribe",
+    "click_link",
+    "open_link",
+    "open_attachment",
+    "download_attachment",
+}
 _DIRECTIVE_PATTERNS = {
     "send": [
         re.compile(r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?send\s+(?:to|the|this|that|it|them|an|a)\b"),
@@ -237,6 +277,23 @@ _DIRECTIVE_PATTERNS = {
         re.compile(
             rf"{_RECOMMENDATION_PREFIX}\bunsubscribe\s+{_UNSUBSCRIBE_TARGET}{_TARGET_END}"
         ),
+    ],
+    "click_link": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:click|follow)\s+(?:on\s+)?"
+            rf"{_CLICK_LINK_TARGET}\b"
+        ),
+    ],
+    "open_link": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:open|visit)\s+{_LINK_TARGET}\b"
+        ),
+    ],
+    "open_attachment": [
+        re.compile(rf"{_ACTION_SUGGESTION_START}open\s+{_ATTACHMENT_TARGET}"),
+    ],
+    "download_attachment": [
+        re.compile(rf"{_ACTION_SUGGESTION_START}download\s+{_ATTACHMENT_TARGET}"),
     ],
 }
 _ACTION_WORD_PATTERNS = {
