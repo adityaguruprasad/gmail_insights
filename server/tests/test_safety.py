@@ -9,6 +9,30 @@ from src.email.safety import (
 )
 
 
+def _fixture_secret(*parts):
+    return "".join(parts)
+
+
+def _slack_fixture_token():
+    return _fixture_secret(
+        "xo",
+        "xb",
+        "-",
+        "123456",
+        "789012",
+        "-",
+        "123456",
+        "789012",
+        "-",
+        "abcdefghijkl",
+        "mnopqrstuv",
+    )
+
+
+def _stripe_fixture_key(environment):
+    return _fixture_secret("sk", "_", environment, "_", "abcdefghijklm", "nopqrstuvwxyz")
+
+
 class SafetyPolicyTests(unittest.TestCase):
     def test_blocked_actions_are_detected(self):
         effective, blocked = evaluate_requested_actions(["read", "reply", "delete"])
@@ -33,6 +57,74 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertNotIn("415-555-1212", redacted)
         self.assertIn("[REDACTED_EMAIL]", redacted)
         self.assertIn("[REDACTED_PHONE]", redacted)
+
+    def test_redaction_removes_high_risk_secret_patterns(self):
+        cases = [
+            (
+                "Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456",
+                "abcdefghijklmnopqrstuvwxyz123456",
+                "Bearer [REDACTED_TOKEN]",
+            ),
+            (
+                "api_key='api_abcdefghijklmnopqrstuvwxyz123456'",
+                "api_abcdefghijklmnopqrstuvwxyz123456",
+                "api_key='[REDACTED_TOKEN]'",
+            ),
+            (
+                "Google token ya29.a0AfH6SMBabcdefghijklmnopqrstuvwxyz",
+                "ya29.a0AfH6SMBabcdefghijklmnopqrstuvwxyz",
+                "[REDACTED_GOOGLE_TOKEN]",
+            ),
+            (
+                "Refresh token 1//0gabcdefghijklmnopqrstuvwxyzABCDEFGHIJ",
+                "1//0gabcdefghijklmnopqrstuvwxyzABCDEFGHIJ",
+                "[REDACTED_GOOGLE_REFRESH_TOKEN]",
+            ),
+            (
+                "JWT eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
+                "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
+                "[REDACTED_JWT]",
+            ),
+            ("AWS AKIAIOSFODNN7EXAMPLE", "AKIAIOSFODNN7EXAMPLE", "[REDACTED_AWS_KEY]"),
+            (
+                "Slack " + _slack_fixture_token(),
+                _slack_fixture_token(),
+                "[REDACTED_SLACK_TOKEN]",
+            ),
+            (
+                "GitHub ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ",
+                "ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ",
+                "[REDACTED_GITHUB_TOKEN]",
+            ),
+            (
+                "Stripe live " + _stripe_fixture_key("live"),
+                _stripe_fixture_key("live"),
+                "[REDACTED_STRIPE_KEY]",
+            ),
+            (
+                "Stripe test " + _stripe_fixture_key("test"),
+                _stripe_fixture_key("test"),
+                "[REDACTED_STRIPE_KEY]",
+            ),
+        ]
+
+        for text, secret, marker in cases:
+            with self.subTest(marker=marker):
+                redacted = redact_sensitive_content(text)
+                self.assertNotIn(secret, redacted)
+                self.assertIn(marker, redacted)
+
+    def test_redaction_preserves_api_key_quotes_and_context(self):
+        text = 'config api_key="api_abcdefghijklmnopqrstuvwxyz123456", next=true'
+        redacted = redact_sensitive_content(text)
+        self.assertEqual(redacted, 'config api_key="[REDACTED_TOKEN]", next=true')
+        self.assertNotIn("api_abcdefghijklmnopqrstuvwxyz123456", redacted)
+
+    def test_redaction_preserves_bearer_prefix(self):
+        text = "Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456"
+        redacted = redact_sensitive_content(text)
+        self.assertEqual(redacted, "Authorization: Bearer [REDACTED_TOKEN]")
+        self.assertNotIn("abcdefghijklmnopqrstuvwxyz123456", redacted)
 
     def test_sanitize_untrusted_email_text_neutralizes_common_injection_markers(self):
         text = (
