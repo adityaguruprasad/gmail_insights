@@ -17,6 +17,7 @@ PROMPT_FIELD_MAX_SENDER = 320
 PROMPT_FIELD_MAX_DATE = 80
 PROMPT_FIELD_MAX_SNIPPET = 600
 PROMPT_FIELD_MAX_CONTENT = 4000
+SUMMARY_MAX_RETURNED_LENGTH = 4000
 
 
 def _truncate_for_prompt(value, max_length: int) -> str:
@@ -24,6 +25,19 @@ def _truncate_for_prompt(value, max_length: int) -> str:
     if len(text) <= max_length:
         return text
     return text[:max_length] + PROMPT_TRUNCATION_MARKER
+
+
+def _clip_generated_summary(text, max_length: int = SUMMARY_MAX_RETURNED_LENGTH) -> str:
+    """Hard-cap returned model text for defense-in-depth beyond token limits."""
+    summary = str(text) if text is not None else ""
+    if len(summary) <= max_length:
+        return summary
+
+    marker = PROMPT_TRUNCATION_MARKER
+    if max_length <= len(marker):
+        return marker[:max_length]
+
+    return summary[: max_length - len(marker)] + marker
 
 
 def _prepare_untrusted_email_field(value, max_length: int, redact_sensitive: bool = True) -> str:
@@ -99,6 +113,7 @@ def extract_insights(email, redact_sensitive: bool = True):
     guarded_summary, blocked_suggestions = neutralize_unsafe_action_suggestions(
         response.completion.strip()
     )
+    guarded_summary = _clip_generated_summary(guarded_summary)
 
     if blocked_suggestions:
         logger.warning(

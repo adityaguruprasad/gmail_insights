@@ -289,6 +289,84 @@ class ProcessorPromptTests(unittest.TestCase):
         self.assertIn("Archive suggestion: No, still active.", result["summary"])
         self.assertNotIn("blocked_suggestions", result)
 
+    def test_extract_insights_clips_long_completion_with_marker(self):
+        email = {
+            "id": "email-1",
+            "subject": "Long update",
+            "sender": "ops@example.com",
+            "is_archived": False,
+        }
+        completion = "A" * (processor.SUMMARY_MAX_RETURNED_LENGTH + 100)
+
+        with patch.object(
+            processor.anthropic.completions,
+            "create",
+            return_value=types.SimpleNamespace(completion=completion),
+        ):
+            result = processor.extract_insights(email, redact_sensitive=False)
+
+        self.assertEqual(processor.SUMMARY_MAX_RETURNED_LENGTH, len(result["summary"]))
+        self.assertTrue(result["summary"].endswith(processor.PROMPT_TRUNCATION_MARKER))
+        self.assertEqual(
+            (
+                "A"
+                * (
+                    processor.SUMMARY_MAX_RETURNED_LENGTH
+                    - len(processor.PROMPT_TRUNCATION_MARKER)
+                )
+            )
+            + processor.PROMPT_TRUNCATION_MARKER,
+            result["summary"],
+        )
+
+    def test_extract_insights_neutralizes_unsafe_suggestions_before_clipping(self):
+        email = {
+            "id": "email-1",
+            "subject": "Long unsafe update",
+            "sender": "ops@example.com",
+            "is_archived": False,
+        }
+        long_safe_tail = "Safe summary details. " * (
+            processor.SUMMARY_MAX_RETURNED_LENGTH // len("Safe summary details. ") + 2
+        )
+        completion = "- Reply to confirm receipt immediately.\n" + long_safe_tail
+
+        with patch.object(
+            processor.anthropic.completions,
+            "create",
+            return_value=types.SimpleNamespace(completion=completion),
+        ):
+            result = processor.extract_insights(email, redact_sensitive=False)
+
+        self.assertEqual(processor.SUMMARY_MAX_RETURNED_LENGTH, len(result["summary"]))
+        self.assertIn("[Unsafe action suggestion removed]", result["summary"])
+        self.assertNotIn("Reply to confirm receipt", result["summary"])
+        self.assertTrue(result["summary"].endswith(processor.PROMPT_TRUNCATION_MARKER))
+
+    def test_extract_insights_leaves_short_completion_unchanged(self):
+        email = {
+            "id": "email-1",
+            "subject": "Short update",
+            "sender": "ops@example.com",
+            "is_archived": False,
+        }
+        completion = (
+            "Summary: Payment follow-up.\n"
+            "Action items: Review invoice details.\n"
+            "Draft assistance: Optional outline only.\n"
+            "Archive suggestion: No, still active."
+        )
+
+        with patch.object(
+            processor.anthropic.completions,
+            "create",
+            return_value=types.SimpleNamespace(completion=completion),
+        ):
+            result = processor.extract_insights(email, redact_sensitive=False)
+
+        self.assertEqual(completion, result["summary"])
+        self.assertNotIn(processor.PROMPT_TRUNCATION_MARKER, result["summary"])
+
 
 if __name__ == "__main__":
     unittest.main()
