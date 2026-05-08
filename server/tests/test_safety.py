@@ -302,9 +302,18 @@ class SafetyPolicyTests(unittest.TestCase):
             ("Follow the reset link.", "click_link"),
             ("Download the attachment.", "download_attachment"),
             ("Open the attached PDF.", "open_attachment"),
+            ("Open the attached PDF carefully.", "open_attachment"),
             ("Recommended action: click the tracking link.", "click_link"),
             ("Action item: please first click the link.", "click_link"),
             ("Recommended action: open the attached invoice.", "open_attachment"),
+            ("Download the attached invoice and review it.", "download_attachment"),
+            ("Open the PDF.", "open_attachment"),
+            ("Open the invoice.", "open_attachment"),
+            ("Open the report now please.", "open_attachment"),
+            ("Action item: open the document.", "open_attachment"),
+            ("Download the invoice.", "download_attachment"),
+            ("Please download the spreadsheet.", "download_attachment"),
+            ("Recommended action: download the file.", "download_attachment"),
         ]
 
         for text, action in cases:
@@ -337,8 +346,23 @@ class SafetyPolicyTests(unittest.TestCase):
         text = (
             "Summary: The email contains a link.\n"
             "The attachment is a quarterly report.\n"
+            "The PDF summarizes the invoice.\n"
+            "PDF review is needed before any user action.\n"
+            "The report mentions a download link but does not request opening it.\n"
             "Link review is needed before any user action.\n"
             "Draft assistance: mention the attachment without opening it."
+        )
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_generic_open_download_phrases(self):
+        text = (
+            "Action items:\n"
+            "- Open the discussion with timeline context.\n"
+            "- Download metrics for the dashboard summary.\n"
+            "- Open the report details in the summary section.\n"
+            "- Download invoice metrics for analysis."
         )
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)

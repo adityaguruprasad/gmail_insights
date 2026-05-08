@@ -155,10 +155,19 @@ _ATTACHED_FILE_NOUN = (
     r"(?:file|files|pdf|pdfs|document|documents|doc|docs|spreadsheet|spreadsheets|"
     r"image|images|invoice|invoices|report|reports|form|forms)"
 )
-_ATTACHMENT_TARGET = (
+_BARE_ATTACHMENT_FILE_TARGET = (
+    rf"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){{0,2}}{_ATTACHED_FILE_NOUN}\b"
+)
+_EXPLICIT_ATTACHMENT_TARGET = (
     rf"(?:"
     rf"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){{0,3}}attachments?\b|"
     rf"(?:(?:the|this|that|an?|your)\s+)?attached\s+{_ATTACHED_FILE_NOUN}\b"
+    rf")"
+)
+_ATTACHMENT_TARGET = (
+    rf"(?:"
+    rf"{_EXPLICIT_ATTACHMENT_TARGET}|"
+    rf"{_BARE_ATTACHMENT_FILE_TARGET}{_TARGET_END}"
     rf")"
 )
 _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
