@@ -13,6 +13,10 @@ MAX_RESULTS = 100
 class QueryInsightsValidationError(ValueError):
     """Raised when /query_insights payload validation fails."""
 
+    def __init__(self, message: str = "Invalid request"):
+        super().__init__(message)
+        self.public_message = message
+
 
 def _normalize_requested_actions(actions: Any) -> List[str] | None:
     if actions is None:
