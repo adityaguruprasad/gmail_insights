@@ -8,7 +8,7 @@ processor_stub.extract_insights = lambda email: email
 sys.modules.setdefault("src.email.processor", processor_stub)
 
 import app as app_module  # noqa: E402
-from src.email.query_validator import MAX_ACTION_LENGTH  # noqa: E402
+from src.email.query_validator import MAX_ACTION_LENGTH, MAX_REQUESTED_ACTIONS  # noqa: E402
 
 
 class QueryInsightsValidationTests(unittest.TestCase):
@@ -134,6 +134,44 @@ class QueryInsightsValidationTests(unittest.TestCase):
         body = response.get_json()
         self.assertIn("requested_actions", body["error"])
         self.assertIn(str(MAX_ACTION_LENGTH), body["error"])
+        mock_gmail.assert_not_called()
+
+    def test_too_many_requested_actions_list_rejected_before_gmail(self):
+        requested_actions = ["read"] * (MAX_REQUESTED_ACTIONS + 1)
+
+        with patch("app._gmail_service_from_token") as mock_gmail:
+            response = self.client.post(
+                "/query_insights",
+                json={
+                    "token": "test-token",
+                    "query": "in:inbox",
+                    "requested_actions": requested_actions,
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+        body = response.get_json()
+        self.assertIn("requested_actions", body["error"])
+        self.assertIn(str(MAX_REQUESTED_ACTIONS), body["error"])
+        mock_gmail.assert_not_called()
+
+    def test_too_many_requested_actions_string_rejected_before_gmail(self):
+        requested_actions = ",".join(["read"] * (MAX_REQUESTED_ACTIONS + 1))
+
+        with patch("app._gmail_service_from_token") as mock_gmail:
+            response = self.client.post(
+                "/query_insights",
+                json={
+                    "token": "test-token",
+                    "query": "in:inbox",
+                    "requested_actions": requested_actions,
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+        body = response.get_json()
+        self.assertIn("requested_actions", body["error"])
+        self.assertIn(str(MAX_REQUESTED_ACTIONS), body["error"])
         mock_gmail.assert_not_called()
 
     def test_empty_query_defaults_to_inbox(self):

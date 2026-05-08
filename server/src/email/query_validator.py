@@ -11,6 +11,7 @@ MAX_QUERY_LENGTH = 512
 MIN_RESULTS = 1
 MAX_RESULTS = 100
 MAX_ACTION_LENGTH = 64
+MAX_REQUESTED_ACTIONS = 20
 SUPPORTED_ACTIONS = ALLOWED_ACTIONS | BLOCKED_ACTIONS
 
 
@@ -43,6 +44,11 @@ def _normalize_requested_actions(actions: Any) -> List[str] | None:
     else:
         raise QueryInsightsValidationError(
             "Invalid requested_actions: must be a comma-separated string or a list of action names"
+        )
+
+    if len(raw_parts) > MAX_REQUESTED_ACTIONS:
+        raise QueryInsightsValidationError(
+            f"Invalid requested_actions: must include {MAX_REQUESTED_ACTIONS} actions or fewer"
         )
 
     normalized = []
