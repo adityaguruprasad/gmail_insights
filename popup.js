@@ -11,7 +11,7 @@ document.addEventListener('DOMContentLoaded', function() {
   function fetchInsights() {
     loadingDiv.style.display = 'block';
     errorDiv.style.display = 'none';
-    insightsContainer.innerHTML = '';
+    insightsContainer.replaceChildren();
 
     chrome.runtime.sendMessage({action: "fetchInsights"}, function(response) {
       loadingDiv.style.display = 'none';
@@ -31,11 +31,19 @@ document.addEventListener('DOMContentLoaded', function() {
     insights.forEach(insight => {
       const div = document.createElement('div');
       div.className = 'insight';
-      div.innerHTML = `
-        <h3>${insight.subject}</h3>
-        <p><strong>From:</strong> ${insight.sender}</p>
-        <p>${insight.summary}</p>
-      `;
+
+      const subject = document.createElement('h3');
+      subject.textContent = insight.subject ?? '';
+
+      const sender = document.createElement('p');
+      const fromLabel = document.createElement('strong');
+      fromLabel.textContent = 'From:';
+      sender.append(fromLabel, ' ', insight.sender ?? '');
+
+      const summary = document.createElement('p');
+      summary.textContent = insight.summary ?? '';
+
+      div.append(subject, sender, summary);
       insightsContainer.appendChild(div);
     });
   }
