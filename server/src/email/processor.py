@@ -26,20 +26,40 @@ def _truncate_for_prompt(value, max_length: int) -> str:
     return text[:max_length] + PROMPT_TRUNCATION_MARKER
 
 
-def _build_prompt(email, redact_sensitive: bool = True) -> str:
-    content = _truncate_for_prompt(email.get("content", ""), PROMPT_FIELD_MAX_CONTENT)
+def _prepare_untrusted_email_field(value, max_length: int, redact_sensitive: bool = True) -> str:
+    text = str(value) if value is not None else ""
     if redact_sensitive:
-        content = redact_sensitive_content(content)
-    content = sanitize_untrusted_email_text(content)
+        text = redact_sensitive_content(text)
+    text = _truncate_for_prompt(text, max_length)
+    return sanitize_untrusted_email_text(text)
 
-    subject = _truncate_for_prompt(email.get("subject", "(No Subject)"), PROMPT_FIELD_MAX_SUBJECT)
-    subject = sanitize_untrusted_email_text(subject)
-    sender = _truncate_for_prompt(email.get("sender", "Unknown Sender"), PROMPT_FIELD_MAX_SENDER)
-    sender = sanitize_untrusted_email_text(sender)
-    snippet = _truncate_for_prompt(email.get("snippet", ""), PROMPT_FIELD_MAX_SNIPPET)
-    snippet = sanitize_untrusted_email_text(snippet)
-    date_value = _truncate_for_prompt(email.get("date", ""), PROMPT_FIELD_MAX_DATE)
-    date_value = sanitize_untrusted_email_text(date_value)
+
+def _build_prompt(email, redact_sensitive: bool = True) -> str:
+    subject = _prepare_untrusted_email_field(
+        email.get("subject", "(No Subject)"),
+        PROMPT_FIELD_MAX_SUBJECT,
+        redact_sensitive=redact_sensitive,
+    )
+    sender = _prepare_untrusted_email_field(
+        email.get("sender", "Unknown Sender"),
+        PROMPT_FIELD_MAX_SENDER,
+        redact_sensitive=redact_sensitive,
+    )
+    date_value = _prepare_untrusted_email_field(
+        email.get("date", ""),
+        PROMPT_FIELD_MAX_DATE,
+        redact_sensitive=redact_sensitive,
+    )
+    snippet = _prepare_untrusted_email_field(
+        email.get("snippet", ""),
+        PROMPT_FIELD_MAX_SNIPPET,
+        redact_sensitive=redact_sensitive,
+    )
+    content = _prepare_untrusted_email_field(
+        email.get("content", ""),
+        PROMPT_FIELD_MAX_CONTENT,
+        redact_sensitive=redact_sensitive,
+    )
 
     archive_context = "archived" if email.get("is_archived") else "in inbox"
 
