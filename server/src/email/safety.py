@@ -17,6 +17,14 @@ BLOCKED_ACTIONS = {
     "forward",
     "permanent_delete",
     "modify_labels",
+    "mark_read",
+    "mark_unread",
+    "star",
+    "unstar",
+    "move_to_spam",
+    "move_to_inbox",
+    "snooze",
+    "create_filter",
 }
 
 _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
@@ -98,6 +106,62 @@ _DIRECTIVE_PATTERNS = {
             r".*\b(?:add|remove|apply|change|modify)\s+labels?\b"
         ),
     ],
+    "mark_read": [
+        re.compile(r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?mark\s+(?:as\s+read|(?:(?:the|this|that|it|them|all|an|a)(?:\s+(?:message|email|thread))?|message|email|thread)\s+(?:as\s+)?read)\b"),
+        re.compile(
+            r"(?i)\b(?:you\s+should|you\s+must|next\s+step(?:s)?|action\s+item(?:s)?|recommended\s+action(?:s)?)\b"
+            r".*\bmark\s+(?:as\s+read|(?:(?:the|this|that|it|them|all|an|a)(?:\s+(?:message|email|thread))?|message|email|thread)\s+(?:as\s+)?read)\b"
+        ),
+    ],
+    "mark_unread": [
+        re.compile(r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?mark\s+(?:as\s+unread|(?:(?:the|this|that|it|them|all|an|a)(?:\s+(?:message|email|thread))?|message|email|thread)\s+(?:as\s+)?unread)\b"),
+        re.compile(
+            r"(?i)\b(?:you\s+should|you\s+must|next\s+step(?:s)?|action\s+item(?:s)?|recommended\s+action(?:s)?)\b"
+            r".*\bmark\s+(?:as\s+unread|(?:(?:the|this|that|it|them|all|an|a)(?:\s+(?:message|email|thread))?|message|email|thread)\s+(?:as\s+)?unread)\b"
+        ),
+    ],
+    "star": [
+        re.compile(r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?star\s+(?:the|this|that|it|them|all|an|a)\b"),
+        re.compile(
+            r"(?i)\b(?:you\s+should|you\s+must|next\s+step(?:s)?|action\s+item(?:s)?|recommended\s+action(?:s)?)\b"
+            r".*\bstar\s+(?:the|this|that|it|them|all|an|a)\b"
+        ),
+    ],
+    "unstar": [
+        re.compile(r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?unstar\s+(?:the|this|that|it|them|all|an|a)\b"),
+        re.compile(
+            r"(?i)\b(?:you\s+should|you\s+must|next\s+step(?:s)?|action\s+item(?:s)?|recommended\s+action(?:s)?)\b"
+            r".*\bunstar\s+(?:the|this|that|it|them|all|an|a)\b"
+        ),
+    ],
+    "move_to_spam": [
+        re.compile(r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?move\s+(?:(?:(?:the|this|that|it|them|all|an|a)(?:\s+(?:message|email|thread))?|message|email|thread)\s+)?to\s+spam\b(?=\s*(?:$|[.!?,:;]))"),
+        re.compile(
+            r"(?i)\b(?:you\s+should|you\s+must|next\s+step(?:s)?|action\s+item(?:s)?|recommended\s+action(?:s)?)\b"
+            r".*\bmove\s+(?:(?:(?:the|this|that|it|them|all|an|a)(?:\s+(?:message|email|thread))?|message|email|thread)\s+)?to\s+spam\b(?=\s*(?:$|[.!?,:;]))"
+        ),
+    ],
+    "move_to_inbox": [
+        re.compile(r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?move\s+(?:(?:(?:the|this|that|it|them|all|an|a)(?:\s+(?:message|email|thread))?|message|email|thread)\s+)?to\s+(?:the\s+)?inbox\b(?=\s*(?:$|[.!?,:;]))"),
+        re.compile(
+            r"(?i)\b(?:you\s+should|you\s+must|next\s+step(?:s)?|action\s+item(?:s)?|recommended\s+action(?:s)?)\b"
+            r".*\bmove\s+(?:(?:(?:the|this|that|it|them|all|an|a)(?:\s+(?:message|email|thread))?|message|email|thread)\s+)?to\s+(?:the\s+)?inbox\b(?=\s*(?:$|[.!?,:;]))"
+        ),
+    ],
+    "snooze": [
+        re.compile(r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?snooze\s+(?:the|this|that|it|them|all|an|a)\b"),
+        re.compile(
+            r"(?i)\b(?:you\s+should|you\s+must|next\s+step(?:s)?|action\s+item(?:s)?|recommended\s+action(?:s)?)\b"
+            r".*\bsnooze\s+(?:the|this|that|it|them|all|an|a)\b"
+        ),
+    ],
+    "create_filter": [
+        re.compile(r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?create\s+(?:(?:a|an|the)\s+filter|filter(?:\s+(?:for|from|that|to|matching|with|where|when)\b|(?=\s*(?:$|[.!?,:;]))))"),
+        re.compile(
+            r"(?i)\b(?:you\s+should|you\s+must|next\s+step(?:s)?|action\s+item(?:s)?|recommended\s+action(?:s)?)\b"
+            r".*\bcreate\s+(?:(?:a|an|the)\s+filter|filter(?:\s+(?:for|from|that|to|matching|with|where|when)\b|(?=\s*(?:$|[.!?,:;]))))"
+        ),
+    ],
 }
 _ACTION_WORD_PATTERNS = {
     "send": re.compile(r"(?i)\bsend\b"),
@@ -106,6 +170,14 @@ _ACTION_WORD_PATTERNS = {
     "trash": re.compile(r"(?i)\btrash\b"),
     "forward": re.compile(r"(?i)\bforward\b"),
     "modify_labels": re.compile(r"(?i)\blabels?\b"),
+    "mark_read": re.compile(r"(?i)\bmark\b.*\bread\b"),
+    "mark_unread": re.compile(r"(?i)\bmark\b.*\bunread\b"),
+    "star": re.compile(r"(?i)\bstar\b"),
+    "unstar": re.compile(r"(?i)\bunstar\b"),
+    "move_to_spam": re.compile(r"(?i)\bmove\b.*\bspam\b"),
+    "move_to_inbox": re.compile(r"(?i)\bmove\b.*\binbox\b"),
+    "snooze": re.compile(r"(?i)\bsnooze\b"),
+    "create_filter": re.compile(r"(?i)\bcreate\b.*\bfilter\b"),
 }
 
 

@@ -7,8 +7,8 @@ processor_stub = types.ModuleType("src.email.processor")
 processor_stub.extract_insights = lambda email: email
 sys.modules.setdefault("src.email.processor", processor_stub)
 
-import app as app_module
-from src.email.query_validator import MAX_ACTION_LENGTH
+import app as app_module  # noqa: E402
+from src.email.query_validator import MAX_ACTION_LENGTH  # noqa: E402
 
 
 class QueryInsightsValidationTests(unittest.TestCase):
@@ -212,6 +212,38 @@ class QueryInsightsValidationTests(unittest.TestCase):
         body = response.get_json()
         self.assertIn("Blocked actions requested", body["error"])
         self.assertIn("delete", body["safety"]["blocked_actions"])
+        mock_gmail.assert_not_called()
+
+    def test_mailbox_mutation_requested_actions_are_supported_but_blocked(self):
+        mutation_actions = [
+            "mark_read",
+            "mark_unread",
+            "star",
+            "unstar",
+            "move_to_spam",
+            "move_to_inbox",
+            "snooze",
+            "create_filter",
+        ]
+
+        with patch("app._gmail_service_from_token") as mock_gmail:
+            response = self.client.post(
+                "/query_insights",
+                json={
+                    "token": "test-token",
+                    "query": "in:inbox",
+                    "requested_actions": mutation_actions,
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+        body = response.get_json()
+        self.assertIn("Blocked actions requested", body["error"])
+        self.assertNotIn("unsupported action", body["error"])
+        self.assertEqual(body["safety"]["blocked_actions"], sorted(mutation_actions))
+        self.assertFalse(
+            set(mutation_actions).intersection(body["safety"]["effective_actions"])
+        )
         mock_gmail.assert_not_called()
 
 

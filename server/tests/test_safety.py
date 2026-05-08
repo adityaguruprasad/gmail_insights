@@ -39,6 +39,24 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(effective, ["read"])
         self.assertEqual(blocked, ["delete", "reply"])
 
+    def test_mailbox_mutation_actions_are_blocked(self):
+        mutation_actions = [
+            "mark_read",
+            "mark_unread",
+            "star",
+            "unstar",
+            "move_to_spam",
+            "move_to_inbox",
+            "snooze",
+            "create_filter",
+        ]
+
+        effective, blocked = evaluate_requested_actions(["read", *mutation_actions])
+
+        self.assertEqual(effective, ["read"])
+        self.assertEqual(blocked, sorted(mutation_actions))
+        self.assertFalse(set(mutation_actions).intersection(effective))
+
     def test_default_actions_apply_when_empty(self):
         effective, blocked = evaluate_requested_actions(None)
         self.assertEqual(effective, ["read", "summarize"])
@@ -157,6 +175,35 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertIn("[Unsafe action suggestion removed]", guarded)
         self.assertEqual(blocked, ["delete", "reply"])
 
+    def test_neutralize_unsafe_action_suggestions_blocks_mailbox_mutations(self):
+        text = (
+            "Summary: Customer needs help with billing.\n"
+            "Action items:\n"
+            "- Mark this as unread.\n"
+            "- Mark this as read.\n"
+            "- Star the thread.\n"
+            "- Unstar the thread.\n"
+            "- Move this message to spam.\n"
+            "- Move this message to the inbox.\n"
+            "- Snooze this until Monday.\n"
+            "- Create a filter for this sender."
+        )
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        expected_blocked = [
+            "create_filter",
+            "mark_read",
+            "mark_unread",
+            "move_to_inbox",
+            "move_to_spam",
+            "snooze",
+            "star",
+            "unstar",
+        ]
+
+        self.assertIn("Summary: Customer needs help with billing.", guarded)
+        self.assertEqual(guarded.count("[Unsafe action suggestion removed]"), 8)
+        self.assertEqual(blocked, expected_blocked)
+
     def test_neutralize_unsafe_action_suggestions_preserves_benign_content(self):
         text = (
             "Summary: Weekly planning email.\n"
@@ -180,6 +227,18 @@ class SafetyPolicyTests(unittest.TestCase):
         text = (
             "Summary: The customer said they already sent the payment.\n"
             "Summary: No need to reply because the issue is resolved."
+        )
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_mailbox_descriptions(self):
+        text = (
+            "Summary: Alice marked the prior thread unread.\n"
+            "Summary: The message is starred in Gmail.\n"
+            "Summary: Mark Read sent the email at 5pm.\n"
+            "Summary: Move to spam folder rules are documented.\n"
+            "Summary: Create filter rules below for manual review."
         )
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)
