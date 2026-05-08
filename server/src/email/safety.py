@@ -74,7 +74,8 @@ _MAILBOX_OBJECT_DETERMINER_PHRASE = (
 _MAILBOX_OBJECT = (
     rf"(?:{_MAILBOX_OBJECT_PRONOUN}|{_MAILBOX_OBJECT_DETERMINER_PHRASE}|{_MAILBOX_OBJECT_NOUN})"
 )
-_TARGET_END = r"(?=\s*(?:$|[.!?,:;]|\b(?:now|asap|immediately)\b\s*(?:$|[.!?,:;])))"
+_URGENCY_SUFFIX = r"(?:right\s+now|now|asap|immediately|as\s+soon\s+as\s+possible)(?:\s+please)?"
+_TARGET_END = rf"(?=\s*(?:$|[.!?,:;]|\b{_URGENCY_SUFFIX}\b\s*(?:$|[.!?,:;])))"
 _FILTER_CONNECTOR = r"\s+(?:for|from|that|to|matching|with|where|when)\b"
 _FILTER_TARGET = (
     rf"(?:(?:a|an|the)\s+filter(?:{_FILTER_CONNECTOR}|{_TARGET_END})|"

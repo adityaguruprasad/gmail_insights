@@ -233,9 +233,15 @@ class SafetyPolicyTests(unittest.TestCase):
             ("- Move this message to spam now.", "move_to_spam"),
             ("- Move this message to spam ASAP.", "move_to_spam"),
             ("- Move this message to spam immediately.", "move_to_spam"),
+            ("Move this message to spam right now.", "move_to_spam"),
+            ("Move this message to spam now please.", "move_to_spam"),
             ("- Move to the inbox now.", "move_to_inbox"),
+            ("Move to the inbox right now.", "move_to_inbox"),
+            ("Move to the inbox now please.", "move_to_inbox"),
             ("- Create filter now.", "create_filter"),
             ("- Create filter ASAP.", "create_filter"),
+            ("Create filter as soon as possible.", "create_filter"),
+            ("Create a filter right now.", "create_filter"),
         ]
 
         for text, action in cases:
@@ -327,7 +333,9 @@ class SafetyPolicyTests(unittest.TestCase):
             "Summary: The message is starred in Gmail.\n"
             "Summary: Mark Read sent the email at 5pm.\n"
             "Summary: Move to spam folder rules are documented.\n"
-            "Summary: Create filter rules below for manual review."
+            "Summary: Create filter rules below for manual review.\n"
+            "Move to spam folder rules are documented.\n"
+            "Create filter rules below for manual review."
         )
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)
