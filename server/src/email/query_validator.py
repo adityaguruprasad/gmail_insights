@@ -41,6 +41,10 @@ def _normalize_requested_actions(actions: Any) -> List[str] | None:
                 )
             else:
                 raw_parts.append(str(part))
+            if len(raw_parts) > MAX_REQUESTED_ACTIONS:
+                raise QueryInsightsValidationError(
+                    f"Invalid requested_actions: must include {MAX_REQUESTED_ACTIONS} actions or fewer"
+                )
     else:
         raise QueryInsightsValidationError(
             "Invalid requested_actions: must be a comma-separated string or a list of action names"

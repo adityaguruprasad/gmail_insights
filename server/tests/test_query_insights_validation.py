@@ -8,7 +8,12 @@ processor_stub.extract_insights = lambda email: email
 sys.modules.setdefault("src.email.processor", processor_stub)
 
 import app as app_module  # noqa: E402
-from src.email.query_validator import MAX_ACTION_LENGTH, MAX_REQUESTED_ACTIONS  # noqa: E402
+from src.email.query_validator import (  # noqa: E402
+    MAX_ACTION_LENGTH,
+    MAX_REQUESTED_ACTIONS,
+    QueryInsightsValidationError,
+    _normalize_requested_actions,
+)
 
 
 class QueryInsightsValidationTests(unittest.TestCase):
@@ -173,6 +178,43 @@ class QueryInsightsValidationTests(unittest.TestCase):
         self.assertIn("requested_actions", body["error"])
         self.assertIn(str(MAX_REQUESTED_ACTIONS), body["error"])
         mock_gmail.assert_not_called()
+
+    def test_too_many_requested_actions_iterable_stops_before_sentinel(self):
+        consumed = []
+
+        def requested_actions():
+            for index in range(MAX_REQUESTED_ACTIONS + 1):
+                consumed.append(index)
+                yield "read"
+            consumed.append("sentinel")
+            raise AssertionError("sentinel item should not be consumed")
+
+        with self.assertRaises(QueryInsightsValidationError) as context:
+            _normalize_requested_actions(requested_actions())
+
+        self.assertIn(str(MAX_REQUESTED_ACTIONS), context.exception.public_message)
+        self.assertEqual(consumed, list(range(MAX_REQUESTED_ACTIONS + 1)))
+
+    def test_invalid_requested_actions_iterable_entry_at_limit_keeps_scalar_error(self):
+        for invalid_entry in (None, {"read": True}, ["draft"]):
+            requested_actions = ["read"] * MAX_REQUESTED_ACTIONS + [invalid_entry]
+
+            with self.subTest(invalid_entry=invalid_entry):
+                with self.assertRaises(QueryInsightsValidationError) as context:
+                    _normalize_requested_actions(requested_actions)
+
+                self.assertIn(
+                    "entries must be scalar action names",
+                    context.exception.public_message,
+                )
+
+    def test_requested_actions_string_empty_parts_count_toward_max(self):
+        requested_actions = "," * MAX_REQUESTED_ACTIONS
+
+        with self.assertRaises(QueryInsightsValidationError) as context:
+            _normalize_requested_actions(requested_actions)
+
+        self.assertIn(str(MAX_REQUESTED_ACTIONS), context.exception.public_message)
 
     def test_empty_query_defaults_to_inbox(self):
         with patch("app._gmail_service_from_token", return_value=object()), patch(
