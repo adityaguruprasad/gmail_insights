@@ -76,6 +76,8 @@ _MAILBOX_OBJECT_DETERMINER_PHRASE = (
 _MAILBOX_OBJECT = (
     rf"(?:{_MAILBOX_OBJECT_PRONOUN}|{_MAILBOX_OBJECT_DETERMINER_PHRASE}|{_MAILBOX_OBJECT_NOUN})"
 )
+_LABEL_TARGET = r"(?:(?:the|an|a)\s+)?(?:(?:[\w-]+\s+){0,5})?labels?"
+_LABEL_MUTATION_VERB = r"(?:add|remove|apply|change|modify)"
 _DELETE_TARGET = rf"delete\s+{_MAILBOX_OBJECT}\b"
 _PERMANENT_DELETE_TARGET = rf"\bpermanent(?:ly)?\s+{_DELETE_TARGET}"
 # Keep generic delete from also matching the delete verb inside a permanent-delete directive.
@@ -130,11 +132,16 @@ _DIRECTIVE_PATTERNS = {
     ],
     "modify_labels": [
         re.compile(
-            r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?(?:add|remove|apply|change|modify)\s+labels?\b"
+            rf"{_DIRECTIVE_START}{_LABEL_MUTATION_VERB}\s+{_LABEL_TARGET}\b"
         ),
         re.compile(
-            r"(?i)\b(?:you\s+should|you\s+must|next\s+step(?:s)?|action\s+item(?:s)?|recommended\s+action(?:s)?)\b"
-            r".*\b(?:add|remove|apply|change|modify)\s+labels?\b"
+            rf"{_RECOMMENDATION_PREFIX}\b{_LABEL_MUTATION_VERB}\s+{_LABEL_TARGET}\b"
+        ),
+        re.compile(
+            rf"{_DIRECTIVE_START}label\s+{_MAILBOX_OBJECT}\s+as\s+[\w-]+(?:\s+[\w-]+){{0,5}}\b"
+        ),
+        re.compile(
+            rf"{_RECOMMENDATION_PREFIX}\blabel\s+{_MAILBOX_OBJECT}\s+as\s+[\w-]+(?:\s+[\w-]+){{0,5}}\b"
         ),
     ],
     "mark_read": [
@@ -285,9 +292,11 @@ def neutralize_unsafe_action_suggestions(text: str) -> Tuple[str, List[str]]:
     lines = text.splitlines()
     blocked_found = set()
     blocked_line_indexes = set()
+    direct_actions_by_index = []
 
     for index, line in enumerate(lines):
         actions = _directive_actions(line)
+        direct_actions_by_index.append(set(actions))
         if actions:
             blocked_found.update(actions)
             blocked_line_indexes.add(index)
@@ -301,6 +310,23 @@ def neutralize_unsafe_action_suggestions(text: str) -> Tuple[str, List[str]]:
         blocked_found.update(actions)
         matched_any_line = False
         for action in actions:
+            if action == "modify_labels":
+                # Split-line label mutations rely on direct directive matches here
+                # instead of generic action words to avoid over-matching benign
+                # verbs or label mentions on neighboring lines.
+                if (
+                    action not in direct_actions_by_index[index]
+                    and action not in direct_actions_by_index[index + 1]
+                ):
+                    blocked_line_indexes.update({index, index + 1})
+                else:
+                    if action in direct_actions_by_index[index]:
+                        blocked_line_indexes.add(index)
+                    if action in direct_actions_by_index[index + 1]:
+                        blocked_line_indexes.add(index + 1)
+                matched_any_line = True
+                continue
+
             action_pattern = _ACTION_WORD_PATTERNS[action]
             if action_pattern.search(lines[index]):
                 blocked_line_indexes.add(index)

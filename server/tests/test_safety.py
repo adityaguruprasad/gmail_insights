@@ -204,6 +204,52 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(guarded.count("[Unsafe action suggestion removed]"), 8)
         self.assertEqual(blocked, expected_blocked)
 
+    def test_neutralize_unsafe_action_suggestions_blocks_named_label_mutations(self):
+        cases = [
+            "Apply Work label to this email.",
+            "Remove the Promotions label from the message now please.",
+            "You should label this thread as Finance.",
+            "- Change Client Updates label on this email.",
+            "Recommended action: apply Quarterly Review label to the thread.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["modify_labels"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_label_mutations(self):
+        cases = [
+            (
+                "Apply Work\nlabel to this email.",
+                "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+            ),
+            (
+                "Recommended action: remove the Promotions\nlabel from the message now please.",
+                "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+            ),
+            (
+                "You should label this thread\nas Finance.",
+                "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+            ),
+        ]
+
+        for text, expected_guarded in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, expected_guarded)
+                self.assertEqual(blocked, ["modify_labels"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_label_descriptions(self):
+        text = (
+            "Summary: The Work label appears on this thread already.\n"
+            "Summary: Label management is disabled by policy."
+        )
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
     def test_neutralize_unsafe_action_suggestions_blocks_plural_mailbox_objects(self):
         plural_objects = ["messages", "emails", "threads"]
         cases = []
