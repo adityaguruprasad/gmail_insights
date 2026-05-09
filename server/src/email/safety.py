@@ -30,6 +30,8 @@ BLOCKED_ACTIONS = {
     "open_link",
     "open_attachment",
     "download_attachment",
+    "call_phone",
+    "send_sms",
 }
 
 _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
@@ -71,6 +73,7 @@ _RECOMMENDATION_KEYWORD = (
 )
 _RECOMMENDATION_START = rf"(?i)\b{_RECOMMENDATION_KEYWORD}\b"
 _RECOMMENDATION_PREFIX = rf"{_RECOMMENDATION_START}.*"
+_SEND_TARGET_START = r"(?:to|the|this|that|it|them|an?\s+(?!(?:sms|text(?:\s+message)?)\b))\b"
 _MAILBOX_OBJECT_NOUN = r"(?:message|messages|email|emails|thread|threads)"
 _MAILBOX_OBJECT_PRONOUN = (
     rf"(?:(?:this|that)(?:\s+(?:(?:[\w-]+\s+){{0,3}})?{_MAILBOX_OBJECT_NOUN})?|it|them|all)"
@@ -93,6 +96,7 @@ _PERMANENT_DELETE_TARGET = rf"\bpermanent(?:ly)?\s+{_DELETE_TARGET}"
 _GENERIC_DELETE_RECOMMENDATION_LEAD_IN = rf"(?:(?!{_PERMANENT_DELETE_TARGET}).)*"
 _URGENCY_SUFFIX = r"(?:right\s+now|now|asap|immediately|as\s+soon\s+as\s+possible)(?:\s+please)?"
 _TARGET_END = rf"(?=\s*(?:$|[.!?,:;]|\b{_URGENCY_SUFFIX}\b\s*(?:$|[.!?,:;])))"
+_DIRECT_SMS_TARGET_END = rf"(?=\s*(?:[.!?,:;]|\b{_URGENCY_SUFFIX}\b\s*(?:$|[.!?,:;])))"
 _SNOOZE_TIME_SUFFIX = (
     r"(?:until\s+[\w-]+(?:\s+[\w-]+){0,3}|"
     r"for\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+[\w-]+(?:\s+[\w-]+){0,2}|"
@@ -170,6 +174,12 @@ _ATTACHMENT_TARGET = (
     rf"{_BARE_ATTACHMENT_FILE_TARGET}{_TARGET_END}"
     rf")"
 )
+_PHONE_NUMBER_TARGET = r"(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4}"
+_DIRECT_CONTACT_TARGET = (
+    rf"(?:{_PHONE_NUMBER_TARGET}|"
+    r"(?:(?:the|this|that)\s+)?(?:sender|contact|customer|client|person|"
+    r"phone\s+number|number)\b)"
+)
 _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "modify_labels",
     "unsubscribe",
@@ -177,15 +187,17 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "open_link",
     "open_attachment",
     "download_attachment",
+    "call_phone",
+    "send_sms",
 }
 _DIRECTIVE_PATTERNS = {
     "send": [
-        re.compile(r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?send\s+(?:to|the|this|that|it|them|an|a)\b"),
+        re.compile(rf"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?send\s+{_SEND_TARGET_START}"),
         re.compile(
             r"(?i)\b(?:you\s+should|you\s+must|next\s+step(?:s)?|action\s+item(?:s)?|recommended\s+action(?:s)?)\b"
-            r".*\bsend\s+(?:to|the|this|that|it|them|an|a)\b"
+            rf".*\bsend\s+{_SEND_TARGET_START}"
         ),
-        re.compile(r"(?i)\b(?:just|now|immediately|then|next)\b.*\bsend\s+(?:to|the|this|that|it|them|an|a)\b"),
+        re.compile(rf"(?i)\b(?:just|now|immediately|then|next)\b.*\bsend\s+{_SEND_TARGET_START}"),
     ],
     "reply": [
         re.compile(r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?reply\s+to\b"),
@@ -303,6 +315,20 @@ _DIRECTIVE_PATTERNS = {
     ],
     "download_attachment": [
         re.compile(rf"{_ACTION_SUGGESTION_START}download\s+{_ATTACHMENT_TARGET}"),
+    ],
+    "call_phone": [
+        re.compile(rf"{_ACTION_SUGGESTION_START}call\s+{_DIRECT_CONTACT_TARGET}{_TARGET_END}"),
+    ],
+    "send_sms": [
+        re.compile(rf"{_ACTION_SUGGESTION_START}(?:text|message)\s+{_DIRECT_CONTACT_TARGET}{_TARGET_END}"),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}send\s+(?:an?\s+)?(?:sms|text(?:\s+message)?)\s+"
+            rf"to\s+{_DIRECT_CONTACT_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}send\s+(?:an?\s+)?"
+            rf"(?:sms|text(?:\s+message)?)\b{_DIRECT_SMS_TARGET_END}"
+        ),
     ],
 }
 _ACTION_WORD_PATTERNS = {

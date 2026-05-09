@@ -82,6 +82,15 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(blocked, sorted(actions))
         self.assertFalse(set(actions).intersection(effective))
 
+    def test_direct_contact_follow_up_actions_are_supported_but_blocked(self):
+        actions = ["call_phone", "send_sms"]
+
+        effective, blocked = evaluate_requested_actions(actions)
+
+        self.assertEqual(effective, ["read", "summarize"])
+        self.assertEqual(blocked, sorted(actions))
+        self.assertFalse(set(actions).intersection(effective))
+
     def test_safety_metadata_read_only_mode(self):
         safety = safety_metadata("draft,archive_suggestion")
         self.assertEqual(safety["mode"], "read_only")
@@ -341,6 +350,54 @@ class SafetyPolicyTests(unittest.TestCase):
                     "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
                 )
                 self.assertEqual(blocked, [action])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_direct_contact_follow_up_directives(self):
+        cases = [
+            ("Call the sender.", "call_phone"),
+            ("Call this phone number.", "call_phone"),
+            ("Call +1 415-555-1212 now.", "call_phone"),
+            ("Recommended action: call the number.", "call_phone"),
+            ("Text the sender.", "send_sms"),
+            ("Send an SMS now.", "send_sms"),
+            ("Send an SMS to this phone number.", "send_sms"),
+            ("Send a text message immediately.", "send_sms"),
+            ("Message +1 415-555-1212.", "send_sms"),
+            ("Recommended action: text the phone number.", "send_sms"),
+        ]
+
+        for text, action in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, [action])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_direct_contact_follow_up_directives(self):
+        cases = [
+            ("Call the\nphone number.", "call_phone"),
+            ("Send an SMS\nto the sender.", "send_sms"),
+            ("Recommended action: call\nthe number.", "call_phone"),
+            ("Recommended action: text\nthe phone number.", "send_sms"),
+        ]
+
+        for text, action in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, [action])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_direct_contact_descriptions(self):
+        text = (
+            "The email includes a phone number.\n"
+            "The sender requests a call next week.\n"
+            "SMS verification is mentioned in the message.\n"
+            "Call notes are attached."
+        )
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
 
     def test_neutralize_unsafe_action_suggestions_preserves_link_and_attachment_descriptions(self):
         text = (
