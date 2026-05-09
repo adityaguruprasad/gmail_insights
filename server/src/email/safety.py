@@ -28,6 +28,7 @@ BLOCKED_ACTIONS = {
     "snooze",
     "create_filter",
     "create_forwarding_rule",
+    "set_auto_reply",
     "unsubscribe",
     "click_link",
     "open_link",
@@ -310,6 +311,25 @@ _FORWARDING_RULE_CONTEXT = (
 )
 _FORWARDING_RULE_TARGET_SUFFIX = (
     rf"(?:\s+to\s+{_FORWARD_RECIPIENT_TARGET}|\s+for\s+{_FORWARDING_RULE_CONTEXT})?"
+)
+_AUTO_REPLY_OBJECT_NOUN = (
+    r"(?:out[-\s]+of[-\s]+office\s+(?:repl(?:y|ies)|responses?|messages?)|"
+    r"vacation\s+responders?|"
+    r"automatic\s+(?:email\s+)?repl(?:y|ies)|"
+    r"automated\s+(?:email\s+)?repl(?:y|ies)|"
+    r"auto[-\s]?repl(?:y|ies)(?:\s+messages?)?)"
+)
+_AUTO_REPLY_SETTING_TARGET = (
+    rf"(?:(?:an?|the|this|that|my|your|our)\s+)?"
+    rf"(?:[\w-]+\s+){{0,2}}{_AUTO_REPLY_OBJECT_NOUN}\b"
+)
+_AUTO_REPLY_CONTEXT_SUFFIX = (
+    r"(?:\s+(?:for|in|on|within)\s+"
+    r"(?:(?:this|that|the|my|your|our)\s+)?"
+    r"(?:account|gmail|google\s+account|email\s+account|mailbox|inbox))?"
+)
+_AUTO_REPLY_ACTION_TARGET = (
+    rf"{_AUTO_REPLY_SETTING_TARGET}{_AUTO_REPLY_CONTEXT_SUFFIX}{_TARGET_END}"
 )
 _FILE_UPLOAD_DESTINATION = (
     r"(?:(?:the|this|that|your)\s+)?"
@@ -727,6 +747,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "change_security_settings",
     "submit_form",
     "create_forwarding_rule",
+    "set_auto_reply",
 }
 _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "run_executable",
@@ -740,6 +761,7 @@ _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "create_forwarding_rule",
     "print_email",
     "export_data",
+    "set_auto_reply",
 }
 _DIRECTIVE_PATTERNS = {
     "provide_sensitive_info": [
@@ -914,6 +936,18 @@ _DIRECTIVE_PATTERNS = {
             rf"{_MIDLINE_ACTION_SUGGESTION_START}forward\s+"
             rf"{_AUTO_FORWARD_COMMAND_LEAD}"
             rf"(?:\s+to\s+{_FORWARD_RECIPIENT_TARGET})?{_TARGET_END}"
+        ),
+    ],
+    "set_auto_reply": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:set(?:\s+up)?|turn\s+on|switch\s+on|enable|activate|configure|create)\s+"
+            rf"{_AUTO_REPLY_ACTION_TARGET}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:set(?:\s+up)?|turn\s+on|switch\s+on|enable|activate|configure|create)\s+"
+            rf"{_AUTO_REPLY_ACTION_TARGET}"
         ),
     ],
     "unsubscribe": [

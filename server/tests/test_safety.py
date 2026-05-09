@@ -1,5 +1,6 @@
 import unittest
 
+from src.email import safety as safety_module
 from src.email.safety import (
     evaluate_requested_actions,
     neutralize_unsafe_action_suggestions,
@@ -73,6 +74,18 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(safety["mode"], "read_only")
         self.assertEqual(safety["effective_actions"], ["read", "summarize"])
         self.assertEqual(safety["blocked_actions"], ["create_forwarding_rule"])
+
+    def test_auto_reply_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(["read", "set_auto_reply"])
+
+        self.assertEqual(effective, ["read"])
+        self.assertEqual(blocked, ["set_auto_reply"])
+        self.assertNotIn("set_auto_reply", effective)
+
+        safety = safety_metadata("set_auto_reply")
+        self.assertEqual(safety["mode"], "read_only")
+        self.assertEqual(safety["effective_actions"], ["read", "summarize"])
+        self.assertEqual(safety["blocked_actions"], ["set_auto_reply"])
 
     def test_report_abuse_actions_are_supported_but_blocked(self):
         actions = ["report_phishing", "report_spam"]
@@ -1976,6 +1989,63 @@ class SafetyPolicyTests(unittest.TestCase):
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)
         self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_auto_reply_directives(self):
+        cases = [
+            "Set an out-of-office reply.",
+            "Turn on vacation responder.",
+            "Activate an out-of-office reply.",
+            "Switch on vacation responder.",
+            "Create an auto-reply.",
+            "Enable automatic replies for this account.",
+            "Configure an auto-reply message.",
+            "Recommended action: set up an out-of-office response.",
+            "Action item: enable auto-reply for this mailbox.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["set_auto_reply"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_auto_reply_directives(self):
+        cases = [
+            "Set an out-of-office\nreply.",
+            "Enable automatic\nreplies.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["set_auto_reply"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_auto_reply_descriptions(self):
+        text = (
+            "The email mentions an out-of-office reply for manual review.\n"
+            "Vacation responder settings are disabled by policy.\n"
+            "Automatic reply metrics are summarized.\n"
+            "Do not enable auto-replies.\n"
+            "The sender says they are out of office until Monday."
+        )
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_auto_reply_split_line_handling_uses_directive_sets_without_action_words(self):
+        self.assertIn(
+            "set_auto_reply",
+            safety_module._DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS,
+        )
+        self.assertIn(
+            "set_auto_reply",
+            safety_module._DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS,
+        )
+        self.assertNotIn("set_auto_reply", safety_module._ACTION_WORD_PATTERNS)
 
     def test_neutralize_unsafe_action_suggestions_blocks_permanent_delete(self):
         cases = [
