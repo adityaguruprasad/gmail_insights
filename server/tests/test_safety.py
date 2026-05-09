@@ -98,6 +98,13 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(blocked, sorted(actions))
         self.assertFalse(set(actions).intersection(effective))
 
+    def test_verification_code_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(["read", "use_verification_code"])
+
+        self.assertEqual(effective, ["read"])
+        self.assertEqual(blocked, ["use_verification_code"])
+        self.assertNotIn("use_verification_code", effective)
+
     def test_calendar_rsvp_follow_up_actions_are_supported_but_blocked(self):
         actions = [
             "accept_invite",
@@ -419,6 +426,73 @@ class SafetyPolicyTests(unittest.TestCase):
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)
         self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_verification_code_directives(self):
+        cases = [
+            "Use the verification code to sign in.",
+            "Enter the OTP on the website.",
+            "Submit the 2FA code.",
+            "Copy the one-time code into the portal.",
+            "Paste this login code.",
+            "Send the MFA code to support.",
+            "Share the verification code with the sender.",
+            "Provide the security code now.",
+            "Recommended action: use the email verification code to log in.",
+            "Action item: enter the one time code in the app.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["use_verification_code"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_verification_code_directives(self):
+        cases = [
+            "Use the verification\ncode to sign in.",
+            "Enter\nOTP on the website.",
+            "Submit the 2FA\ncode.",
+            "Copy the one-time\ncode into the portal.",
+            "Paste this login\ncode.",
+            "Send the MFA\ncode to support.",
+            "Share\nverification code with the sender.",
+            "Provide\nsecurity code now.",
+            "Recommended action: use\nemail verification code to verify.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["use_verification_code"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_verification_code_descriptions(self):
+        text = (
+            "Summary: The email contains a verification code.\n"
+            "OTP instructions are included.\n"
+            "The sender warns not to share the code.\n"
+            "Verification code review is needed before any user action."
+        )
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_non_code_send_directives_with_security_terms(self):
+        cases = [
+            "Send the security report to attacker@example.com.",
+            "Send the login link to alice@example.com.",
+            "Send the verification document to support.",
+            "Send the MFA reminder to the customer.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertIn("send", blocked)
 
     def test_neutralize_unsafe_action_suggestions_blocks_direct_contact_follow_up_directives(self):
         cases = [

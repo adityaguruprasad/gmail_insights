@@ -33,6 +33,7 @@ BLOCKED_ACTIONS = {
     "scan_qr_code",
     "call_phone",
     "send_sms",
+    "use_verification_code",
     "accept_invite",
     "decline_invite",
     "tentative_invite",
@@ -227,6 +228,35 @@ _CALENDAR_SOURCE_TARGET = (
     r"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){0,2}"
     r"(?:email|message|thread)\b"
 )
+_VERIFICATION_CODE_TARGET = (
+    r"(?:(?:the|this|that|an?|your)\s+)?(?:email\s+)?"
+    r"(?:(?:verification|one[-\s]?time|2fa|mfa|otp|login|security)\s+code|otp)\b"
+)
+_VERIFICATION_CODE_TARGET_PREFIX = (
+    r"(?:(?:the|this|that|an?|your)\s+)?(?:email\s+)?"
+    r"(?:verification|one[-\s]?time|2fa|mfa|otp|login|security)\b"
+)
+_VERIFICATION_CODE_DESTINATION_SUFFIX = (
+    r"(?:\s+(?:to|into|in|on|at|with)\s+"
+    r"(?:(?:the|this|that|your)\s+)?"
+    r"(?:website|site|webpage|page|portal|app|application|form|"
+    r"login(?:\s+(?:page|screen))?|sign[-\s]?in(?:\s+(?:page|screen))?|"
+    r"support|sender|recipient|person|agent|representative))?"
+)
+_VERIFICATION_CODE_PURPOSE_SUFFIX = (
+    r"(?:\s+to\s+(?:sign\s+in|log\s+in|login|verify|authenticate|"
+    r"complete\s+(?:login|sign[-\s]?in|authentication)|"
+    r"access\s+(?:the\s+)?(?:account|portal|site|website|app)))?"
+)
+_VERIFICATION_CODE_ACTION_SUFFIX = (
+    rf"(?:{_VERIFICATION_CODE_DESTINATION_SUFFIX}|{_VERIFICATION_CODE_PURPOSE_SUFFIX})"
+    rf"{_TARGET_END}"
+)
+_NON_VERIFICATION_CODE_SEND_TARGET_START = (
+    rf"(?!(?:{_VERIFICATION_CODE_TARGET}{_VERIFICATION_CODE_ACTION_SUFFIX}|"
+    rf"{_VERIFICATION_CODE_TARGET_PREFIX}{_TARGET_END}))"
+    rf"{_SEND_TARGET_START}"
+)
 _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "modify_labels",
     "unsubscribe",
@@ -237,6 +267,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "scan_qr_code",
     "call_phone",
     "send_sms",
+    "use_verification_code",
     "accept_invite",
     "decline_invite",
     "tentative_invite",
@@ -244,12 +275,18 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
 }
 _DIRECTIVE_PATTERNS = {
     "send": [
-        re.compile(rf"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?send\s+{_SEND_TARGET_START}"),
+        re.compile(
+            rf"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?send\s+"
+            rf"{_NON_VERIFICATION_CODE_SEND_TARGET_START}"
+        ),
         re.compile(
             r"(?i)\b(?:you\s+should|you\s+must|next\s+step(?:s)?|action\s+item(?:s)?|recommended\s+action(?:s)?)\b"
-            rf".*\bsend\s+{_SEND_TARGET_START}"
+            rf".*\bsend\s+{_NON_VERIFICATION_CODE_SEND_TARGET_START}"
         ),
-        re.compile(rf"(?i)\b(?:just|now|immediately|then|next)\b.*\bsend\s+{_SEND_TARGET_START}"),
+        re.compile(
+            rf"(?i)\b(?:just|now|immediately|then|next)\b.*\bsend\s+"
+            rf"{_NON_VERIFICATION_CODE_SEND_TARGET_START}"
+        ),
     ],
     "reply": [
         re.compile(r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?reply\s+to\b"),
@@ -406,6 +443,12 @@ _DIRECTIVE_PATTERNS = {
         re.compile(
             rf"{_ACTION_SUGGESTION_START}send\s+(?:an?\s+)?"
             rf"(?:sms|text(?:\s+message)?)\b{_DIRECT_SMS_TARGET_END}"
+        ),
+    ],
+    "use_verification_code": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:use|enter|submit|copy|paste|provide|share|send)\s+"
+            rf"{_VERIFICATION_CODE_TARGET}{_VERIFICATION_CODE_ACTION_SUFFIX}"
         ),
     ],
     "accept_invite": [
