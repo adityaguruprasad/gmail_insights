@@ -775,7 +775,7 @@ _DIRECTIVE_PATTERNS = {
     ],
     "change_password": [
         re.compile(
-            rf"{_ACTION_SUGGESTION_START}(?:reset|change|update|set|recover)\s+"
+            rf"{_ACTION_SUGGESTION_START}(?:reset|change|update|set|recover|create)\s+"
             rf"{_PASSWORD_CREDENTIAL_TARGET}{_PASSWORD_ACTION_SUFFIX}"
         ),
     ],

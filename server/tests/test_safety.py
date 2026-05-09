@@ -675,6 +675,9 @@ class SafetyPolicyTests(unittest.TestCase):
             "Update the password for this account",
             "Set a new password for the portal",
             "Recover your account password",
+            "Create a new password",
+            "Create a login password for this account",
+            "Recommended action: create a password using the link",
             "Recommended action: reset the password using the link",
             "Action item: change your login password immediately",
             "Update your account credentials.",
@@ -690,6 +693,8 @@ class SafetyPolicyTests(unittest.TestCase):
         cases = [
             "Reset your\npassword",
             "Change the account\npassword",
+            "Create a new\npassword",
+            "Recommended action: create a password\nusing the link",
             "Recommended action: reset the password\nusing the link",
         ]
 
@@ -708,7 +713,11 @@ class SafetyPolicyTests(unittest.TestCase):
             "The sender says the password was changed yesterday\n"
             "Password reset risk is high; do not reset it\n"
             "Account recovery details are present for analysis\n"
-            "Login password metrics are summarized"
+            "Login password metrics are summarized\n"
+            "The email contains password creation instructions for manual review\n"
+            "The account was created yesterday\n"
+            "Create password metrics are summarized\n"
+            "Create a draft about password policy"
         )
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)
