@@ -48,6 +48,7 @@ BLOCKED_ACTIONS = {
     "make_payment",
     "change_password",
     "authorize_app",
+    "submit_form",
 }
 
 _EMAIL_TARGET = r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
@@ -442,6 +443,17 @@ _AUTHZ_ACCOUNT_TARGET = (
     r"(?:(?:your|the)\s+)?"
     r"(?:google\s+account|gmail|mailbox|email\s+account|account)\b"
 )
+_FORM_OBJECT = (
+    r"(?:(?:the|this|that|an?|your)\s+)?"
+    r"(?:(?:[\w-]+\s+){0,3})?forms?\b"
+)
+_FORM_DETAIL_NOUN = r"(?:details|information|info|credentials?)"
+_FORM_DETAIL_SOURCE = (
+    rf"(?:(?:your|the|this|that|account|personal|contact|login)\s+){{0,3}}"
+    rf"{_FORM_DETAIL_NOUN}\b"
+)
+_FORM_DETAILS_SUFFIX = rf"(?:\s+with\s+{_FORM_DETAIL_SOURCE})?"
+_FORM_SUBMISSION_TARGET = rf"{_FORM_OBJECT}{_FORM_DETAILS_SUFFIX}{_TARGET_END}"
 _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "modify_labels",
     "unsubscribe",
@@ -467,6 +479,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "make_payment",
     "change_password",
     "authorize_app",
+    "submit_form",
 }
 _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "change_password",
@@ -861,6 +874,25 @@ _DIRECTIVE_PATTERNS = {
         re.compile(
             rf"{_ACTION_SUGGESTION_START}(?:install|enable)\s+"
             rf"{_AUTHZ_OBJECT_TARGET}{_TARGET_END}"
+        ),
+    ],
+    "submit_form": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}submit\s+"
+            rf"{_FORM_SUBMISSION_TARGET}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}fill\s+out\s+"
+            rf"{_FORM_SUBMISSION_TARGET}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}complete\s+"
+            rf"{_FORM_SUBMISSION_TARGET}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:enter|provide)\s+"
+            rf"{_FORM_DETAIL_SOURCE}\s+(?:in|into|on|through|via)\s+"
+            rf"{_FORM_OBJECT}{_TARGET_END}"
         ),
     ],
 }

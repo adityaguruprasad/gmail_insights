@@ -8,7 +8,7 @@ from googleapiclient.discovery import build
 
 from src.email.fetcher import get_emails_from_domains, get_emails_by_query
 from src.email.processor import extract_insights
-from src.email.safety import safety_metadata
+from src.email.safety import BLOCKED_ACTIONS, safety_metadata
 from src.email.query_validator import (
     QueryInsightsValidationError,
     validate_query_insights_payload,
@@ -16,6 +16,11 @@ from src.email.query_validator import (
 from src.config.settings import TARGET_DOMAINS, CHROME_EXTENSION_ID
 
 app = Flask(__name__)
+# Form-submission requests often mean "summarize the form workflow"; keep serving
+# read-only summaries while reporting that the requested side effect is blocked.
+READ_THROUGH_BLOCKED_ACTIONS = {"submit_form"}
+if not READ_THROUGH_BLOCKED_ACTIONS <= BLOCKED_ACTIONS:
+    raise RuntimeError("READ_THROUGH_BLOCKED_ACTIONS must be blocked actions")
 
 cors_resources = {
     r"/get_insights": {"origins": f"chrome-extension://{CHROME_EXTENSION_ID}"},
@@ -119,7 +124,8 @@ def query_insights():
     requested_actions = validated_payload["requested_actions"]
 
     safety = safety_metadata(requested_actions)
-    if safety["blocked_actions"]:
+    blocked_actions = set(safety["blocked_actions"])
+    if blocked_actions and not blocked_actions.issubset(READ_THROUGH_BLOCKED_ACTIONS):
         return (
             jsonify(
                 {

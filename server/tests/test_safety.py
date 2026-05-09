@@ -185,6 +185,20 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(safety["effective_actions"], ["read", "summarize"])
         self.assertEqual(safety["blocked_actions"], ["authorize_app"])
 
+    def test_submit_form_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(
+            ["read", "summarize", "submit_form"]
+        )
+
+        self.assertEqual(effective, ["read", "summarize"])
+        self.assertEqual(blocked, ["submit_form"])
+        self.assertNotIn("submit_form", effective)
+
+        safety = safety_metadata("submit_form")
+        self.assertEqual(safety["mode"], "read_only")
+        self.assertEqual(safety["effective_actions"], ["read", "summarize"])
+        self.assertEqual(safety["blocked_actions"], ["submit_form"])
+
     def test_safety_metadata_read_only_mode(self):
         safety = safety_metadata("draft,archive_suggestion")
         self.assertEqual(safety["mode"], "read_only")
@@ -859,6 +873,62 @@ class SafetyPolicyTests(unittest.TestCase):
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)
         self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_submit_form_directives(self):
+        cases = [
+            "Submit the form.",
+            "Submit this web form.",
+            "Fill out the form.",
+            "Complete the form with your details.",
+            "Enter your information in the form.",
+            "Provide your details in the form.",
+            "Action item: submit the registration form.",
+            "Recommended action: fill out the survey form.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["submit_form"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_submit_form_directives(self):
+        cases = [
+            "Submit the\nform.",
+            "Fill out the\nsurvey form.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["submit_form"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_submit_form_descriptions(self):
+        text = (
+            "The email contains a form for manual review.\n"
+            "Form submission instructions are included.\n"
+            "The form was submitted yesterday.\n"
+            "Survey form details are present for analysis.\n"
+            "Do not submit the form."
+        )
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_reports_submit_form_with_other_blocks(self):
+        text = "Submit the form.\nPay the invoice."
+
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+
+        self.assertEqual(
+            guarded,
+            "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+        )
+        self.assertEqual(blocked, ["make_payment", "submit_form"])
 
     def test_neutralize_unsafe_action_suggestions_blocks_non_code_send_directives_with_security_terms(self):
         cases = [

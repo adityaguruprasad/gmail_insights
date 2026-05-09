@@ -344,6 +344,90 @@ class QueryInsightsValidationTests(unittest.TestCase):
         )
         mock_gmail.assert_not_called()
 
+    def test_submit_form_requested_action_is_supported_but_blocked_with_read_through(self):
+        service = object()
+        with patch(
+            "app._gmail_service_from_token", return_value=service
+        ) as mock_gmail, patch(
+            "app.get_emails_by_query", return_value=[{"id": "email-1"}]
+        ) as mock_fetch:
+            response = self.client.post(
+                "/query_insights",
+                json={
+                    "token": "test-token",
+                    "query": "in:inbox",
+                    "requested_actions": "submit_form",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(
+            body["safety"],
+            {
+                "mode": "read_only",
+                "effective_actions": ["read", "summarize"],
+                "blocked_actions": ["submit_form"],
+            },
+        )
+        self.assertEqual(body["count"], 1)
+        self.assertNotIn("submit_form", body["safety"]["effective_actions"])
+        mock_gmail.assert_called_once_with("test-token")
+        mock_fetch.assert_called_once_with(service, query="in:inbox", max_results=25)
+
+    def test_submit_form_requested_action_preserves_explicit_safe_read(self):
+        service = object()
+        with patch(
+            "app._gmail_service_from_token", return_value=service
+        ) as mock_gmail, patch(
+            "app.get_emails_by_query", return_value=[]
+        ) as mock_fetch:
+            response = self.client.post(
+                "/query_insights",
+                json={
+                    "token": "test-token",
+                    "query": "in:inbox",
+                    "requested_actions": "read,submit_form",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(
+            body["safety"],
+            {
+                "mode": "read_only",
+                "effective_actions": ["read"],
+                "blocked_actions": ["submit_form"],
+            },
+        )
+        mock_gmail.assert_called_once_with("test-token")
+        mock_fetch.assert_called_once_with(service, query="in:inbox", max_results=25)
+
+    def test_submit_form_does_not_read_through_with_hard_blocked_action(self):
+        with patch("app._gmail_service_from_token") as mock_gmail:
+            response = self.client.post(
+                "/query_insights",
+                json={
+                    "token": "test-token",
+                    "query": "in:inbox",
+                    "requested_actions": "submit_form,make_payment",
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+        body = response.get_json()
+        self.assertIn("Blocked actions requested", body["error"])
+        self.assertEqual(
+            body["safety"],
+            {
+                "mode": "read_only",
+                "effective_actions": ["read", "summarize"],
+                "blocked_actions": ["make_payment", "submit_form"],
+            },
+        )
+        mock_gmail.assert_not_called()
+
     def test_file_transfer_requested_actions_are_supported_but_blocked(self):
         requested_actions = ["share_file", "upload_file"]
 
