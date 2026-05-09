@@ -228,6 +228,7 @@ _CALENDAR_SOURCE_TARGET = (
     r"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){0,2}"
     r"(?:email|message|thread)\b"
 )
+_CALENDAR_LOCATION_TARGET = r"(?:(?:my|your|the)\s+)?calendar\b"
 _VERIFICATION_CODE_MODIFIER = (
     r"(?:verification|one[-\s]?time|2fa|mfa|otp|login|security|"
     r"authentication|auth|confirmation|access|recovery|validation)"
@@ -482,6 +483,18 @@ _DIRECTIVE_PATTERNS = {
         re.compile(
             rf"{_ACTION_SUGGESTION_START}(?:add|create|schedule)\s+"
             rf"{_CALENDAR_EVENT_TARGET}\s+from\s+{_CALENDAR_SOURCE_TARGET}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}add\s+{_INVITE_TARGET}\s+"
+            rf"to\s+{_CALENDAR_LOCATION_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}put\s+{_CALENDAR_EVENT_TARGET}\s+"
+            rf"on\s+{_CALENDAR_LOCATION_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}add\s+to\s+{_CALENDAR_LOCATION_TARGET}\s+"
+            rf"from\s+{_CALENDAR_SOURCE_TARGET}{_TARGET_END}"
         ),
     ],
 }
