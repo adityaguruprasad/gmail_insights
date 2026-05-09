@@ -85,7 +85,9 @@ _RECOMMENDATION_PREFIX = rf"{_RECOMMENDATION_START}.*"
 _SEND_TARGET_START = r"(?:to|the|this|that|it|them|an?\s+(?!(?:sms|text(?:\s+message)?)\b))\b"
 _MAILBOX_OBJECT_NOUN = r"(?:message|messages|email|emails|thread|threads)"
 _MAILBOX_OBJECT_PRONOUN = (
-    rf"(?:(?:this|that)(?:\s+(?:(?:[\w-]+\s+){{0,3}})?{_MAILBOX_OBJECT_NOUN})?|it|them|all)"
+    rf"(?:(?:this|that)(?:\s+(?:(?:[\w-]+\s+){{0,3}})?{_MAILBOX_OBJECT_NOUN})?|"
+    rf"(?:these|those)\s+(?:(?:[\w-]+\s+){{0,3}})?{_MAILBOX_OBJECT_NOUN}|"
+    r"it|them|all)"
 )
 _MAILBOX_OBJECT_DETERMINER_PHRASE = (
     rf"(?:the|an|a)\s+(?:(?:[\w-]+\s+){{0,3}})?{_MAILBOX_OBJECT_NOUN}"
@@ -132,10 +134,10 @@ _REPORT_SPAM_TARGET = (
     rf"\b{_TARGET_END}"
 )
 _MARK_REPORT_PHISHING_TARGET = (
-    rf"{_MAILBOX_OBJECT}\s+(?:as|for)\s+{_REPORT_PHISHING_TERM}\b{_TARGET_END}"
+    rf"(?:{_MAILBOX_OBJECT}\s+)?(?:as|for)\s+{_REPORT_PHISHING_TERM}\b{_TARGET_END}"
 )
 _MARK_REPORT_SPAM_TARGET = (
-    rf"{_MAILBOX_OBJECT}\s+(?:as|for)\s+{_REPORT_SPAM_TERM}\b{_TARGET_END}"
+    rf"(?:{_MAILBOX_OBJECT}\s+)?(?:as|for)\s+{_REPORT_SPAM_TERM}\b{_TARGET_END}"
 )
 _UNSUBSCRIBE_TARGET_NOUN = (
     r"(?:senders?|newsletters?|mailing\s+lists?|lists?|subscriptions?|"

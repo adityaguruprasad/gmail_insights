@@ -282,6 +282,12 @@ class SafetyPolicyTests(unittest.TestCase):
             ("Mark this email as phishing.", "report_phishing"),
             ("Mark the message as spam.", "report_spam"),
             ("Flag this email as phishing.", "report_phishing"),
+            ("Mark as phishing.", "report_phishing"),
+            ("Flag as spam.", "report_spam"),
+            ("Flag this email as spam.", "report_spam"),
+            ("Report these emails as phishing.", "report_phishing"),
+            ("Mark those threads as junk.", "report_spam"),
+            ("Flag these messages as spam.", "report_spam"),
             (
                 "Recommended action: report this email as phishing.",
                 "report_phishing",
@@ -318,6 +324,8 @@ class SafetyPolicyTests(unittest.TestCase):
             "The message looks like spam.\n"
             "Spam indicators are present for manual review.\n"
             "Phishing risk is high; review carefully.\n"
+            "These emails show phishing indicators for manual review.\n"
+            "Those threads look like spam but require manual review.\n"
             "Reported phishing metrics are summarized."
         )
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
