@@ -32,6 +32,7 @@ BLOCKED_ACTIONS = {
     "open_link",
     "open_attachment",
     "download_attachment",
+    "load_remote_content",
     "scan_qr_code",
     "call_phone",
     "send_sms",
@@ -314,6 +315,21 @@ _NON_VERIFICATION_CODE_SEND_TARGET_START = (
     rf"{_VERIFICATION_CODE_TARGET_PREFIX}{_TARGET_END}))"
     rf"{_SEND_TARGET_START}"
 )
+_REMOTE_CONTENT_RESOURCE_TARGET = (
+    r"(?:(?:the|this|that|all)\s+)?"
+    r"(?:(?:remote|external)\s+(?:images?|content)|tracking\s+(?:pixels?|images?))\b"
+)
+_REMOTE_CONTENT_SENDER_TARGET = (
+    r"(?:(?:the|this|that|all)\s+)?images?\s+"
+    r"(?:for|from)\s+(?:(?:this|that|the)\s+)?sender\b"
+)
+_REMOTE_CONTENT_SENDER_SUFFIX = (
+    r"(?:\s+(?:for|from)\s+(?:(?:this|that|the)\s+)?sender)?"
+)
+_REMOTE_CONTENT_LOAD_TARGET = (
+    rf"(?:{_REMOTE_CONTENT_RESOURCE_TARGET}"
+    rf"{_REMOTE_CONTENT_SENDER_SUFFIX}|{_REMOTE_CONTENT_SENDER_TARGET})"
+)
 _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "modify_labels",
     "unsubscribe",
@@ -323,6 +339,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "open_link",
     "open_attachment",
     "download_attachment",
+    "load_remote_content",
     "scan_qr_code",
     "call_phone",
     "send_sms",
@@ -483,6 +500,16 @@ _DIRECTIVE_PATTERNS = {
     ],
     "download_attachment": [
         re.compile(rf"{_ACTION_SUGGESTION_START}download\s+{_ATTACHMENT_TARGET}"),
+    ],
+    "load_remote_content": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:load|show|display|download|fetch)\s+"
+            rf"{_REMOTE_CONTENT_LOAD_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}enable\s+"
+            rf"{_REMOTE_CONTENT_LOAD_TARGET}{_TARGET_END}"
+        ),
     ],
     "scan_qr_code": [
         re.compile(

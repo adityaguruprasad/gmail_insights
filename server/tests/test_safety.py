@@ -93,6 +93,13 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(blocked, sorted(actions))
         self.assertFalse(set(actions).intersection(effective))
 
+    def test_remote_content_loading_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(["load_remote_content"])
+
+        self.assertEqual(effective, ["read", "summarize"])
+        self.assertEqual(blocked, ["load_remote_content"])
+        self.assertNotIn("load_remote_content", effective)
+
     def test_qr_code_follow_up_action_is_supported_but_blocked(self):
         effective, blocked = evaluate_requested_actions(["read", "scan_qr_code"])
 
@@ -458,6 +465,53 @@ class SafetyPolicyTests(unittest.TestCase):
                     "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
                 )
                 self.assertEqual(blocked, [action])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_remote_content_directives(self):
+        cases = [
+            "Load remote images.",
+            "Show external images.",
+            "Display the tracking pixel.",
+            "Enable images for this sender.",
+            "Download remote content.",
+            "Fetch the external content now.",
+            "Action item: load the remote images.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["load_remote_content"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_remote_content_directives(self):
+        cases = [
+            "Load the\nremote images.",
+            "Action item: load the\nremote images.",
+            "Display the tracking\npixel.",
+            "Fetch the external\ncontent now.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["load_remote_content"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_remote_content_descriptions(self):
+        text = (
+            "The email contains remote images for manual review\n"
+            "Tracking pixel risk is high; do not load it\n"
+            "Remote content is blocked by policy\n"
+            "Image loading is disabled by default"
+        )
+
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
 
     def test_neutralize_unsafe_action_suggestions_blocks_qr_code_directives(self):
         cases = [
