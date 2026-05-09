@@ -33,6 +33,7 @@ BLOCKED_ACTIONS = {
     "open_link",
     "open_attachment",
     "download_attachment",
+    "print_email",
     "share_file",
     "upload_file",
     "load_remote_content",
@@ -221,6 +222,12 @@ _ATTACHMENT_TARGET = (
     rf"{_BARE_ATTACHMENT_FILE_TARGET}{_TARGET_END}"
     rf")"
 )
+_PRINT_TARGET = (
+    rf"(?:{_MAILBOX_OBJECT}|{_EXPLICIT_ATTACHMENT_TARGET}|"
+    rf"{_BARE_ATTACHMENT_FILE_TARGET}(?:\s+from\s+{_MAILBOX_OBJECT})?)"
+)
+_PRINT_PURPOSE_SUFFIX = r"(?:\s+for\s+(?:your|my|our|the)\s+records?)?"
+_PRINT_ACTION_SUFFIX = rf"{_PRINT_PURPOSE_SUFFIX}(?:\s+{_URGENCY_SUFFIX})?{_TARGET_END}"
 _FILE_OBJECT_NOUN = rf"(?:attachments?|{_ATTACHED_FILE_NOUN})"
 _FILE_OBJECT_TARGET = (
     rf"(?:(?:the|this|that|an?|your)\s+)?"
@@ -519,6 +526,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "open_link",
     "open_attachment",
     "download_attachment",
+    "print_email",
     "share_file",
     "upload_file",
     "load_remote_content",
@@ -546,6 +554,7 @@ _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "authorize_app",
     "create_task",
     "create_forwarding_rule",
+    "print_email",
 }
 _DIRECTIVE_PATTERNS = {
     "send": [
@@ -730,6 +739,12 @@ _DIRECTIVE_PATTERNS = {
     ],
     "download_attachment": [
         re.compile(rf"{_ACTION_SUGGESTION_START}download\s+{_ATTACHMENT_TARGET}"),
+    ],
+    "print_email": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}print\s+"
+            rf"{_PRINT_TARGET}{_PRINT_ACTION_SUFFIX}"
+        ),
     ],
     "share_file": [
         re.compile(

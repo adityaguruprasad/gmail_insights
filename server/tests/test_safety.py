@@ -108,6 +108,18 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(blocked, sorted(actions))
         self.assertFalse(set(actions).intersection(effective))
 
+    def test_print_email_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(["read", "print_email"])
+
+        self.assertEqual(effective, ["read"])
+        self.assertEqual(blocked, ["print_email"])
+        self.assertNotIn("print_email", effective)
+
+        safety = safety_metadata("print_email")
+        self.assertEqual(safety["mode"], "read_only")
+        self.assertEqual(safety["effective_actions"], ["read", "summarize"])
+        self.assertEqual(safety["blocked_actions"], ["print_email"])
+
     def test_file_transfer_actions_are_supported_but_blocked(self):
         actions = ["share_file", "upload_file"]
 
@@ -552,6 +564,52 @@ class SafetyPolicyTests(unittest.TestCase):
                     "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
                 )
                 self.assertEqual(blocked, [action])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_print_directives(self):
+        cases = [
+            "Print this email.",
+            "Print the message now.",
+            "Print the attachment.",
+            "Print the attached PDF.",
+            "Print the invoice from this email.",
+            "Recommended action: print the thread.",
+            "Action item: print the attached document.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["print_email"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_print_directives(self):
+        cases = [
+            "Print the\nattachment.",
+            "Print this email\nfor your records.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["print_email"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_print_descriptions(self):
+        text = (
+            "The email mentions print layout changes.\n"
+            "The attachment is a print-ready invoice for manual review.\n"
+            "Printing is disabled by policy.\n"
+            "Do not print this email.\n"
+            "Print metrics are summarized in the report."
+        )
+
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
 
     def test_neutralize_unsafe_action_suggestions_blocks_file_transfer_directives(self):
         cases = [
