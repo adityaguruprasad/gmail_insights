@@ -55,6 +55,7 @@ BLOCKED_ACTIONS = {
     "sign_in",
     "change_password",
     "authorize_app",
+    "change_security_settings",
     "submit_form",
 }
 
@@ -551,6 +552,33 @@ _AUTHZ_ACCOUNT_TARGET = (
     r"(?:(?:your|the)\s+)?"
     r"(?:google\s+account|gmail|mailbox|email\s+account|account)\b"
 )
+_SECURITY_AUTH_FACTOR_TARGET = (
+    r"(?:2fa|mfa|(?:two|multi)[-\s]?factor(?:\s+authentication)?)\b"
+)
+_SECURITY_KEY_TARGET = (
+    r"(?:(?:the|this|that|your|my|our|an?)\s+)?"
+    r"(?:[\w-]+\s+){0,2}security\s+keys?\b"
+)
+_SECURITY_BACKUP_CODES_TARGET = (
+    r"(?:(?:the|this|that|your|my|our)\s+)?backup\s+codes?\b"
+)
+_SECURITY_PROTECTION_TARGET = (
+    r"(?:spam|phishing|spam\s+and\s+phishing|phishing\s+and\s+spam)\s+"
+    r"(?:protection|filtering)\b"
+)
+_SECURITY_SENDER_TARGET = r"(?:(?:the|this|that)\s+)?sender\b"
+_SECURITY_SAFE_SENDER_LIST_TARGET = (
+    r"(?:(?:the|this|that|your|my|our)\s+)?"
+    r"(?:safe\s+senders?|allow[-\s]?list|whitelist)(?:\s+list)?\b"
+)
+_SECURITY_ACCOUNT_SETTING_SUFFIX = (
+    r"(?:\s+(?:from|for|in|on|within)\s+"
+    r"(?:(?:your|the|this|that|my|our)\s+)?"
+    r"(?:account|gmail|google\s+account|email\s+account))?"
+)
+_SECURITY_SENDER_SCOPE_SUFFIX = (
+    rf"(?:\s+for\s+{_SECURITY_SENDER_TARGET})?"
+)
 _FORM_OBJECT = (
     r"(?:(?:the|this|that|an?|your)\s+)?"
     r"(?:(?:[\w-]+\s+){0,3})?forms?\b"
@@ -605,6 +633,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "sign_in",
     "change_password",
     "authorize_app",
+    "change_security_settings",
     "submit_form",
     "create_forwarding_rule",
 }
@@ -614,6 +643,7 @@ _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "sign_in",
     "change_password",
     "authorize_app",
+    "change_security_settings",
     "create_task",
     "create_forwarding_rule",
     "print_email",
@@ -1116,6 +1146,34 @@ _DIRECTIVE_PATTERNS = {
         re.compile(
             rf"{_ACTION_SUGGESTION_START}(?:install|enable)\s+"
             rf"{_AUTHZ_OBJECT_TARGET}{_TARGET_END}"
+        ),
+    ],
+    "change_security_settings": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:disable|deactivate|turn\s+off)\s+"
+            rf"{_SECURITY_AUTH_FACTOR_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}remove\s+"
+            rf"{_SECURITY_KEY_TARGET}{_SECURITY_ACCOUNT_SETTING_SUFFIX}"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:reset|regenerate|replace)\s+"
+            rf"{_SECURITY_BACKUP_CODES_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:disable|deactivate|turn\s+off|lower|reduce|weaken)\s+"
+            rf"{_SECURITY_PROTECTION_TARGET}{_SECURITY_SENDER_SCOPE_SUFFIX}"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:whitelist|allow[-\s]?list)\s+"
+            rf"{_SECURITY_SENDER_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}add\s+{_SECURITY_SENDER_TARGET}\s+"
+            rf"to\s+{_SECURITY_SAFE_SENDER_LIST_TARGET}{_TARGET_END}"
         ),
     ],
     "submit_form": [

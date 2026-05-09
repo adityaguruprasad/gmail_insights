@@ -242,6 +242,20 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(safety["effective_actions"], ["read", "summarize"])
         self.assertEqual(safety["blocked_actions"], ["authorize_app"])
 
+    def test_security_settings_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(
+            ["read", "change_security_settings"]
+        )
+
+        self.assertEqual(effective, ["read"])
+        self.assertEqual(blocked, ["change_security_settings"])
+        self.assertNotIn("change_security_settings", effective)
+
+        safety = safety_metadata("change_security_settings")
+        self.assertEqual(safety["mode"], "read_only")
+        self.assertEqual(safety["effective_actions"], ["read", "summarize"])
+        self.assertEqual(safety["blocked_actions"], ["change_security_settings"])
+
     def test_submit_form_action_is_supported_but_blocked(self):
         effective, blocked = evaluate_requested_actions(
             ["read", "summarize", "submit_form"]
@@ -1142,6 +1156,54 @@ class SafetyPolicyTests(unittest.TestCase):
             "App authorization instructions are included in the message\n"
             "The integration is already enabled by policy\n"
             "Browser extension details are present for analysis"
+        )
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_security_setting_directives(self):
+        cases = [
+            "Disable two-factor authentication",
+            "Turn off MFA now",
+            "Remove the security key from your account",
+            "Reset your backup codes",
+            "Whitelist the sender",
+            "Add this sender to the safe senders list",
+            "Recommended action: lower spam protection for this sender",
+            "Action item: disable phishing protection",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["change_security_settings"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_security_setting_directives(self):
+        cases = [
+            "Disable two-factor\nauthentication",
+            "Add this sender\nto the safe senders list",
+            "Action item: disable phishing\nprotection",
+            "Recommended action: lower spam\nprotection for this sender",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["change_security_settings"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_security_setting_descriptions(self):
+        text = (
+            "The email mentions two-factor authentication for manual review\n"
+            "MFA risk is high; do not disable it\n"
+            "Security key details are present for analysis\n"
+            "Safe sender policies are discussed\n"
+            "Spam protection remains enabled by policy\n"
+            "The backup codes were reset yesterday"
         )
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)
