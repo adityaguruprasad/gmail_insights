@@ -45,6 +45,7 @@ BLOCKED_ACTIONS = {
     "decline_invite",
     "tentative_invite",
     "create_calendar_event",
+    "create_task",
     "make_payment",
     "change_password",
     "authorize_app",
@@ -454,6 +455,18 @@ _FORM_DETAIL_SOURCE = (
 )
 _FORM_DETAILS_SUFFIX = rf"(?:\s+with\s+{_FORM_DETAIL_SOURCE})?"
 _FORM_SUBMISSION_TARGET = rf"{_FORM_OBJECT}{_FORM_DETAILS_SUFFIX}{_TARGET_END}"
+_TASK_ITEM_NOUN = r"(?:tasks?|to[-\s]?dos?|to[-\s]?do\s+items?|reminders?)"
+_TASK_ITEM_TARGET = (
+    rf"(?:(?:an?|the|this|that|my|your)\s+)?(?:[\w-]+\s+){{0,3}}"
+    rf"{_TASK_ITEM_NOUN}\b"
+)
+_TASK_CONTAINER_NOUN = r"(?:task\s+list|to[-\s]?do\s+list|reminder\s+list)"
+_TASK_CONTAINER_TARGET = (
+    rf"(?:(?:my|your|the|this|that)\s+)?(?:[\w-]+\s+){{0,2}}"
+    rf"{_TASK_CONTAINER_NOUN}\b"
+)
+_TASK_PURPOSE_SUFFIX = r"(?:\s+(?:to|for)\s+[\w-]+(?:\s+[\w-]+){0,8})?"
+_TASK_SOURCE_SUFFIX = rf"(?:\s+from\s+{_MAILBOX_OBJECT})?"
 _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "modify_labels",
     "unsubscribe",
@@ -476,6 +489,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "decline_invite",
     "tentative_invite",
     "create_calendar_event",
+    "create_task",
     "make_payment",
     "change_password",
     "authorize_app",
@@ -484,6 +498,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
 _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "change_password",
     "authorize_app",
+    "create_task",
 }
 _DIRECTIVE_PATTERNS = {
     "send": [
@@ -789,6 +804,21 @@ _DIRECTIVE_PATTERNS = {
         re.compile(
             rf"{_ACTION_SUGGESTION_START}add\s+to\s+{_CALENDAR_LOCATION_TARGET}\s+"
             rf"from\s+{_CALENDAR_SOURCE_TARGET}{_TARGET_END}"
+        ),
+    ],
+    "create_task": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:add|create|set)\s+"
+            rf"{_TASK_ITEM_TARGET}{_TASK_PURPOSE_SUFFIX}{_TASK_SOURCE_SUFFIX}"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}add\s+{_MAILBOX_OBJECT}\s+to\s+"
+            rf"{_TASK_CONTAINER_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}remind\s+(?:me|us|the\s+user)\s+"
+            rf"(?:to|about)\s+[\w-]+(?:\s+[\w-]+){{0,8}}{_TARGET_END}"
         ),
     ],
     "make_payment": [
