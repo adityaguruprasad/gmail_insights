@@ -46,6 +46,8 @@ class SafetyPolicyTests(unittest.TestCase):
             "star",
             "unstar",
             "move_to_spam",
+            "report_phishing",
+            "report_spam",
             "move_to_inbox",
             "snooze",
             "create_filter",
@@ -56,6 +58,15 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(effective, ["read"])
         self.assertEqual(blocked, sorted(mutation_actions))
         self.assertFalse(set(mutation_actions).intersection(effective))
+
+    def test_report_abuse_actions_are_supported_but_blocked(self):
+        actions = ["report_phishing", "report_spam"]
+
+        effective, blocked = evaluate_requested_actions(actions)
+
+        self.assertEqual(effective, ["read", "summarize"])
+        self.assertEqual(blocked, sorted(actions))
+        self.assertFalse(set(actions).intersection(effective))
 
     def test_default_actions_apply_when_empty(self):
         effective, blocked = evaluate_requested_actions(None)
@@ -260,6 +271,58 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertIn("Summary: Customer needs help with billing.", guarded)
         self.assertEqual(guarded.count("[Unsafe action suggestion removed]"), 8)
         self.assertEqual(blocked, expected_blocked)
+
+    def test_neutralize_unsafe_action_suggestions_blocks_report_abuse_directives(self):
+        cases = [
+            ("Report phishing.", "report_phishing"),
+            ("Report this email as phishing.", "report_phishing"),
+            ("Report this message as spam.", "report_spam"),
+            ("Report the thread as junk.", "report_spam"),
+            ("Report this email as abuse.", "report_spam"),
+            ("Mark this email as phishing.", "report_phishing"),
+            ("Mark the message as spam.", "report_spam"),
+            ("Flag this email as phishing.", "report_phishing"),
+            (
+                "Recommended action: report this email as phishing.",
+                "report_phishing",
+            ),
+            ("Action item: mark the thread as junk.", "report_spam"),
+        ]
+
+        for text, action in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, [action])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_report_abuse_directives(self):
+        cases = [
+            ("Report this email\nas phishing.", "report_phishing"),
+            ("Mark the message\nas spam.", "report_spam"),
+            ("Action item: mark the thread\nas junk.", "report_spam"),
+            ("Recommended action: report\nphishing.", "report_phishing"),
+        ]
+
+        for text, action in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, [action])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_report_abuse_descriptions(self):
+        text = (
+            "The email appears to be phishing.\n"
+            "The message looks like spam.\n"
+            "Spam indicators are present for manual review.\n"
+            "Phishing risk is high; review carefully.\n"
+            "Reported phishing metrics are summarized."
+        )
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
 
     def test_neutralize_unsafe_action_suggestions_blocks_unsubscribe_directives(self):
         cases = [

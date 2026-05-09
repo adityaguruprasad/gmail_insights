@@ -22,6 +22,8 @@ BLOCKED_ACTIONS = {
     "star",
     "unstar",
     "move_to_spam",
+    "report_phishing",
+    "report_spam",
     "move_to_inbox",
     "snooze",
     "create_filter",
@@ -118,6 +120,22 @@ _FILTER_CONNECTOR = r"\s+(?:for|from|that|to|matching|with|where|when)\b"
 _FILTER_TARGET = (
     rf"(?:(?:a|an|the)\s+filter(?:{_FILTER_CONNECTOR}|{_TARGET_END})|"
     rf"filter(?:{_FILTER_CONNECTOR}|{_TARGET_END}))"
+)
+_REPORT_PHISHING_TERM = r"(?:phishing|phish)"
+_REPORT_SPAM_TERM = r"(?:spam|junk|abuse)"
+_REPORT_PHISHING_TARGET = (
+    rf"(?:(?:{_MAILBOX_OBJECT}\s+(?:as|for)\s+)?{_REPORT_PHISHING_TERM})"
+    rf"\b{_TARGET_END}"
+)
+_REPORT_SPAM_TARGET = (
+    rf"(?:(?:{_MAILBOX_OBJECT}\s+(?:as|for)\s+)?{_REPORT_SPAM_TERM})"
+    rf"\b{_TARGET_END}"
+)
+_MARK_REPORT_PHISHING_TARGET = (
+    rf"{_MAILBOX_OBJECT}\s+(?:as|for)\s+{_REPORT_PHISHING_TERM}\b{_TARGET_END}"
+)
+_MARK_REPORT_SPAM_TARGET = (
+    rf"{_MAILBOX_OBJECT}\s+(?:as|for)\s+{_REPORT_SPAM_TERM}\b{_TARGET_END}"
 )
 _UNSUBSCRIBE_TARGET_NOUN = (
     r"(?:senders?|newsletters?|mailing\s+lists?|lists?|subscriptions?|"
@@ -266,6 +284,8 @@ _NON_VERIFICATION_CODE_SEND_TARGET_START = (
 _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "modify_labels",
     "unsubscribe",
+    "report_phishing",
+    "report_spam",
     "click_link",
     "open_link",
     "open_attachment",
@@ -372,6 +392,20 @@ _DIRECTIVE_PATTERNS = {
         re.compile(rf"{_DIRECTIVE_START}move\s+(?:{_MAILBOX_OBJECT}\s+)?to\s+spam\b{_TARGET_END}"),
         re.compile(
             rf"{_RECOMMENDATION_PREFIX}\bmove\s+(?:{_MAILBOX_OBJECT}\s+)?to\s+spam\b{_TARGET_END}"
+        ),
+    ],
+    "report_phishing": [
+        re.compile(rf"{_ACTION_SUGGESTION_START}report\s+{_REPORT_PHISHING_TARGET}"),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:mark|flag)\s+"
+            rf"{_MARK_REPORT_PHISHING_TARGET}"
+        ),
+    ],
+    "report_spam": [
+        re.compile(rf"{_ACTION_SUGGESTION_START}report\s+{_REPORT_SPAM_TARGET}"),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:mark|flag)\s+"
+            rf"{_MARK_REPORT_SPAM_TARGET}"
         ),
     ],
     "move_to_inbox": [
