@@ -228,13 +228,17 @@ _CALENDAR_SOURCE_TARGET = (
     r"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){0,2}"
     r"(?:email|message|thread)\b"
 )
+_VERIFICATION_CODE_MODIFIER = (
+    r"(?:verification|one[-\s]?time|2fa|mfa|otp|login|security|"
+    r"authentication|auth|confirmation|access|recovery|validation)"
+)
 _VERIFICATION_CODE_TARGET = (
     r"(?:(?:the|this|that|an?|your)\s+)?(?:email\s+)?"
-    r"(?:(?:verification|one[-\s]?time|2fa|mfa|otp|login|security)\s+code|otp)\b"
+    rf"(?:(?:{_VERIFICATION_CODE_MODIFIER})\s+code|otp|totp|hotp|pin|passcode)\b"
 )
 _VERIFICATION_CODE_TARGET_PREFIX = (
     r"(?:(?:the|this|that|an?|your)\s+)?(?:email\s+)?"
-    r"(?:verification|one[-\s]?time|2fa|mfa|otp|login|security)\b"
+    rf"(?:{_VERIFICATION_CODE_MODIFIER}|totp|hotp|pin|passcode)\b"
 )
 _VERIFICATION_CODE_DESTINATION_SUFFIX = (
     r"(?:\s+(?:to|into|in|on|at|with)\s+"
@@ -448,6 +452,14 @@ _DIRECTIVE_PATTERNS = {
     "use_verification_code": [
         re.compile(
             rf"{_ACTION_SUGGESTION_START}(?:use|enter|submit|copy|paste|provide|share|send)\s+"
+            rf"{_VERIFICATION_CODE_TARGET}{_VERIFICATION_CODE_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:type|input)\s+(?:in\s+)?"
+            rf"{_VERIFICATION_CODE_TARGET}{_VERIFICATION_CODE_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:reply|respond)\s+with\s+"
             rf"{_VERIFICATION_CODE_TARGET}{_VERIFICATION_CODE_ACTION_SUFFIX}"
         ),
     ],

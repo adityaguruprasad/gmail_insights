@@ -437,7 +437,17 @@ class SafetyPolicyTests(unittest.TestCase):
             "Send the MFA code to support.",
             "Share the verification code with the sender.",
             "Provide the security code now.",
+            "Type the passcode into the portal.",
+            "Input the PIN.",
+            "Reply with the authentication code.",
+            "Respond with the confirmation code.",
+            "Enter the access code.",
+            "Submit the recovery code.",
+            "Use the validation code to authenticate.",
+            "Provide the TOTP now.",
+            "Share the HOTP with the sender.",
             "Recommended action: use the email verification code to log in.",
+            "Recommended action: respond with the passcode.",
             "Action item: enter the one time code in the app.",
         ]
 
@@ -457,7 +467,17 @@ class SafetyPolicyTests(unittest.TestCase):
             "Send the MFA\ncode to support.",
             "Share\nverification code with the sender.",
             "Provide\nsecurity code now.",
+            "Type the\npasscode into the portal.",
+            "Reply with the authentication\ncode.",
+            "Respond with\nthe confirmation code.",
+            "Input the\nPIN.",
+            "Enter the access\ncode.",
+            "Submit the recovery\ncode.",
+            "Use the validation\ncode to authenticate.",
+            "Provide\nTOTP now.",
+            "Share\nHOTP with the sender.",
             "Recommended action: use\nemail verification code to verify.",
+            "Recommended action: respond with\nthe passcode.",
         ]
 
         for text in cases:
@@ -474,7 +494,11 @@ class SafetyPolicyTests(unittest.TestCase):
             "Summary: The email contains a verification code.\n"
             "OTP instructions are included.\n"
             "The sender warns not to share the code.\n"
-            "Verification code review is needed before any user action."
+            "Verification code review is needed before any user action.\n"
+            "The email contains a PIN.\n"
+            "Authentication code instructions are included.\n"
+            "The sender warns not to share the passcode.\n"
+            "Passcode review is needed before any user action."
         )
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)
