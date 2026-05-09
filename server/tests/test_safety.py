@@ -164,6 +164,18 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(safety["effective_actions"], ["read", "summarize"])
         self.assertEqual(safety["blocked_actions"], ["change_password"])
 
+    def test_app_authorization_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(["read", "authorize_app"])
+
+        self.assertEqual(effective, ["read"])
+        self.assertEqual(blocked, ["authorize_app"])
+        self.assertNotIn("authorize_app", effective)
+
+        safety = safety_metadata("authorize_app")
+        self.assertEqual(safety["mode"], "read_only")
+        self.assertEqual(safety["effective_actions"], ["read", "summarize"])
+        self.assertEqual(safety["blocked_actions"], ["authorize_app"])
+
     def test_safety_metadata_read_only_mode(self):
         safety = safety_metadata("draft,archive_suggestion")
         self.assertEqual(safety["mode"], "read_only")
@@ -697,6 +709,54 @@ class SafetyPolicyTests(unittest.TestCase):
             "Password reset risk is high; do not reset it\n"
             "Account recovery details are present for analysis\n"
             "Login password metrics are summarized"
+        )
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_app_authorization_directives(self):
+        cases = [
+            "Authorize the app.",
+            "Grant access to the third-party app.",
+            "Allow the OAuth client to access Gmail.",
+            "Connect your Google account to the service.",
+            "Install the browser extension.",
+            "Enable the integration now.",
+            "Recommended action: approve the OAuth consent request.",
+            "Action item: authorize the application.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["authorize_app"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_app_authorization_directives(self):
+        cases = [
+            "Authorize the OAuth app\nfor Gmail access.",
+            "Grant access\nto the third-party app.",
+            "Connect your Google account\nto the service.",
+            "Recommended action: approve the OAuth\nconsent request.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["authorize_app"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_app_authorization_descriptions(self):
+        text = (
+            "The email asks you to authorize an app for manual review\n"
+            "OAuth consent risk is high\n"
+            "do not authorize it\n"
+            "App authorization instructions are included in the message\n"
+            "The integration is already enabled by policy\n"
+            "Browser extension details are present for analysis"
         )
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)

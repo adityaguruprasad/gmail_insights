@@ -45,6 +45,7 @@ BLOCKED_ACTIONS = {
     "create_calendar_event",
     "make_payment",
     "change_password",
+    "authorize_app",
 }
 
 _EMAIL_TARGET = r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
@@ -393,6 +394,40 @@ _PASSWORD_ACTION_SUFFIX = (
     rf"(?:\s+{_URGENCY_SUFFIX})?"
     r"(?=\s*(?:$|[.!?,:;]))"
 )
+_AUTHZ_OBJECT_NOUN = (
+    r"(?:apps?|applications?|integrations?|browser\s+extensions?|extensions?|"
+    r"oauth\s+(?:apps?|applications?|clients?)|"
+    r"third[-\s]?party\s+(?:apps?|applications?|services?))"
+)
+_AUTHZ_OBJECT_TARGET = (
+    rf"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){{0,2}}"
+    rf"{_AUTHZ_OBJECT_NOUN}\b"
+)
+_AUTHZ_SERVICE_TARGET = (
+    r"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){0,2}services?\b"
+)
+_AUTHZ_GRANTEE_TARGET = rf"(?:{_AUTHZ_OBJECT_TARGET}|{_AUTHZ_SERVICE_TARGET})"
+_AUTHZ_ACCESS_RESOURCE = (
+    r"(?:gmail|google\s+account|mailbox|email|inbox|account|messages?|data)"
+)
+_AUTHZ_ACCESS_SUFFIX = (
+    rf"(?:\s+(?:to\s+access|for)\s+(?:(?:the|your)\s+)?"
+    rf"{_AUTHZ_ACCESS_RESOURCE}(?:\s+access)?)?"
+)
+_AUTHZ_PERMISSION_TARGET = (
+    r"(?:(?:the|this|that|an?|your)\s+)?"
+    r"(?:oauth\s+consent(?:\s+request)?|consent\s+request|"
+    r"permission\s+grant|permissions?|account\s+access|gmail\s+access|"
+    r"mailbox\s+access|email\s+access)\b"
+)
+_AUTHZ_ACCESS_GRANT_TARGET = (
+    r"(?:access|account\s+access|gmail\s+access|mailbox\s+access|"
+    r"email\s+access|permissions?|permission\s+grant)\b"
+)
+_AUTHZ_ACCOUNT_TARGET = (
+    r"(?:(?:your|the)\s+)?"
+    r"(?:google\s+account|gmail|mailbox|email\s+account|account)\b"
+)
 _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "modify_labels",
     "unsubscribe",
@@ -415,9 +450,11 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "create_calendar_event",
     "make_payment",
     "change_password",
+    "authorize_app",
 }
 _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "change_password",
+    "authorize_app",
 }
 _DIRECTIVE_PATTERNS = {
     "send": [
@@ -740,6 +777,45 @@ _DIRECTIVE_PATTERNS = {
         re.compile(
             rf"{_ACTION_SUGGESTION_START}(?:reset|change|update|set|recover)\s+"
             rf"{_PASSWORD_CREDENTIAL_TARGET}{_PASSWORD_ACTION_SUFFIX}"
+        ),
+    ],
+    "authorize_app": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:authorize|approve)\s+"
+            rf"{_AUTHZ_OBJECT_TARGET}{_AUTHZ_ACCESS_SUFFIX}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:authorize|approve)\s+"
+            rf"{_AUTHZ_PERMISSION_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}grant\s+"
+            rf"{_AUTHZ_ACCESS_GRANT_TARGET}\s+to\s+"
+            rf"{_AUTHZ_GRANTEE_TARGET}{_AUTHZ_ACCESS_SUFFIX}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}grant\s+"
+            rf"{_AUTHZ_GRANTEE_TARGET}\s+{_AUTHZ_ACCESS_GRANT_TARGET}"
+            rf"{_AUTHZ_ACCESS_SUFFIX}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}allow\s+"
+            rf"{_AUTHZ_GRANTEE_TARGET}\s+to\s+access\s+"
+            rf"(?:(?:the|your)\s+)?{_AUTHZ_ACCESS_RESOURCE}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}connect\s+"
+            rf"{_AUTHZ_ACCOUNT_TARGET}\s+to\s+{_AUTHZ_GRANTEE_TARGET}"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}connect\s+"
+            rf"{_AUTHZ_GRANTEE_TARGET}\s+to\s+{_AUTHZ_ACCOUNT_TARGET}"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:install|enable)\s+"
+            rf"{_AUTHZ_OBJECT_TARGET}{_TARGET_END}"
         ),
     ],
 }
