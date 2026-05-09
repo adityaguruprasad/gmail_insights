@@ -153,6 +153,17 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(blocked, ["make_payment"])
         self.assertNotIn("make_payment", effective)
 
+    def test_password_change_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(["read", "change_password"])
+
+        self.assertEqual(effective, ["read"])
+        self.assertEqual(blocked, ["change_password"])
+        self.assertNotIn("change_password", effective)
+
+        safety = safety_metadata("change_password")
+        self.assertEqual(safety["effective_actions"], ["read", "summarize"])
+        self.assertEqual(safety["blocked_actions"], ["change_password"])
+
     def test_safety_metadata_read_only_mode(self):
         safety = safety_metadata("draft,archive_suggestion")
         self.assertEqual(safety["mode"], "read_only")
@@ -640,6 +651,52 @@ class SafetyPolicyTests(unittest.TestCase):
             "Authentication code instructions are included.\n"
             "The sender warns not to share the passcode.\n"
             "Passcode review is needed before any user action."
+        )
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_password_change_directives(self):
+        cases = [
+            "Reset your password",
+            "Change the account password now",
+            "Update the password for this account",
+            "Set a new password for the portal",
+            "Recover your account password",
+            "Recommended action: reset the password using the link",
+            "Action item: change your login password immediately",
+            "Update your account credentials.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["change_password"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_password_change_directives(self):
+        cases = [
+            "Reset your\npassword",
+            "Change the account\npassword",
+            "Recommended action: reset the password\nusing the link",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["change_password"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_password_change_descriptions(self):
+        text = (
+            "The email contains password reset instructions for manual review\n"
+            "The sender says the password was changed yesterday\n"
+            "Password reset risk is high; do not reset it\n"
+            "Account recovery details are present for analysis\n"
+            "Login password metrics are summarized"
         )
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)

@@ -44,6 +44,7 @@ BLOCKED_ACTIONS = {
     "tentative_invite",
     "create_calendar_event",
     "make_payment",
+    "change_password",
 }
 
 _EMAIL_TARGET = r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
@@ -372,6 +373,26 @@ _REFUND_TARGET_NOUN = (
     r"(?:customers?|clients?|buyers?|users?|accounts?|orders?|payments?|charges?|"
     r"transactions?|invoices?)"
 )
+_PASSWORD_CREDENTIAL_NOUN = r"(?:password|credentials?)"
+_PASSWORD_ACCOUNT_CONTEXT = (
+    r"(?:(?:this|that|the|your|an?)\s+)?"
+    r"(?:account|portal|site|website|webpage|app|application|login|profile|service)\b"
+)
+_PASSWORD_CREDENTIAL_TARGET = (
+    rf"(?:(?:(?:your|the|this|that|an?|new|login|account|portal|site|website|"
+    rf"app|application|email|online)\s+){{0,4}}{_PASSWORD_CREDENTIAL_NOUN}\b"
+    rf"(?:\s+for\s+{_PASSWORD_ACCOUNT_CONTEXT})?)"
+)
+_PASSWORD_ACTION_CHANNEL = (
+    r"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){0,3}"
+    r"(?:link|url|website|webpage|page|site|portal|app|application|form)\b"
+)
+_PASSWORD_ACTION_SUFFIX = (
+    rf"(?:\s+(?:using|via|through|with|on|at|in)\s+"
+    rf"{_PASSWORD_ACTION_CHANNEL})?"
+    rf"(?:\s+{_URGENCY_SUFFIX})?"
+    r"(?=\s*(?:$|[.!?,:;]))"
+)
 _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "modify_labels",
     "unsubscribe",
@@ -393,6 +414,10 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "tentative_invite",
     "create_calendar_event",
     "make_payment",
+    "change_password",
+}
+_DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
+    "change_password",
 }
 _DIRECTIVE_PATTERNS = {
     "send": [
@@ -711,6 +736,12 @@ _DIRECTIVE_PATTERNS = {
             rf"{_REFUND_TARGET_NOUN}\b{_TARGET_END}"
         ),
     ],
+    "change_password": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:reset|change|update|set|recover)\s+"
+            rf"{_PASSWORD_CREDENTIAL_TARGET}{_PASSWORD_ACTION_SUFFIX}"
+        ),
+    ],
 }
 _ACTION_WORD_PATTERNS = {
     "send": re.compile(r"(?i)\bsend\b"),
@@ -801,6 +832,15 @@ def _directive_actions(line: str) -> List[str]:
     ]
 
 
+def _directive_match_spans(line: str, action: str) -> List[Tuple[int, int]]:
+    return [
+        match.span()
+        for pattern in _DIRECTIVE_PATTERNS[action]
+        for match in [pattern.search(line)]
+        if match
+    ]
+
+
 def neutralize_unsafe_action_suggestions(text: str) -> Tuple[str, List[str]]:
     """Remove unsafe action-suggestion lines from model output."""
     if not text:
@@ -828,6 +868,18 @@ def neutralize_unsafe_action_suggestions(text: str) -> Tuple[str, List[str]]:
         matched_any_line = False
         for action in actions:
             if action in _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS:
+                line_boundary = len(lines[index]) + 1
+                if (
+                    action in _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS
+                    and any(
+                        end > line_boundary
+                        for _, end in _directive_match_spans(combined, action)
+                    )
+                ):
+                    blocked_line_indexes.update({index, index + 1})
+                    matched_any_line = True
+                    continue
+
                 # Split-line directives for these actions rely on direct matches
                 # instead of generic action words to avoid over-matching benign
                 # verbs or mentions on neighboring lines.
