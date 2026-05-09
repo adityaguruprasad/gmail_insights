@@ -27,6 +27,7 @@ BLOCKED_ACTIONS = {
     "move_to_inbox",
     "snooze",
     "create_filter",
+    "create_forwarding_rule",
     "unsubscribe",
     "click_link",
     "open_link",
@@ -179,6 +180,10 @@ _ACTION_SUGGESTION_START = (
     rf"(?:(?:{_RECOMMENDATION_KEYWORD})\s*:?\s*)?"
     r"(?:(?:please|first|then|next|just|now|also)\s+){0,4}"
 )
+_MIDLINE_ACTION_SUGGESTION_START = (
+    rf"(?i)\b{_RECOMMENDATION_KEYWORD}\b\s*:?\s*"
+    r"(?:(?:please|first|then|next|just|now|also)\s+){0,4}"
+)
 _LINK_NOUN = r"(?:link|url|website|webpage|page|site)"
 _DOMAIN_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
 _BARE_DOMAIN_TARGET = (
@@ -240,6 +245,25 @@ _FORWARD_RECIPIENT_TARGET = (
 )
 _FORWARD_EXFIL_TARGET = (
     rf"{_FORWARD_EXFIL_OBJECT}\s+to\s+{_FORWARD_RECIPIENT_TARGET}{_TARGET_END}"
+)
+_AUTO_FORWARD_COMMAND_LEAD = (
+    r"(?:all\s+)?(?:emails?|messages?|mail)\s+automatically\b"
+)
+_FORWARDING_MODE = (
+    r"(?:email\s+forwarding|mail\s+forwarding|mailbox\s+forwarding|"
+    r"auto[-\s]?forwarding|automatic\s+forwarding|forwarding)"
+)
+_FORWARDING_RULE_OBJECT = (
+    r"(?:(?:an?|the)\s+)?"
+    r"(?:auto[-\s]?forwarding|(?:(?:mail|email|mailbox|inbox|automatic)\s+)?forwarding)"
+    r"\s+rules?\b"
+)
+_FORWARDING_RULE_CONTEXT = (
+    r"(?:(?:this|that|the|your|my|our)\s+)?"
+    r"(?:inbox|mailbox|email\s+account|gmail|account)\b"
+)
+_FORWARDING_RULE_TARGET_SUFFIX = (
+    rf"(?:\s+to\s+{_FORWARD_RECIPIENT_TARGET}|\s+for\s+{_FORWARDING_RULE_CONTEXT})?"
 )
 _FILE_UPLOAD_DESTINATION = (
     r"(?:(?:the|this|that|your)\s+)?"
@@ -514,12 +538,14 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "change_password",
     "authorize_app",
     "submit_form",
+    "create_forwarding_rule",
 }
 _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "sign_in",
     "change_password",
     "authorize_app",
     "create_task",
+    "create_forwarding_rule",
 }
 _DIRECTIVE_PATTERNS = {
     "send": [
@@ -563,10 +589,14 @@ _DIRECTIVE_PATTERNS = {
         ),
     ],
     "forward": [
-        re.compile(rf"{_DIRECTIVE_START}forward\s+(?:to|{_MAILBOX_OBJECT})\b"),
+        re.compile(
+            rf"{_DIRECTIVE_START}forward\s+"
+            rf"(?!{_AUTO_FORWARD_COMMAND_LEAD})(?:to|{_MAILBOX_OBJECT})\b"
+        ),
         re.compile(rf"{_DIRECTIVE_START}forward\s+{_FORWARD_EXFIL_TARGET}"),
         re.compile(
-            rf"{_RECOMMENDATION_PREFIX}\bforward\s+(?:to|{_MAILBOX_OBJECT})\b"
+            rf"{_RECOMMENDATION_PREFIX}\bforward\s+"
+            rf"(?!{_AUTO_FORWARD_COMMAND_LEAD})(?:to|{_MAILBOX_OBJECT})\b"
         ),
         re.compile(
             rf"{_RECOMMENDATION_PREFIX}\bforward\s+{_FORWARD_EXFIL_TARGET}"
@@ -646,6 +676,36 @@ _DIRECTIVE_PATTERNS = {
         re.compile(rf"{_DIRECTIVE_START}create\s+{_FILTER_TARGET}"),
         re.compile(
             rf"{_RECOMMENDATION_PREFIX}\bcreate\s+{_FILTER_TARGET}"
+        ),
+    ],
+    "create_forwarding_rule": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:set\s+up|enable|configure)\s+"
+            rf"{_FORWARDING_MODE}(?:\s+to\s+{_FORWARD_RECIPIENT_TARGET})?"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:create|add|configure|set\s+up|enable)\s+"
+            rf"{_FORWARDING_RULE_OBJECT}{_FORWARDING_RULE_TARGET_SUFFIX}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}forward\s+{_AUTO_FORWARD_COMMAND_LEAD}"
+            rf"(?:\s+to\s+{_FORWARD_RECIPIENT_TARGET})?{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}(?:set\s+up|enable|configure)\s+"
+            rf"{_FORWARDING_MODE}(?:\s+to\s+{_FORWARD_RECIPIENT_TARGET})?"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:create|add|configure|set\s+up|enable)\s+"
+            rf"{_FORWARDING_RULE_OBJECT}{_FORWARDING_RULE_TARGET_SUFFIX}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}forward\s+"
+            rf"{_AUTO_FORWARD_COMMAND_LEAD}"
+            rf"(?:\s+to\s+{_FORWARD_RECIPIENT_TARGET})?{_TARGET_END}"
         ),
     ],
     "unsubscribe": [
