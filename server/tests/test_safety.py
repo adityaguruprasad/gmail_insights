@@ -146,6 +146,13 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(blocked, sorted(actions))
         self.assertFalse(set(actions).intersection(effective))
 
+    def test_payment_follow_up_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(["read", "make_payment"])
+
+        self.assertEqual(effective, ["read"])
+        self.assertEqual(blocked, ["make_payment"])
+        self.assertNotIn("make_payment", effective)
+
     def test_safety_metadata_read_only_mode(self):
         safety = safety_metadata("draft,archive_suggestion")
         self.assertEqual(safety["mode"], "read_only")
@@ -848,6 +855,65 @@ class SafetyPolicyTests(unittest.TestCase):
             "Calendar availability is discussed.\n"
             "Appointment details are included for manual review.\n"
             "RSVP instructions are included."
+        )
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_payment_directives(self):
+        cases = [
+            "Pay the invoice.",
+            "Pay this bill now.",
+            "Send payment to the vendor.",
+            "Wire the funds to accounting@example.com.",
+            "Transfer $500 to the supplier.",
+            "Pay $500.",
+            "Pay the funds.",
+            "Pay $500 to the vendor.",
+            "Pay £1,200.50 to accounting@example.com.",
+            "Submit payment via the portal.",
+            "Approve the transaction.",
+            "Buy the gift card.",
+            "Purchase the license.",
+            "Refund the customer.",
+            "Send 0.5 BTC to the wallet.",
+            "Action item: pay the outstanding balance.",
+            "Recommended action: authorize the payment.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["make_payment"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_payment_directives(self):
+        cases = [
+            "Pay the\ninvoice.",
+            "Wire the funds\nto the vendor.",
+            "Action item: pay the outstanding\nbalance.",
+            "Recommended action: authorize\nthe payment.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["make_payment"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_payment_descriptions(self):
+        text = (
+            "The email mentions an invoice payment.\n"
+            "Payment instructions are included for manual review.\n"
+            "The transaction was approved yesterday.\n"
+            "The vendor asks for payment next week.\n"
+            "Payment risk is high; do not pay it.\n"
+            "Invoice payment metrics are summarized.\n"
+            "Pay attention to the customer.\n"
+            "Pay close attention to the supplier invoice."
         )
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)

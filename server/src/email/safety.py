@@ -43,6 +43,7 @@ BLOCKED_ACTIONS = {
     "decline_invite",
     "tentative_invite",
     "create_calendar_event",
+    "make_payment",
 }
 
 _EMAIL_TARGET = r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
@@ -330,6 +331,47 @@ _REMOTE_CONTENT_LOAD_TARGET = (
     rf"(?:{_REMOTE_CONTENT_RESOURCE_TARGET}"
     rf"{_REMOTE_CONTENT_SENDER_SUFFIX}|{_REMOTE_CONTENT_SENDER_TARGET})"
 )
+_FINANCIAL_AMOUNT = (
+    r"(?:[$\u20ac\u00a3]\s?\d[\d,]*(?:\.\d+)?|"
+    r"\d+(?:\.\d+)?\s*(?:btc|bitcoin|eth|ether|ethereum|usdc|usdt|usd|eur|gbp))"
+)
+_PAYMENT_OBLIGATION_NOUN = (
+    r"(?:invoices?|bills?|outstanding\s+balances?|balances?|amounts?\s+due|"
+    r"amounts?|fees?|charges?|dues|payments?)"
+)
+_PAYMENT_TARGET_MODIFIER = (
+    r"(?:(?!(?:to|from|for|with|about|over|into|onto|at|by|as)\b)[\w-]+\s+)"
+)
+_PAYMENT_OBLIGATION_TARGET = (
+    rf"(?:(?:the|this|that|an?|your)\s+)?(?:{_PAYMENT_TARGET_MODIFIER}){{0,4}}"
+    rf"{_PAYMENT_OBLIGATION_NOUN}\b"
+)
+_PAYMENT_FUNDS_NOUN = r"(?:funds?|money|payments?|amounts?|cash)"
+_PAYMENT_FUNDS_TARGET = (
+    rf"(?:{_FINANCIAL_AMOUNT}|(?:(?:the|this|that|an?|your)\s+)?"
+    rf"(?:{_PAYMENT_TARGET_MODIFIER}){{0,3}}{_PAYMENT_FUNDS_NOUN}\b)"
+)
+_PAYMENT_DESTINATION_NOUN = (
+    r"(?:vendors?|suppliers?|customers?|clients?|merchants?|sellers?|payees?|"
+    r"accounting|finance|bookkeepers?|wallets?|banks?|accounts?)"
+)
+_PAYMENT_DESTINATION_TARGET = (
+    rf"(?:{_EMAIL_TARGET}|(?:(?:the|this|that|an?|your)\s+)?"
+    rf"(?:{_PAYMENT_TARGET_MODIFIER}){{0,4}}{_PAYMENT_DESTINATION_NOUN}\b)"
+)
+_PAYMENT_CHANNEL_TARGET = (
+    r"(?:(?:the|this|that|your)\s+)?(?:payment\s+)?"
+    r"(?:portal|website|site|app|application|form|link)\b"
+)
+_PAYMENT_APPROVAL_NOUN = (
+    r"(?:transactions?|payments?|charges?|purchases?|wires?|transfers?|refunds?|"
+    r"invoices?)"
+)
+_PURCHASE_TARGET_NOUN = r"(?:gift\s+cards?|licenses?|subscriptions?|software|products?)"
+_REFUND_TARGET_NOUN = (
+    r"(?:customers?|clients?|buyers?|users?|accounts?|orders?|payments?|charges?|"
+    r"transactions?|invoices?)"
+)
 _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "modify_labels",
     "unsubscribe",
@@ -350,6 +392,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "decline_invite",
     "tentative_invite",
     "create_calendar_event",
+    "make_payment",
 }
 _DIRECTIVE_PATTERNS = {
     "send": [
@@ -626,6 +669,46 @@ _DIRECTIVE_PATTERNS = {
         re.compile(
             rf"{_ACTION_SUGGESTION_START}add\s+to\s+{_CALENDAR_LOCATION_TARGET}\s+"
             rf"from\s+{_CALENDAR_SOURCE_TARGET}{_TARGET_END}"
+        ),
+    ],
+    "make_payment": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}pay\s+{_PAYMENT_FUNDS_TARGET}"
+            rf"(?:\s+to\s+{_PAYMENT_DESTINATION_TARGET})?{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}pay\s+"
+            rf"(?:{_PAYMENT_OBLIGATION_TARGET}|{_PAYMENT_DESTINATION_TARGET})"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}send\s+{_PAYMENT_FUNDS_TARGET}\s+"
+            rf"to\s+{_PAYMENT_DESTINATION_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:wire|transfer)\s+"
+            rf"{_PAYMENT_FUNDS_TARGET}\s+to\s+{_PAYMENT_DESTINATION_TARGET}"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}submit\s+{_PAYMENT_OBLIGATION_TARGET}"
+            rf"(?:\s+(?:via|through|using|on|in|to)\s+"
+            rf"{_PAYMENT_CHANNEL_TARGET})?{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:approve|authorize)\s+"
+            rf"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){{0,3}}"
+            rf"{_PAYMENT_APPROVAL_NOUN}\b{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:buy|purchase)\s+"
+            rf"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){{0,3}}"
+            rf"{_PURCHASE_TARGET_NOUN}\b{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}refund\s+"
+            rf"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){{0,3}}"
+            rf"{_REFUND_TARGET_NOUN}\b{_TARGET_END}"
         ),
     ],
 }
