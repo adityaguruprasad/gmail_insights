@@ -33,6 +33,8 @@ BLOCKED_ACTIONS = {
     "open_link",
     "open_attachment",
     "download_attachment",
+    "run_executable",
+    "enable_macros",
     "print_email",
     "share_file",
     "upload_file",
@@ -232,6 +234,39 @@ _FILE_OBJECT_NOUN = rf"(?:attachments?|{_ATTACHED_FILE_NOUN})"
 _FILE_OBJECT_TARGET = (
     rf"(?:(?:the|this|that|an?|your)\s+)?"
     rf"(?:[\w-]+\s+){{0,3}}{_FILE_OBJECT_NOUN}\b"
+)
+_EXECUTABLE_OBJECT_NOUN = (
+    r"(?:attachments?|files?|installers?|scripts?|apps?|applications?|"
+    r"executables?|programs?|binaries?|setup\s+files?)"
+)
+_EXECUTABLE_OBJECT_TARGET = (
+    rf"(?:(?:the|this|that|an?|your)\s+)?"
+    rf"(?:[\w-]+\s+){{0,3}}"
+    rf"{_EXECUTABLE_OBJECT_NOUN}\b"
+)
+_EXECUTABLE_SOURCE_SUFFIX = (
+    r"(?:\s+(?:from|in)\s+(?:(?:the|this|that|an?|your)\s+)?"
+    r"(?:email|message|thread|attachment))?"
+)
+_EXECUTABLE_FOLLOWUP_SUFFIX = (
+    r"(?:\s+(?:and|then|to|for)\s+[\w-]+(?:\s+[\w-]+){0,8})?"
+)
+_EXECUTABLE_ACTION_SUFFIX = (
+    rf"{_EXECUTABLE_SOURCE_SUFFIX}{_EXECUTABLE_FOLLOWUP_SUFFIX}{_TARGET_END}"
+)
+_MACRO_TARGET = r"macros?\b"
+_MACRO_CONTEXT_NOUN = (
+    r"(?:documents?|spreadsheets?|workbooks?|attachments?|files?|docs?|sheets?)"
+)
+_MACRO_CONTEXT_TARGET = (
+    rf"(?:(?:the|this|that|an?|your)\s+)?"
+    rf"(?:[\w-]+\s+){{0,3}}"
+    rf"{_MACRO_CONTEXT_NOUN}\b"
+)
+_MACRO_ACTION_SUFFIX = (
+    rf"(?:\s+to\s+run)?(?:\s+(?:in|for|on|within)\s+{_MACRO_CONTEXT_TARGET})?"
+    r"(?:\s+(?:and|then|to)\s+[\w-]+(?:\s+[\w-]+){0,8})?"
+    rf"{_TARGET_END}"
 )
 # Forward exfiltration extends attachment/file nouns with email/message/thread content nouns.
 _FORWARD_EXFIL_OBJECT_NOUN = (
@@ -526,6 +561,8 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "open_link",
     "open_attachment",
     "download_attachment",
+    "run_executable",
+    "enable_macros",
     "print_email",
     "share_file",
     "upload_file",
@@ -549,6 +586,8 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "create_forwarding_rule",
 }
 _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
+    "run_executable",
+    "enable_macros",
     "sign_in",
     "change_password",
     "authorize_app",
@@ -739,6 +778,30 @@ _DIRECTIVE_PATTERNS = {
     ],
     "download_attachment": [
         re.compile(rf"{_ACTION_SUGGESTION_START}download\s+{_ATTACHMENT_TARGET}"),
+    ],
+    "run_executable": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:run|execute|launch)\s+"
+            rf"{_EXECUTABLE_OBJECT_TARGET}{_EXECUTABLE_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}open\s+and\s+(?:run|execute)\s+"
+            rf"{_EXECUTABLE_OBJECT_TARGET}{_EXECUTABLE_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}open\s+{_EXECUTABLE_OBJECT_TARGET}\s+"
+            rf"and\s+(?:run|execute)(?:\s+it)?{_TARGET_END}"
+        ),
+    ],
+    "enable_macros": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:enable|allow|turn\s+on)\s+"
+            rf"{_MACRO_TARGET}{_MACRO_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:enable|allow|turn\s+on)\s+"
+            rf"{_MACRO_CONTEXT_TARGET}\s+{_MACRO_TARGET}{_TARGET_END}"
+        ),
     ],
     "print_email": [
         re.compile(
