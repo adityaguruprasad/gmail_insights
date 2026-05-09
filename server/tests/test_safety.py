@@ -1257,6 +1257,11 @@ class SafetyPolicyTests(unittest.TestCase):
             "Add this sender to the safe senders list",
             "Recommended action: lower spam protection for this sender",
             "Action item: disable phishing protection",
+            "Disable the spam filter",
+            "Turn off phishing filters for this account",
+            "Lower spam filtering for the customer",
+            "Add accounting@example.com to the safe senders list",
+            "Allow-list this domain",
         ]
 
         for text in cases:
@@ -1271,6 +1276,9 @@ class SafetyPolicyTests(unittest.TestCase):
             "Add this sender\nto the safe senders list",
             "Action item: disable phishing\nprotection",
             "Recommended action: lower spam\nprotection for this sender",
+            "Disable the spam\nfilter",
+            "Turn off phishing\nfilters for this account",
+            "Add accounting@example.com\nto the safe senders list",
         ]
 
         for text in cases:
@@ -1289,7 +1297,10 @@ class SafetyPolicyTests(unittest.TestCase):
             "Security key details are present for analysis\n"
             "Safe sender policies are discussed\n"
             "Spam protection remains enabled by policy\n"
-            "The backup codes were reset yesterday"
+            "The backup codes were reset yesterday\n"
+            "The email mentions spam filter settings for manual review\n"
+            "The domain is already allow-listed by policy\n"
+            "Filtering metrics are summarized"
         )
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)

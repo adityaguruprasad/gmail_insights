@@ -611,21 +611,29 @@ _SECURITY_BACKUP_CODES_TARGET = (
     r"(?:(?:the|this|that|your|my|our)\s+)?backup\s+codes?\b"
 )
 _SECURITY_PROTECTION_TARGET = (
+    r"(?:(?:the|this|that|your|my|our)\s+)?"
     r"(?:spam|phishing|spam\s+and\s+phishing|phishing\s+and\s+spam)\s+"
-    r"(?:protection|filtering)\b"
+    r"(?:protection|filtering|filters?)\b"
 )
 _SECURITY_SENDER_TARGET = r"(?:(?:the|this|that)\s+)?sender\b"
+_SECURITY_SAFE_SENDER_ENTRY_TARGET = (
+    rf"(?:{_SECURITY_SENDER_TARGET}|{_EMAIL_TARGET}|"
+    r"(?:(?:the|this|that|your|my|our)\s+)?domains?\b|"
+    rf"{_BARE_DOMAIN_TARGET})"
+)
 _SECURITY_SAFE_SENDER_LIST_TARGET = (
     r"(?:(?:the|this|that|your|my|our)\s+)?"
     r"(?:safe\s+senders?|allow[-\s]?list|whitelist)(?:\s+list)?\b"
+)
+_SECURITY_FILTER_SCOPE_SUFFIX = (
+    rf"(?:\s+(?:for|from|in|on|within)\s+(?:{_SECURITY_SENDER_TARGET}|"
+    r"(?:(?:your|the|this|that|my|our)\s+)?"
+    r"(?:account|gmail|google\s+account|email\s+account|customer|user)))?"
 )
 _SECURITY_ACCOUNT_SETTING_SUFFIX = (
     r"(?:\s+(?:from|for|in|on|within)\s+"
     r"(?:(?:your|the|this|that|my|our)\s+)?"
     r"(?:account|gmail|google\s+account|email\s+account))?"
-)
-_SECURITY_SENDER_SCOPE_SUFFIX = (
-    rf"(?:\s+for\s+{_SECURITY_SENDER_TARGET})?"
 )
 _FORM_OBJECT = (
     r"(?:(?:the|this|that|an?|your)\s+)?"
@@ -1317,15 +1325,15 @@ _DIRECTIVE_PATTERNS = {
         ),
         re.compile(
             rf"{_ACTION_SUGGESTION_START}(?:disable|deactivate|turn\s+off|lower|reduce|weaken)\s+"
-            rf"{_SECURITY_PROTECTION_TARGET}{_SECURITY_SENDER_SCOPE_SUFFIX}"
+            rf"{_SECURITY_PROTECTION_TARGET}{_SECURITY_FILTER_SCOPE_SUFFIX}"
             rf"{_TARGET_END}"
         ),
         re.compile(
             rf"{_ACTION_SUGGESTION_START}(?:whitelist|allow[-\s]?list)\s+"
-            rf"{_SECURITY_SENDER_TARGET}{_TARGET_END}"
+            rf"{_SECURITY_SAFE_SENDER_ENTRY_TARGET}{_TARGET_END}"
         ),
         re.compile(
-            rf"{_ACTION_SUGGESTION_START}add\s+{_SECURITY_SENDER_TARGET}\s+"
+            rf"{_ACTION_SUGGESTION_START}add\s+{_SECURITY_SAFE_SENDER_ENTRY_TARGET}\s+"
             rf"to\s+{_SECURITY_SAFE_SENDER_LIST_TARGET}{_TARGET_END}"
         ),
     ],
