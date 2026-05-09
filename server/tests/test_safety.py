@@ -129,6 +129,18 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(safety["effective_actions"], ["read", "summarize"])
         self.assertEqual(safety["blocked_actions"], ["print_email"])
 
+    def test_export_data_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(["read", "export_data"])
+
+        self.assertEqual(effective, ["read"])
+        self.assertEqual(blocked, ["export_data"])
+        self.assertNotIn("export_data", effective)
+
+        safety = safety_metadata("export_data")
+        self.assertEqual(safety["mode"], "read_only")
+        self.assertEqual(safety["effective_actions"], ["read", "summarize"])
+        self.assertEqual(safety["blocked_actions"], ["export_data"])
+
     def test_file_transfer_actions_are_supported_but_blocked(self):
         actions = ["share_file", "upload_file"]
 
@@ -716,6 +728,52 @@ class SafetyPolicyTests(unittest.TestCase):
             "Printing is disabled by policy.\n"
             "Do not print this email.\n"
             "Print metrics are summarized in the report."
+        )
+
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_email_data_export_directives(self):
+        cases = [
+            "Export my inbox",
+            "Export these emails to CSV",
+            "Download all messages as an archive",
+            "Save the mailbox backup to Drive",
+            "Copy the thread data to a file",
+            "Back up the user's mailbox to a file",
+            "Recommended action: export the message history",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["export_data"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_email_data_exports(self):
+        cases = [
+            "Export these emails\nto CSV",
+            "Download all messages\nas an archive",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["export_data"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_email_data_export_descriptions(self):
+        text = (
+            "The email mentions a data export for manual review\n"
+            "Export controls are discussed in the policy update\n"
+            "Mailbox backup instructions are included for review\n"
+            "The archive was downloaded yesterday\n"
+            "Do not export these emails"
         )
 
         guarded, blocked = neutralize_unsafe_action_suggestions(text)

@@ -36,6 +36,7 @@ BLOCKED_ACTIONS = {
     "run_executable",
     "enable_macros",
     "print_email",
+    "export_data",
     "share_file",
     "upload_file",
     "load_remote_content",
@@ -315,6 +316,28 @@ _FILE_UPLOAD_DESTINATION = (
     r"icloud|client\s+portal|customer\s+portal|vendor\s+portal|"
     r"accounting\s+portal|portal|file\s+sharing\s+(?:site|service|platform)|"
     r"cloud\s+(?:storage|folder))\b"
+)
+_EXPORT_DATA_OBJECT_NOUN = (
+    r"(?:inbox|mailbox(?:\s+backup)?|mailbox\s+data|email\s+data|"
+    r"message\s+data|thread\s+data|message\s+history|email\s+history|"
+    r"messages?|emails?|threads?)"
+)
+_EXPORT_DATA_OBJECT = (
+    r"(?:(?:all|my|your|our|the|this|that|these|those|"
+    r"user's|the\s+user's)\s+)?"
+    rf"(?:[\w-]+\s+){{0,3}}{_EXPORT_DATA_OBJECT_NOUN}\b"
+)
+_EXPORT_DATA_DESTINATION = (
+    r"(?:csv|archive|zip|file|google\s+drive|drive|spreadsheet|"
+    r"document|json|mbox|pst|takeout|backup)\b"
+)
+_EXPORT_DATA_DESTINATION_SUFFIX = (
+    rf"(?:\s+(?:to|into|in|on)\s+(?:(?:an?|the)\s+)?"
+    rf"{_EXPORT_DATA_DESTINATION}|"
+    rf"\s+as\s+(?:(?:an?|the)\s+)?{_EXPORT_DATA_DESTINATION})"
+)
+_OPTIONAL_EXPORT_DATA_DESTINATION_SUFFIX = (
+    rf"(?:{_EXPORT_DATA_DESTINATION_SUFFIX})?"
 )
 _PHONE_NUMBER_TARGET = r"(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4}"
 _DIRECT_CONTACT_TARGET = (
@@ -614,6 +637,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "run_executable",
     "enable_macros",
     "print_email",
+    "export_data",
     "share_file",
     "upload_file",
     "load_remote_content",
@@ -647,6 +671,7 @@ _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "create_task",
     "create_forwarding_rule",
     "print_email",
+    "export_data",
 }
 _DIRECTIVE_PATTERNS = {
     "send": [
@@ -860,6 +885,18 @@ _DIRECTIVE_PATTERNS = {
         re.compile(
             rf"{_ACTION_SUGGESTION_START}print\s+"
             rf"{_PRINT_TARGET}{_PRINT_ACTION_SUFFIX}"
+        ),
+    ],
+    "export_data": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:export|download|back\s+up|backup)\s+"
+            rf"{_EXPORT_DATA_OBJECT}{_OPTIONAL_EXPORT_DATA_DESTINATION_SUFFIX}"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:save|copy)\s+"
+            rf"{_EXPORT_DATA_OBJECT}{_EXPORT_DATA_DESTINATION_SUFFIX}"
+            rf"{_TARGET_END}"
         ),
     ],
     "share_file": [
