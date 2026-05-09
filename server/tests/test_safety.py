@@ -205,6 +205,20 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(blocked, ["make_payment"])
         self.assertNotIn("make_payment", effective)
 
+    def test_payment_method_update_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(
+            ["read", "summarize", "update_payment_method"]
+        )
+
+        self.assertEqual(effective, ["read", "summarize"])
+        self.assertEqual(blocked, ["update_payment_method"])
+        self.assertNotIn("update_payment_method", effective)
+
+        safety = safety_metadata("update_payment_method")
+        self.assertEqual(safety["mode"], "read_only")
+        self.assertEqual(safety["effective_actions"], ["read", "summarize"])
+        self.assertEqual(safety["blocked_actions"], ["update_payment_method"])
+
     def test_password_change_action_is_supported_but_blocked(self):
         effective, blocked = evaluate_requested_actions(["read", "change_password"])
 
@@ -1505,6 +1519,57 @@ class SafetyPolicyTests(unittest.TestCase):
             "Invoice payment metrics are summarized.\n"
             "Pay attention to the customer.\n"
             "Pay close attention to the supplier invoice."
+        )
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_payment_method_updates(self):
+        cases = [
+            "Update your payment method.",
+            "Add a payment method to the portal.",
+            "Add your credit card to the account.",
+            "Update the billing details now.",
+            "Enter your bank account details in the billing form.",
+            "Provide your card details to the portal.",
+            "Recommended action: update the payment method using the link.",
+            "Action item: add a new credit card to your account.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["update_payment_method"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_payment_method_updates(self):
+        cases = [
+            "Update your\npayment method.",
+            "Enter your card details\nin the billing form.",
+            "Recommended action: update the payment\nmethod using the link.",
+            "Action item: add a new credit\ncard to your account.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n"
+                    "[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["update_payment_method"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_payment_method_descriptions(self):
+        text = (
+            "The email mentions payment method changes for manual review.\n"
+            "Billing details are present for analysis.\n"
+            "Payment method risk is high; do not update it.\n"
+            "The card details were updated yesterday.\n"
+            "The account includes billing preferences.\n"
+            "Do not add a payment method from this email.\n"
+            "The email mentions payment method changes\n"
+            "for manual review."
         )
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)

@@ -51,6 +51,7 @@ BLOCKED_ACTIONS = {
     "create_calendar_event",
     "create_task",
     "make_payment",
+    "update_payment_method",
     "sign_in",
     "change_password",
     "authorize_app",
@@ -475,6 +476,27 @@ _REFUND_TARGET_NOUN = (
     r"(?:customers?|clients?|buyers?|users?|accounts?|orders?|payments?|charges?|"
     r"transactions?|invoices?)"
 )
+_PAYMENT_METHOD_DETAIL_NOUN = (
+    r"(?:payment\s+methods?|payment\s+details|payment\s+information|"
+    r"credit\s+cards?|debit\s+cards?|cards?|card\s+details|card\s+information|"
+    r"bank\s+accounts?|bank\s+account\s+details|bank\s+details|"
+    r"billing\s+details|billing\s+information|billing\s+info)"
+)
+_PAYMENT_METHOD_DETAIL_TARGET = (
+    rf"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){{0,2}}"
+    rf"{_PAYMENT_METHOD_DETAIL_NOUN}\b"
+)
+_PAYMENT_METHOD_DESTINATION = (
+    r"(?:(?:the|this|that|your)\s+)?"
+    r"(?:accounts?|portals?|billing\s+forms?|billing\s+pages?|payment\s+forms?|"
+    r"payment\s+pages?|payment\s+portals?|forms?|websites?|sites?|apps?|"
+    r"applications?|links?)\b"
+)
+_PAYMENT_METHOD_ACTION_SUFFIX = (
+    rf"(?:\s+(?:to|into|in|on|through|via|using|with)\s+"
+    rf"{_PAYMENT_METHOD_DESTINATION})?"
+    rf"{_TARGET_END}"
+)
 _PASSWORD_CREDENTIAL_NOUN = r"(?:password|credentials?)"
 _PASSWORD_ACCOUNT_CONTEXT = (
     r"(?:(?:this|that|the|your|an?)\s+)?"
@@ -579,6 +601,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "create_calendar_event",
     "create_task",
     "make_payment",
+    "update_payment_method",
     "sign_in",
     "change_password",
     "authorize_app",
@@ -1018,6 +1041,18 @@ _DIRECTIVE_PATTERNS = {
             rf"{_ACTION_SUGGESTION_START}refund\s+"
             rf"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){{0,3}}"
             rf"{_REFUND_TARGET_NOUN}\b{_TARGET_END}"
+        ),
+    ],
+    "update_payment_method": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:update|add)\s+"
+            rf"{_PAYMENT_METHOD_DETAIL_TARGET}{_PAYMENT_METHOD_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:enter|provide)\s+"
+            rf"{_PAYMENT_METHOD_DETAIL_TARGET}\s+"
+            rf"(?:to|into|in|on|through|via|using|with)\s+"
+            rf"{_PAYMENT_METHOD_DESTINATION}{_TARGET_END}"
         ),
     ],
     "sign_in": [
