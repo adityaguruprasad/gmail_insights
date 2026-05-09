@@ -184,6 +184,9 @@ _DIRECT_CONTACT_TARGET = (
     r"(?:(?:the|this|that)\s+)?(?:sender|contact|customer|client|person|"
     r"phone\s+number|number)\b)"
 )
+_SMS_PRE_TARGET_MODIFIER = (
+    r"(?:(?:right\s+now|now|asap|immediately|as\s+soon\s+as\s+possible|please)\s+){0,3}"
+)
 _INVITE_NOUN = (
     r"(?:invites?|invitations?|calendar\s+invites?|calendar\s+invitations?|"
     r"meeting\s+invites?|meeting\s+invitations?)"
@@ -345,7 +348,7 @@ _DIRECTIVE_PATTERNS = {
         re.compile(rf"{_ACTION_SUGGESTION_START}(?:text|message)\s+{_DIRECT_CONTACT_TARGET}{_TARGET_END}"),
         re.compile(
             rf"{_ACTION_SUGGESTION_START}send\s+(?:an?\s+)?(?:sms|text(?:\s+message)?)\s+"
-            rf"to\s+{_DIRECT_CONTACT_TARGET}{_TARGET_END}"
+            rf"{_SMS_PRE_TARGET_MODIFIER}to\s+{_DIRECT_CONTACT_TARGET}{_TARGET_END}"
         ),
         re.compile(
             rf"{_ACTION_SUGGESTION_START}send\s+(?:an?\s+)?"

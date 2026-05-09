@@ -373,8 +373,11 @@ class SafetyPolicyTests(unittest.TestCase):
             ("Recommended action: call the number.", "call_phone"),
             ("Text the sender.", "send_sms"),
             ("Send an SMS now.", "send_sms"),
+            ("Send an SMS now to the customer.", "send_sms"),
             ("Send an SMS to this phone number.", "send_sms"),
             ("Send a text message immediately.", "send_sms"),
+            ("Send a text message immediately to the client.", "send_sms"),
+            ("Action item: send an SMS now to the phone number.", "send_sms"),
             ("Message +1 415-555-1212.", "send_sms"),
             ("Recommended action: text the phone number.", "send_sms"),
         ]
@@ -389,6 +392,7 @@ class SafetyPolicyTests(unittest.TestCase):
         cases = [
             ("Call the\nphone number.", "call_phone"),
             ("Send an SMS\nto the sender.", "send_sms"),
+            ("Send an SMS now to\nthe customer.", "send_sms"),
             ("Recommended action: call\nthe number.", "call_phone"),
             ("Recommended action: text\nthe phone number.", "send_sms"),
         ]
@@ -407,6 +411,7 @@ class SafetyPolicyTests(unittest.TestCase):
             "The email includes a phone number.\n"
             "The sender requests a call next week.\n"
             "SMS verification is mentioned in the message.\n"
+            "Summary: SMS response metrics and text message volume are discussed.\n"
             "Call notes are attached."
         )
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
