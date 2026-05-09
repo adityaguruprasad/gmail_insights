@@ -662,6 +662,33 @@ class SafetyPolicyTests(unittest.TestCase):
                 self.assertEqual(guarded, "[Unsafe action suggestion removed]")
                 self.assertEqual(blocked, [action])
 
+    def test_neutralize_unsafe_action_suggestions_blocks_forward_exfiltration_directives(self):
+        cases = [
+            "Forward the invoice to accounting@example.com",
+            "Please forward the attachment to the sender",
+            "Recommended action: forward this document to the customer",
+            "Action item: forward the report to the client immediately",
+            "Forward the email content to security",
+            "Forward this file to the contact",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["forward"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_forwarding_descriptions(self):
+        text = (
+            "Summary: The message was forwarded yesterday.\n"
+            "Summary: Forward-looking revenue appears in the report.\n"
+            "Summary: The email mentions a forwarded invoice.\n"
+            "Summary: Draft a reply about whether forwarding is allowed by policy."
+        )
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
     def test_neutralize_unsafe_action_suggestions_blocks_permanent_delete(self):
         cases = [
             "- Permanently delete this email.",

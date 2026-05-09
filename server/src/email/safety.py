@@ -39,7 +39,8 @@ BLOCKED_ACTIONS = {
     "create_calendar_event",
 }
 
-_EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+_EMAIL_TARGET = r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
+_EMAIL_RE = re.compile(rf"\b{_EMAIL_TARGET}\b")
 _PHONE_RE = re.compile(r"\b(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4}\b")
 _BEARER_TOKEN_RE = re.compile(
     r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]{16,}(?=$|[\s,;)\]}>\"'])"
@@ -183,6 +184,26 @@ _ATTACHMENT_TARGET = (
     rf"{_BARE_ATTACHMENT_FILE_TARGET}{_TARGET_END}"
     rf")"
 )
+# Forward exfiltration extends attachment/file nouns with email/message/thread content nouns.
+_FORWARD_EXFIL_OBJECT_NOUN = (
+    rf"(?:attachments?|email\s+contents?|message\s+contents?|"
+    rf"thread\s+contents?|{_ATTACHED_FILE_NOUN})"
+)
+_FORWARD_EXFIL_OBJECT = (
+    rf"(?:(?:the|this|that|an?|your)\s+)?"
+    rf"(?:[\w-]+\s+){{0,3}}{_FORWARD_EXFIL_OBJECT_NOUN}\b"
+)
+_FORWARD_RECIPIENT_NOUN = (
+    r"(?:sender|recipient|contact|customer|client|person|address|"
+    r"email\s+address|accounting|security|team|owner|vendor|supplier)"
+)
+_FORWARD_RECIPIENT_TARGET = (
+    rf"(?:{_EMAIL_TARGET}|(?:(?:the|this|that|an?)\s+)?"
+    rf"(?:[\w-]+\s+){{0,4}}{_FORWARD_RECIPIENT_NOUN}\b)"
+)
+_FORWARD_EXFIL_TARGET = (
+    rf"{_FORWARD_EXFIL_OBJECT}\s+to\s+{_FORWARD_RECIPIENT_TARGET}{_TARGET_END}"
+)
 _PHONE_NUMBER_TARGET = r"(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4}"
 _DIRECT_CONTACT_TARGET = (
     rf"(?:{_PHONE_NUMBER_TARGET}|"
@@ -258,8 +279,12 @@ _DIRECTIVE_PATTERNS = {
     ],
     "forward": [
         re.compile(rf"{_DIRECTIVE_START}forward\s+(?:to|{_MAILBOX_OBJECT})\b"),
+        re.compile(rf"{_DIRECTIVE_START}forward\s+{_FORWARD_EXFIL_TARGET}"),
         re.compile(
             rf"{_RECOMMENDATION_PREFIX}\bforward\s+(?:to|{_MAILBOX_OBJECT})\b"
+        ),
+        re.compile(
+            rf"{_RECOMMENDATION_PREFIX}\bforward\s+{_FORWARD_EXFIL_TARGET}"
         ),
     ],
     "modify_labels": [
