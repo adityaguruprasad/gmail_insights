@@ -91,6 +91,20 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(blocked, sorted(actions))
         self.assertFalse(set(actions).intersection(effective))
 
+    def test_calendar_rsvp_follow_up_actions_are_supported_but_blocked(self):
+        actions = [
+            "accept_invite",
+            "decline_invite",
+            "tentative_invite",
+            "create_calendar_event",
+        ]
+
+        effective, blocked = evaluate_requested_actions(actions)
+
+        self.assertEqual(effective, ["read", "summarize"])
+        self.assertEqual(blocked, sorted(actions))
+        self.assertFalse(set(actions).intersection(effective))
+
     def test_safety_metadata_read_only_mode(self):
         safety = safety_metadata("draft,archive_suggestion")
         self.assertEqual(safety["mode"], "read_only")
@@ -394,6 +408,66 @@ class SafetyPolicyTests(unittest.TestCase):
             "The sender requests a call next week.\n"
             "SMS verification is mentioned in the message.\n"
             "Call notes are attached."
+        )
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_calendar_rsvp_directives(self):
+        cases = [
+            ("Accept the invite.", "accept_invite"),
+            ("Accept this invitation.", "accept_invite"),
+            ("Accept the calendar invite.", "accept_invite"),
+            ("Accept the meeting invitation.", "accept_invite"),
+            ("Action item: RSVP yes to the invitation.", "accept_invite"),
+            ("Decline the invite.", "decline_invite"),
+            ("Decline the calendar invite.", "decline_invite"),
+            ("Reject the meeting invitation.", "decline_invite"),
+            ("Recommended action: RSVP no to the calendar invite.", "decline_invite"),
+            ("RSVP maybe to the invite.", "tentative_invite"),
+            ("RSVP tentative to the meeting invitation.", "tentative_invite"),
+            ("Mark the invite as tentative.", "tentative_invite"),
+            ("Mark the calendar invitation tentative.", "tentative_invite"),
+            ("Add a calendar event from this email.", "create_calendar_event"),
+            ("Create a calendar event from the message.", "create_calendar_event"),
+            ("Schedule a meeting from this thread.", "create_calendar_event"),
+            (
+                "Recommended action: create a calendar event from this email.",
+                "create_calendar_event",
+            ),
+        ]
+
+        for text, action in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, [action])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_calendar_rsvp_directives(self):
+        cases = [
+            ("Accept the\ninvite.", "accept_invite"),
+            ("Decline the calendar\ninvite.", "decline_invite"),
+            ("Reject the meeting\ninvitation.", "decline_invite"),
+            ("RSVP maybe\nto the invitation.", "tentative_invite"),
+            ("Mark the meeting\ninvitation as tentative.", "tentative_invite"),
+            ("Create a calendar event\nfrom this message.", "create_calendar_event"),
+            ("Schedule a meeting from\nthe email.", "create_calendar_event"),
+        ]
+
+        for text, action in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, [action])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_calendar_rsvp_descriptions(self):
+        text = (
+            "The invite was accepted yesterday.\n"
+            "The email contains a calendar invitation.\n"
+            "RSVP instructions are included."
         )
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)

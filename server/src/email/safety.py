@@ -32,6 +32,10 @@ BLOCKED_ACTIONS = {
     "download_attachment",
     "call_phone",
     "send_sms",
+    "accept_invite",
+    "decline_invite",
+    "tentative_invite",
+    "create_calendar_event",
 }
 
 _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
@@ -180,6 +184,20 @@ _DIRECT_CONTACT_TARGET = (
     r"(?:(?:the|this|that)\s+)?(?:sender|contact|customer|client|person|"
     r"phone\s+number|number)\b)"
 )
+_INVITE_NOUN = (
+    r"(?:invites?|invitations?|calendar\s+invites?|calendar\s+invitations?|"
+    r"meeting\s+invites?|meeting\s+invitations?)"
+)
+_INVITE_TARGET = (
+    rf"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){{0,2}}{_INVITE_NOUN}\b"
+)
+_CALENDAR_EVENT_TARGET = (
+    r"(?:(?:a|an|the|this|that|your)\s+)?(?:calendar\s+events?|meetings?)\b"
+)
+_CALENDAR_SOURCE_TARGET = (
+    r"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){0,2}"
+    r"(?:email|message|thread)\b"
+)
 _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "modify_labels",
     "unsubscribe",
@@ -189,6 +207,10 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "download_attachment",
     "call_phone",
     "send_sms",
+    "accept_invite",
+    "decline_invite",
+    "tentative_invite",
+    "create_calendar_event",
 }
 _DIRECTIVE_PATTERNS = {
     "send": [
@@ -328,6 +350,27 @@ _DIRECTIVE_PATTERNS = {
         re.compile(
             rf"{_ACTION_SUGGESTION_START}send\s+(?:an?\s+)?"
             rf"(?:sms|text(?:\s+message)?)\b{_DIRECT_SMS_TARGET_END}"
+        ),
+    ],
+    "accept_invite": [
+        re.compile(rf"{_ACTION_SUGGESTION_START}accept\s+{_INVITE_TARGET}"),
+        re.compile(rf"{_ACTION_SUGGESTION_START}rsvp\s+yes\s+to\s+{_INVITE_TARGET}"),
+    ],
+    "decline_invite": [
+        re.compile(rf"{_ACTION_SUGGESTION_START}(?:decline|reject)\s+{_INVITE_TARGET}"),
+        re.compile(rf"{_ACTION_SUGGESTION_START}rsvp\s+no\s+to\s+{_INVITE_TARGET}"),
+    ],
+    "tentative_invite": [
+        re.compile(rf"{_ACTION_SUGGESTION_START}rsvp\s+(?:maybe|tentative)\s+to\s+{_INVITE_TARGET}"),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}mark\s+{_INVITE_TARGET}\s+"
+            r"(?:as\s+)?tentative\b"
+        ),
+    ],
+    "create_calendar_event": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:add|create|schedule)\s+"
+            rf"{_CALENDAR_EVENT_TARGET}\s+from\s+{_CALENDAR_SOURCE_TARGET}"
         ),
     ],
 }
