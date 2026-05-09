@@ -206,6 +206,18 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(safety["effective_actions"], ["read", "summarize"])
         self.assertEqual(safety["blocked_actions"], ["submit_form"])
 
+    def test_sign_in_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(["read", "sign_in"])
+
+        self.assertEqual(effective, ["read"])
+        self.assertEqual(blocked, ["sign_in"])
+        self.assertNotIn("sign_in", effective)
+
+        safety = safety_metadata("sign_in")
+        self.assertEqual(safety["mode"], "read_only")
+        self.assertEqual(safety["effective_actions"], ["read", "summarize"])
+        self.assertEqual(safety["blocked_actions"], ["sign_in"])
+
     def test_safety_metadata_read_only_mode(self):
         safety = safety_metadata("draft,archive_suggestion")
         self.assertEqual(safety["mode"], "read_only")
@@ -777,6 +789,89 @@ class SafetyPolicyTests(unittest.TestCase):
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)
         self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_sign_in_directives(self):
+        cases = [
+            "Sign in.",
+            "Log in now.",
+            "Login to the app.",
+            "Sign in to the portal.",
+            "Log into your account.",
+            "Authenticate on the portal.",
+            "Authenticate your account.",
+            "Access the customer portal from this email.",
+            "Recommended action: sign in to the portal.",
+            "Action item: log into your account.",
+            "Please verify your account.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["sign_in"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_sign_in_directives(self):
+        cases = [
+            "Sign in to\nyour account.",
+            "Sign in\nto your account.",
+            "Authenticate\non the portal.",
+            "Action item: log into\nyour account.",
+            "Please verify\nyour account.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["sign_in"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_sign_in_descriptions(self):
+        text = (
+            "The email asks you to sign in for manual review.\n"
+            "Login instructions are included.\n"
+            "The account was accessed yesterday.\n"
+            "Sign-in risk is high; do not sign in.\n"
+            "Authentication details are present for analysis."
+        )
+
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_sign_in_neighboring_lines(self):
+        text = (
+            "Summary: Review the sender context.\n"
+            "Sign in to\n"
+            "your account.\n"
+            "Authentication details are present for analysis."
+        )
+
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+
+        self.assertEqual(
+            guarded,
+            "Summary: Review the sender context.\n"
+            "[Unsafe action suggestion removed]\n"
+            "[Unsafe action suggestion removed]\n"
+            "Authentication details are present for analysis.",
+        )
+        self.assertEqual(blocked, ["sign_in"])
+
+    def test_neutralize_unsafe_action_suggestions_reports_sign_in_label_with_other_blocks(self):
+        text = "Please verify your account.\nClick the link."
+
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+
+        self.assertEqual(
+            guarded,
+            "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+        )
+        self.assertEqual(blocked, ["click_link", "sign_in"])
 
     def test_neutralize_unsafe_action_suggestions_blocks_password_change_directives(self):
         cases = [

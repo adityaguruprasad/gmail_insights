@@ -47,6 +47,7 @@ BLOCKED_ACTIONS = {
     "create_calendar_event",
     "create_task",
     "make_payment",
+    "sign_in",
     "change_password",
     "authorize_app",
     "submit_form",
@@ -329,6 +330,24 @@ _VERIFICATION_CODE_ACTION_SUFFIX = (
     rf"(?:{_VERIFICATION_CODE_DESTINATION_SUFFIX}|{_VERIFICATION_CODE_PURPOSE_SUFFIX})"
     rf"{_TARGET_END}"
 )
+_SIGN_IN_TARGET_NOUN = (
+    r"(?:accounts?|portals?|sites?|websites?|webpages?|apps?|applications?|gmail|"
+    r"login(?:\s+(?:page|screen|portal|site))?|"
+    r"sign[-\s]?in(?:\s+(?:page|screen|portal|site))?)"
+)
+_SIGN_IN_TARGET = (
+    r"(?:(?:the|this|that|your|an?)\s+)?(?:[\w-]+\s+){0,3}"
+    rf"{_SIGN_IN_TARGET_NOUN}\b"
+)
+_SIGN_IN_SOURCE_SUFFIX = (
+    r"(?:\s+from\s+(?:(?:the|this|that|an?)\s+)?(?:email|message|thread))?"
+)
+_SIGN_IN_ACTION_END = rf"{_SIGN_IN_SOURCE_SUFFIX}{_TARGET_END}"
+_SIGN_IN_DESTINATION_SUFFIX = (
+    rf"(?:\s+(?:to|into|on|onto|at|through|via|with)\s+{_SIGN_IN_TARGET})?"
+)
+_SIGN_IN_SESSION_VERB = r"(?:sign\s+in|log\s+in|login|authenticate)\b"
+_SIGN_IN_COMPACT_VERB = r"(?:sign\s+into|log\s+into)\b"
 _NON_VERIFICATION_CODE_SEND_TARGET_START = (
     rf"(?!(?:{_VERIFICATION_CODE_TARGET}{_VERIFICATION_CODE_ACTION_SUFFIX}|"
     rf"{_VERIFICATION_CODE_TARGET_PREFIX}{_TARGET_END}))"
@@ -491,11 +510,13 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "create_calendar_event",
     "create_task",
     "make_payment",
+    "sign_in",
     "change_password",
     "authorize_app",
     "submit_form",
 }
 _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
+    "sign_in",
     "change_password",
     "authorize_app",
     "create_task",
@@ -859,6 +880,24 @@ _DIRECTIVE_PATTERNS = {
             rf"{_ACTION_SUGGESTION_START}refund\s+"
             rf"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){{0,3}}"
             rf"{_REFUND_TARGET_NOUN}\b{_TARGET_END}"
+        ),
+    ],
+    "sign_in": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}{_SIGN_IN_SESSION_VERB}"
+            rf"{_SIGN_IN_DESTINATION_SUFFIX}{_SIGN_IN_ACTION_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}{_SIGN_IN_COMPACT_VERB}\s+"
+            rf"{_SIGN_IN_TARGET}{_SIGN_IN_ACTION_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}authenticate\s+"
+            rf"{_SIGN_IN_TARGET}{_SIGN_IN_ACTION_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:verify|access)\s+"
+            rf"{_SIGN_IN_TARGET}{_SIGN_IN_ACTION_END}"
         ),
     ],
     "change_password": [
