@@ -222,7 +222,8 @@ _INVITE_TARGET = (
     rf"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){{0,2}}{_INVITE_NOUN}\b"
 )
 _CALENDAR_EVENT_TARGET = (
-    r"(?:(?:a|an|the|this|that|your)\s+)?(?:calendar\s+events?|meetings?)\b"
+    r"(?:(?:a|an|the|this|that|your)\s+)?(?:[\w-]+\s+){0,3}"
+    r"(?:calendar\s+events?|meetings?|appointments?)\b"
 )
 _CALENDAR_SOURCE_TARGET = (
     r"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){0,2}"
@@ -486,6 +487,10 @@ _DIRECTIVE_PATTERNS = {
         ),
         re.compile(
             rf"{_ACTION_SUGGESTION_START}add\s+{_INVITE_TARGET}\s+"
+            rf"to\s+{_CALENDAR_LOCATION_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}add\s+{_CALENDAR_EVENT_TARGET}\s+"
             rf"to\s+{_CALENDAR_LOCATION_TARGET}{_TARGET_END}"
         ),
         re.compile(

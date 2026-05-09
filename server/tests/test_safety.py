@@ -589,10 +589,18 @@ class SafetyPolicyTests(unittest.TestCase):
             ("Add a calendar event from this email.", "create_calendar_event"),
             ("Create a calendar event from the message.", "create_calendar_event"),
             ("Schedule a meeting from this thread.", "create_calendar_event"),
+            ("Add the meeting to my calendar.", "create_calendar_event"),
+            ("Add the calendar event to my calendar.", "create_calendar_event"),
+            ("Add this appointment to the calendar.", "create_calendar_event"),
+            ("Add the client meeting to your calendar.", "create_calendar_event"),
             ("Add this invite to my calendar.", "create_calendar_event"),
             ("Put the meeting on the calendar.", "create_calendar_event"),
             (
                 "Recommended action: add the calendar invite to your calendar.",
+                "create_calendar_event",
+            ),
+            (
+                "Recommended action: add the appointment to the calendar.",
                 "create_calendar_event",
             ),
             ("Add to calendar from this email.", "create_calendar_event"),
@@ -618,6 +626,8 @@ class SafetyPolicyTests(unittest.TestCase):
             ("Create a calendar event\nfrom this message.", "create_calendar_event"),
             ("Schedule a meeting from\nthe email.", "create_calendar_event"),
             ("Add this invite\nto the calendar.", "create_calendar_event"),
+            ("Add the meeting\nto my calendar.", "create_calendar_event"),
+            ("Add the appointment\nto the calendar.", "create_calendar_event"),
         ]
 
         for text, action in cases:
@@ -635,7 +645,9 @@ class SafetyPolicyTests(unittest.TestCase):
             "The email contains a calendar invitation.\n"
             "Add-to-calendar instructions are included in the message.\n"
             "The meeting is already on the calendar.\n"
+            "The appointment is already on the calendar.\n"
             "Calendar availability is discussed.\n"
+            "Appointment details are included for manual review.\n"
             "RSVP instructions are included."
         )
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
