@@ -344,6 +344,33 @@ class QueryInsightsValidationTests(unittest.TestCase):
         )
         mock_gmail.assert_not_called()
 
+    def test_file_transfer_requested_actions_are_supported_but_blocked(self):
+        requested_actions = ["share_file", "upload_file"]
+
+        with patch("app._gmail_service_from_token") as mock_gmail:
+            response = self.client.post(
+                "/query_insights",
+                json={
+                    "token": "test-token",
+                    "query": "in:inbox",
+                    "requested_actions": requested_actions,
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+        body = response.get_json()
+        self.assertIn("Blocked actions requested", body["error"])
+        self.assertNotIn("unsupported action", body["error"])
+        self.assertEqual(
+            body["safety"],
+            {
+                "mode": "read_only",
+                "effective_actions": ["read", "summarize"],
+                "blocked_actions": sorted(requested_actions),
+            },
+        )
+        mock_gmail.assert_not_called()
+
     def test_mailbox_mutation_requested_actions_are_supported_but_blocked(self):
         mutation_actions = [
             "mark_read",

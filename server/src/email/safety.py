@@ -32,6 +32,8 @@ BLOCKED_ACTIONS = {
     "open_link",
     "open_attachment",
     "download_attachment",
+    "share_file",
+    "upload_file",
     "load_remote_content",
     "scan_qr_code",
     "call_phone",
@@ -211,6 +213,11 @@ _ATTACHMENT_TARGET = (
     rf"{_BARE_ATTACHMENT_FILE_TARGET}{_TARGET_END}"
     rf")"
 )
+_FILE_OBJECT_NOUN = rf"(?:attachments?|{_ATTACHED_FILE_NOUN})"
+_FILE_OBJECT_TARGET = (
+    rf"(?:(?:the|this|that|an?|your)\s+)?"
+    rf"(?:[\w-]+\s+){{0,3}}{_FILE_OBJECT_NOUN}\b"
+)
 # Forward exfiltration extends attachment/file nouns with email/message/thread content nouns.
 _FORWARD_EXFIL_OBJECT_NOUN = (
     rf"(?:attachments?|email\s+contents?|message\s+contents?|"
@@ -230,6 +237,13 @@ _FORWARD_RECIPIENT_TARGET = (
 )
 _FORWARD_EXFIL_TARGET = (
     rf"{_FORWARD_EXFIL_OBJECT}\s+to\s+{_FORWARD_RECIPIENT_TARGET}{_TARGET_END}"
+)
+_FILE_UPLOAD_DESTINATION = (
+    r"(?:(?:the|this|that|your)\s+)?"
+    r"(?:google\s+drive|drive|dropbox|one\s*drive|onedrive|sharepoint|"
+    r"icloud|client\s+portal|customer\s+portal|vendor\s+portal|"
+    r"accounting\s+portal|portal|file\s+sharing\s+(?:site|service|platform)|"
+    r"cloud\s+(?:storage|folder))\b"
 )
 _PHONE_NUMBER_TARGET = r"(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4}"
 _DIRECT_CONTACT_TARGET = (
@@ -437,6 +451,8 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "open_link",
     "open_attachment",
     "download_attachment",
+    "share_file",
+    "upload_file",
     "load_remote_content",
     "scan_qr_code",
     "call_phone",
@@ -605,6 +621,35 @@ _DIRECTIVE_PATTERNS = {
     ],
     "download_attachment": [
         re.compile(rf"{_ACTION_SUGGESTION_START}download\s+{_ATTACHMENT_TARGET}"),
+    ],
+    "share_file": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}share\s+{_FILE_OBJECT_TARGET}\s+"
+            rf"(?:with|to)\s+{_FORWARD_RECIPIENT_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:grant|give)\s+access\s+"
+            rf"to\s+{_FILE_OBJECT_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:grant|give)\s+"
+            rf"{_FORWARD_RECIPIENT_TARGET}\s+access\s+to\s+"
+            rf"{_FILE_OBJECT_TARGET}{_TARGET_END}"
+        ),
+    ],
+    "upload_file": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}upload\s+{_FILE_OBJECT_TARGET}\s+"
+            rf"(?:to|into|onto|on)\s+{_FILE_UPLOAD_DESTINATION}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}save\s+{_FILE_OBJECT_TARGET}\s+"
+            rf"(?:to|into|in|on)\s+{_FILE_UPLOAD_DESTINATION}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}add\s+{_FILE_OBJECT_TARGET}\s+"
+            rf"to\s+{_FILE_UPLOAD_DESTINATION}{_TARGET_END}"
+        ),
     ],
     "load_remote_content": [
         re.compile(
