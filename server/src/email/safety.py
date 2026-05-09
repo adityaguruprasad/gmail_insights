@@ -35,6 +35,8 @@ BLOCKED_ACTIONS = {
     "scan_qr_code",
     "call_phone",
     "send_sms",
+    "create_contact",
+    "update_contact",
     "use_verification_code",
     "accept_invite",
     "decline_invite",
@@ -231,6 +233,35 @@ _DIRECT_CONTACT_TARGET = (
     r"(?:(?:the|this|that)\s+)?(?:sender|contact|customer|client|person|"
     r"phone\s+number|number)\b)"
 )
+# Contact book targets are destinations for adding/saving entries.
+_CONTACT_BOOK_TARGET = r"(?:(?:my|your|the)\s+)?(?:contacts?|address\s+book)\b"
+# Contact source targets identify the thing being saved as a contact.
+_CONTACT_SOURCE_TARGET = (
+    rf"(?:{_PHONE_NUMBER_TARGET}|{_EMAIL_TARGET}|"
+    r"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){0,2}"
+    r"(?:sender|recipient|customer|client|person|phone\s+number|number|"
+    r"email\s+address|contact\s+details|contact\s+information|email|message|thread)\b)"
+)
+_CONTACT_DESCRIPTOR = r"(?:(?:[\w-]+\s+){0,2})"
+# Contact record targets identify existing address-book records to update.
+_CONTACT_RECORD_NOUN = (
+    r"(?:contact\s+records?|address\s+book\s+entr(?:y|ies)|customer\s+contacts?|"
+    r"client\s+contacts?|contact)"
+)
+_CONTACT_RECORD_TARGET = (
+    rf"(?:(?:the|this|that|an?|your)\s+)?{_CONTACT_DESCRIPTOR}"
+    rf"{_CONTACT_RECORD_NOUN}\b"
+)
+# Contact detail targets are fields/details being written to an existing contact.
+_CONTACT_DETAIL_TARGET = (
+    rf"(?:{_PHONE_NUMBER_TARGET}|{_EMAIL_TARGET}|"
+    r"(?:(?:the|this|that|these|those|an?|your)\s+)?(?:[\w-]+\s+){0,3}"
+    r"(?:phone\s+number|number|email\s+address|address|contact\s+details|"
+    r"contact\s+information|details|info)\b)"
+)
+_CONTACT_MUTATION_END = (
+    rf"(?=\s*(?:[.!?,:;]|\b{_URGENCY_SUFFIX}\b\s*(?:$|[.!?,:;])))"
+)
 _SMS_PRE_TARGET_MODIFIER = (
     r"(?:(?:right\s+now|now|asap|immediately|as\s+soon\s+as\s+possible|please)\s+){0,3}"
 )
@@ -295,6 +326,8 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "scan_qr_code",
     "call_phone",
     "send_sms",
+    "create_contact",
+    "update_contact",
     "use_verification_code",
     "accept_invite",
     "decline_invite",
@@ -485,6 +518,36 @@ _DIRECTIVE_PATTERNS = {
         re.compile(
             rf"{_ACTION_SUGGESTION_START}send\s+(?:an?\s+)?"
             rf"(?:sms|text(?:\s+message)?)\b{_DIRECT_SMS_TARGET_END}"
+        ),
+    ],
+    "create_contact": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}create\s+(?:an?\s+)?"
+            rf"{_CONTACT_DESCRIPTOR}contact{_CONTACT_MUTATION_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:add|save)\s+{_CONTACT_SOURCE_TARGET}\s+"
+            rf"(?:to\s+{_CONTACT_BOOK_TARGET}|as\s+(?:an?\s+)?"
+            rf"{_CONTACT_DESCRIPTOR}contact){_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}create\s+(?:an?\s+)?"
+            rf"{_CONTACT_DESCRIPTOR}contact\s+"
+            rf"from\s+{_CONTACT_SOURCE_TARGET}{_TARGET_END}"
+        ),
+    ],
+    "update_contact": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:update|edit)\s+"
+            rf"{_CONTACT_RECORD_TARGET}{_CONTACT_MUTATION_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:update|edit)\s+{_CONTACT_RECORD_TARGET}\s+"
+            rf"(?:with|using)\s+{_CONTACT_DETAIL_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}add\s+{_CONTACT_DETAIL_TARGET}\s+"
+            rf"to\s+{_CONTACT_RECORD_TARGET}{_TARGET_END}"
         ),
     ],
     "use_verification_code": [
