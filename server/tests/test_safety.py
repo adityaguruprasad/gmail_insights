@@ -82,6 +82,13 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(blocked, sorted(actions))
         self.assertFalse(set(actions).intersection(effective))
 
+    def test_qr_code_follow_up_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(["read", "scan_qr_code"])
+
+        self.assertEqual(effective, ["read"])
+        self.assertEqual(blocked, ["scan_qr_code"])
+        self.assertNotIn("scan_qr_code", effective)
+
     def test_direct_contact_follow_up_actions_are_supported_but_blocked(self):
         actions = ["call_phone", "send_sms"]
 
@@ -364,6 +371,54 @@ class SafetyPolicyTests(unittest.TestCase):
                     "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
                 )
                 self.assertEqual(blocked, [action])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_qr_code_directives(self):
+        cases = [
+            "Scan the QR code.",
+            "Scan this code now.",
+            "Recommended action: scan the QR code.",
+            "Use the QR code to sign in.",
+            "Follow the QR code.",
+            "Follow the QR code to sign in.",
+            "Tap the QR code to verify.",
+            "Click the QR code link.",
+            "Click on the QR code URL.",
+            "Open the QR code link.",
+            "Visit the QR code URL.",
+            "Scan the QR code to pay the invoice.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertIn("scan_qr_code", blocked)
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_qr_code_directives(self):
+        cases = [
+            "Scan the\nQR code.",
+            "Use the QR\ncode to sign in.",
+            "Recommended action: scan\nthe QR code.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["scan_qr_code"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_qr_code_descriptions(self):
+        text = (
+            "Summary: The email contains a QR code for manual review.\n"
+            "QR code instructions are included in the message.\n"
+            "The sender mentions a QR code but no automated action is required."
+        )
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
 
     def test_neutralize_unsafe_action_suggestions_blocks_direct_contact_follow_up_directives(self):
         cases = [

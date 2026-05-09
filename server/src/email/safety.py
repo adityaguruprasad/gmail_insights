@@ -30,6 +30,7 @@ BLOCKED_ACTIONS = {
     "open_link",
     "open_attachment",
     "download_attachment",
+    "scan_qr_code",
     "call_phone",
     "send_sms",
     "accept_invite",
@@ -159,6 +160,10 @@ _LINK_TARGET = (
     rf"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){{0,4}}{_LINK_NOUN})"
 )
 _CLICK_LINK_TARGET = rf"(?:here|{_LINK_TARGET})"
+_QR_EXPLICIT_TARGET = r"(?:(?:the|this|that|an?|your)\s+)?qr\s+codes?\b"
+_QR_SCAN_TARGET = r"(?:(?:the|this|that|an?|your)\s+)?(?:qr\s+)?codes?\b"
+_QR_LINK_TARGET = r"(?:(?:the|this|that|an?|your)\s+)?qr\s+codes?\s+(?:links?|urls?)\b"
+_QR_PURPOSE_SUFFIX = r"(?:\s+to\s+[\w-]+(?:\s+[\w-]+){0,8})?"
 _ATTACHED_FILE_NOUN = (
     r"(?:file|files|pdf|pdfs|document|documents|doc|docs|spreadsheet|spreadsheets|"
     r"image|images|invoice|invoices|report|reports|form|forms)"
@@ -208,6 +213,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "open_link",
     "open_attachment",
     "download_attachment",
+    "scan_qr_code",
     "call_phone",
     "send_sms",
     "accept_invite",
@@ -340,6 +346,28 @@ _DIRECTIVE_PATTERNS = {
     ],
     "download_attachment": [
         re.compile(rf"{_ACTION_SUGGESTION_START}download\s+{_ATTACHMENT_TARGET}"),
+    ],
+    "scan_qr_code": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}scan\s+{_QR_SCAN_TARGET}"
+            rf"{_QR_PURPOSE_SUFFIX}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}use\s+{_QR_EXPLICIT_TARGET}"
+            rf"{_QR_PURPOSE_SUFFIX}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:follow|tap)\s+{_QR_EXPLICIT_TARGET}"
+            rf"{_QR_PURPOSE_SUFFIX}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}click\s+(?:on\s+)?"
+            rf"{_QR_LINK_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:follow|open|visit)\s+"
+            rf"{_QR_LINK_TARGET}{_TARGET_END}"
+        ),
     ],
     "call_phone": [
         re.compile(rf"{_ACTION_SUGGESTION_START}call\s+{_DIRECT_CONTACT_TARGET}{_TARGET_END}"),
