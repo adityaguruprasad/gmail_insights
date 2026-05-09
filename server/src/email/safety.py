@@ -51,6 +51,7 @@ BLOCKED_ACTIONS = {
     "tentative_invite",
     "create_calendar_event",
     "create_task",
+    "provide_sensitive_info",
     "make_payment",
     "update_payment_method",
     "sign_in",
@@ -502,8 +503,11 @@ _REFUND_TARGET_NOUN = (
 )
 _PAYMENT_METHOD_DETAIL_NOUN = (
     r"(?:payment\s+methods?|payment\s+details|payment\s+information|"
-    r"credit\s+cards?|debit\s+cards?|cards?|card\s+details|card\s+information|"
-    r"bank\s+accounts?|bank\s+account\s+details|bank\s+details|"
+    r"credit\s+card(?:\s+(?:numbers?|details|information|info))?|"
+    r"debit\s+card(?:\s+(?:numbers?|details|information|info))?|"
+    r"cards?|card\s+(?:numbers?|details|information|info)|"
+    r"bank\s+account(?:\s+(?:numbers?|details|information|info))?|"
+    r"routing\s+numbers?|bank\s+details|"
     r"billing\s+details|billing\s+information|billing\s+info)"
 )
 _PAYMENT_METHOD_DETAIL_TARGET = (
@@ -512,8 +516,9 @@ _PAYMENT_METHOD_DETAIL_TARGET = (
 )
 _PAYMENT_METHOD_DESTINATION = (
     r"(?:(?:the|this|that|your)\s+)?"
-    r"(?:accounts?|portals?|billing\s+forms?|billing\s+pages?|payment\s+forms?|"
-    r"payment\s+pages?|payment\s+portals?|forms?|websites?|sites?|apps?|"
+    r"(?:accounts?|portals?|billing\s+(?:forms?|pages?|portals?|sites?|links?|accounts?|apps?|applications?)|"
+    r"payment\s+(?:forms?|pages?|portals?|sites?|links?|accounts?|apps?|applications?)|"
+    r"forms?|websites?|sites?|apps?|"
     r"applications?|links?)\b"
 )
 _PAYMENT_METHOD_ACTION_SUFFIX = (
@@ -613,6 +618,67 @@ _FORM_DETAIL_SOURCE = (
 )
 _FORM_DETAILS_SUFFIX = rf"(?:\s+with\s+{_FORM_DETAIL_SOURCE})?"
 _FORM_SUBMISSION_TARGET = rf"{_FORM_OBJECT}{_FORM_DETAILS_SUFFIX}{_TARGET_END}"
+_SENSITIVE_INFO_PAYMENT_METHOD_NOUN = (
+    r"(?:bank\s+account(?:\s+(?:numbers?|details|information|info))?|"
+    r"routing\s+numbers?|"
+    r"credit\s+card(?:\s+(?:numbers?|details|information|info))?|"
+    r"debit\s+card(?:\s+(?:numbers?|details|information|info))?|"
+    r"card\s+numbers?)"
+)
+_SENSITIVE_INFO_NON_PAYMENT_NOUN = (
+    r"(?:ssn|s\.s\.n|social\s+security\s+(?:numbers?|no)|"
+    r"dates?\s+of\s+birth|birth\s+dates?|dob|"
+    r"tax\s+(?:ids?|identification\s+numbers?)|tin|ein|"
+    r"mother'?s\s+maiden\s+name|maiden\s+name|"
+    r"(?<!bank\s)account\s+numbers?|"
+    r"credentials?|passwords?|passphrases?|pins?)"
+)
+_SENSITIVE_INFO_NOUN = (
+    rf"(?:{_SENSITIVE_INFO_NON_PAYMENT_NOUN}|{_SENSITIVE_INFO_PAYMENT_METHOD_NOUN})"
+)
+_SENSITIVE_INFO_TARGET_PREFIX = (
+    r"(?:(?:your|the|this|that|my|our|their|user's|the\s+user's)\s+)?"
+    r"(?:[\w'-]+\s+){0,4}"
+)
+_SENSITIVE_INFO_TARGET = (
+    rf"{_SENSITIVE_INFO_TARGET_PREFIX}{_SENSITIVE_INFO_NOUN}\b"
+)
+_SENSITIVE_INFO_NON_PAYMENT_TARGET = (
+    rf"{_SENSITIVE_INFO_TARGET_PREFIX}{_SENSITIVE_INFO_NON_PAYMENT_NOUN}\b"
+)
+_SENSITIVE_INFO_PAYMENT_METHOD_TARGET = (
+    rf"{_SENSITIVE_INFO_TARGET_PREFIX}{_SENSITIVE_INFO_PAYMENT_METHOD_NOUN}\b"
+)
+_SENSITIVE_INFO_DESTINATION = (
+    r"(?:(?:the|this|that|your|their|an?)\s+)?"
+    r"(?:[\w-]+\s+){0,3}"
+    r"(?:portal|form|site|website|webpage|page|link|url|sender|recipient|"
+    r"support|team|agent|representative|person|company|service|app|"
+    r"application|bank|agency)\b"
+)
+_SENSITIVE_INFO_PAYMENT_CONTEXT_DESTINATION = (
+    r"(?:(?:the|this|that|your|their|an?)\s+)?"
+    r"(?:billing|payment)\s+"
+    r"(?:forms?|pages?|portals?|sites?|links?|accounts?|apps?|applications?)\b"
+)
+_SENSITIVE_INFO_DESTINATION_SUFFIX = (
+    rf"(?:\s+(?:to|with|into|in|on|through|via|using|at)\s+"
+    rf"{_SENSITIVE_INFO_DESTINATION})?"
+)
+_SENSITIVE_INFO_PAYMENT_METHOD_DESTINATION_SUFFIX = (
+    rf"(?!(?:\s+(?:to|with|into|in|on|through|via|using|at)\s+"
+    rf"{_SENSITIVE_INFO_PAYMENT_CONTEXT_DESTINATION}))"
+    rf"(?:\s+(?:to|with|into|in|on|through|via|using|at)\s+"
+    rf"{_SENSITIVE_INFO_DESTINATION})?"
+)
+_SENSITIVE_INFO_ACTION_TARGET = (
+    rf"{_SENSITIVE_INFO_TARGET}{_SENSITIVE_INFO_DESTINATION_SUFFIX}{_TARGET_END}"
+)
+_SENSITIVE_INFO_PAYMENT_OVERLAP_ACTION_TARGET = (
+    rf"(?:{_SENSITIVE_INFO_NON_PAYMENT_TARGET}{_SENSITIVE_INFO_DESTINATION_SUFFIX}|"
+    rf"{_SENSITIVE_INFO_PAYMENT_METHOD_TARGET}"
+    rf"{_SENSITIVE_INFO_PAYMENT_METHOD_DESTINATION_SUFFIX}){_TARGET_END}"
+)
 _TASK_ITEM_NOUN = r"(?:tasks?|to[-\s]?dos?|to[-\s]?do\s+items?|reminders?)"
 _TASK_ITEM_TARGET = (
     rf"(?:(?:an?|the|this|that|my|your)\s+)?(?:[\w-]+\s+){{0,3}}"
@@ -652,6 +718,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "tentative_invite",
     "create_calendar_event",
     "create_task",
+    "provide_sensitive_info",
     "make_payment",
     "update_payment_method",
     "sign_in",
@@ -669,11 +736,26 @@ _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "authorize_app",
     "change_security_settings",
     "create_task",
+    "provide_sensitive_info",
     "create_forwarding_rule",
     "print_email",
     "export_data",
 }
 _DIRECTIVE_PATTERNS = {
+    "provide_sensitive_info": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:provide|enter|submit)\s+"
+            rf"{_SENSITIVE_INFO_PAYMENT_OVERLAP_ACTION_TARGET}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:share|disclose|send)\s+"
+            rf"{_SENSITIVE_INFO_ACTION_TARGET}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:reply|respond)\s+with\s+"
+            rf"{_SENSITIVE_INFO_ACTION_TARGET}"
+        ),
+    ],
     "send": [
         re.compile(
             rf"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?send\s+"
@@ -1116,7 +1198,7 @@ _DIRECTIVE_PATTERNS = {
             rf"{_PAYMENT_METHOD_DETAIL_TARGET}{_PAYMENT_METHOD_ACTION_SUFFIX}"
         ),
         re.compile(
-            rf"{_ACTION_SUGGESTION_START}(?:enter|provide)\s+"
+            rf"{_ACTION_SUGGESTION_START}(?:enter|provide|submit)\s+"
             rf"{_PAYMENT_METHOD_DETAIL_TARGET}\s+"
             rf"(?:to|into|in|on|through|via|using|with)\s+"
             rf"{_PAYMENT_METHOD_DESTINATION}{_TARGET_END}"

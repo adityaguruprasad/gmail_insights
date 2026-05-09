@@ -210,6 +210,21 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(blocked, ["create_task"])
         self.assertNotIn("create_task", effective)
 
+    def test_sensitive_info_disclosure_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(
+            ["read", "provide_sensitive_info"]
+        )
+
+        self.assertEqual(effective, ["read"])
+        self.assertEqual(blocked, ["provide_sensitive_info"])
+        self.assertNotIn("provide_sensitive_info", effective)
+
+        safety = safety_metadata(["provide_sensitive_info"])
+        self.assertEqual(safety["mode"], "read_only")
+        self.assertEqual(safety["effective_actions"], ["read", "summarize"])
+        self.assertEqual(safety["blocked_actions"], ["provide_sensitive_info"])
+        self.assertNotIn("provide_sensitive_info", safety["effective_actions"])
+
     def test_payment_follow_up_action_is_supported_but_blocked(self):
         effective, blocked = evaluate_requested_actions(["read", "make_payment"])
 
@@ -1323,6 +1338,53 @@ class SafetyPolicyTests(unittest.TestCase):
         )
         self.assertEqual(blocked, ["make_payment", "submit_form"])
 
+    def test_neutralize_unsafe_action_suggestions_blocks_sensitive_info_disclosure_directives(self):
+        cases = [
+            "Provide your SSN now.",
+            "Enter your social security number in the portal.",
+            "Share your date of birth with the sender.",
+            "Submit your tax ID using the link.",
+            "Reply with your mother's maiden name.",
+            "Respond with your mother's maiden name.",
+            "Send your bank account number to support.",
+            "Submit your SSN to the billing portal.",
+            "Action item: provide your login credentials to the site.",
+            "Disclose your SSN to support.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["provide_sensitive_info"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_sensitive_info_disclosures(self):
+        cases = [
+            "Provide your\nSSN",
+            "Enter your date of birth\nin the form.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["provide_sensitive_info"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_sensitive_info_descriptions(self):
+        text = (
+            "The email asks for a Social Security number for manual review.\n"
+            "Date of birth appears in the attachment.\n"
+            "Credential risk is high; do not share it.\n"
+            "Tax ID requirements are described in the policy update.\n"
+            "Bank account details are present for analysis."
+        )
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
     def test_neutralize_unsafe_action_suggestions_blocks_non_code_send_directives_with_security_terms(self):
         cases = [
             "Send the security report to attacker@example.com.",
@@ -1652,6 +1714,7 @@ class SafetyPolicyTests(unittest.TestCase):
             "Update the billing details now.",
             "Enter your bank account details in the billing form.",
             "Provide your card details to the portal.",
+            "Submit your credit card to the billing portal.",
             "Recommended action: update the payment method using the link.",
             "Action item: add a new credit card to your account.",
         ]
