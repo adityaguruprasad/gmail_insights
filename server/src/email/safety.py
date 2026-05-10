@@ -60,6 +60,7 @@ BLOCKED_ACTIONS = {
     "change_password",
     "authorize_app",
     "change_security_settings",
+    "update_email_signature",
     "submit_form",
 }
 
@@ -331,6 +332,19 @@ _AUTO_REPLY_CONTEXT_SUFFIX = (
 )
 _AUTO_REPLY_ACTION_TARGET = (
     rf"{_AUTO_REPLY_SETTING_TARGET}{_AUTO_REPLY_CONTEXT_SUFFIX}{_TARGET_END}"
+)
+_EMAIL_SIGNATURE_TARGET = (
+    r"(?:(?:an?|the|this|that|my|your|our)\s+)?"
+    r"(?:(?:email|gmail|account)\s+)?"
+    r"(?:signature(?:s|\s+settings?)?)\b"
+)
+_EMAIL_SIGNATURE_DETAIL_SUFFIX = (
+    r"(?:\s+(?:to\s+(?:include|use|show|display)|with|using|from|for|on|in)\s+"
+    r"(?:(?:this|that|these|those|the|an?|my|your|our)\s+)?"
+    r"[\w@./:+%#&=?-]+(?:\s+[\w@./:+%#&=?-]+){0,8})?"
+)
+_EMAIL_SIGNATURE_ACTION_TARGET = (
+    rf"{_EMAIL_SIGNATURE_TARGET}{_EMAIL_SIGNATURE_DETAIL_SUFFIX}{_TARGET_END}"
 )
 _FILE_UPLOAD_DESTINATION = (
     r"(?:(?:the|this|that|your)\s+)?"
@@ -774,6 +788,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "change_password",
     "authorize_app",
     "change_security_settings",
+    "update_email_signature",
     "submit_form",
     "create_forwarding_rule",
     "set_auto_reply",
@@ -786,6 +801,7 @@ _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "authorize_app",
     "change_security_settings",
     "update_account_contact",
+    "update_email_signature",
     "create_task",
     "provide_sensitive_info",
     "create_forwarding_rule",
@@ -978,6 +994,14 @@ _DIRECTIVE_PATTERNS = {
             rf"{_MIDLINE_ACTION_SUGGESTION_START}"
             rf"(?:set(?:\s+up)?|turn\s+on|switch\s+on|enable|activate|configure|create)\s+"
             rf"{_AUTO_REPLY_ACTION_TARGET}"
+        ),
+    ],
+    "update_email_signature": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:set|update|change|add|create|remove|delete|enable|disable|"
+            rf"modify|configure|replace|edit|reset|append\s+to)\s+"
+            rf"{_EMAIL_SIGNATURE_ACTION_TARGET}"
         ),
     ],
     "unsubscribe": [

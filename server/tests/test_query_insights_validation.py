@@ -369,6 +369,31 @@ class QueryInsightsValidationTests(unittest.TestCase):
         )
         mock_gmail.assert_not_called()
 
+    def test_email_signature_requested_action_is_supported_but_blocked(self):
+        with patch("app._gmail_service_from_token") as mock_gmail:
+            response = self.client.post(
+                "/query_insights",
+                json={
+                    "token": "test-token",
+                    "query": "in:inbox",
+                    "requested_actions": "update_email_signature",
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+        body = response.get_json()
+        self.assertIn("Blocked actions requested", body["error"])
+        self.assertNotIn("unsupported action", body["error"])
+        self.assertEqual(
+            body["safety"],
+            {
+                "mode": "read_only",
+                "effective_actions": ["read", "summarize"],
+                "blocked_actions": ["update_email_signature"],
+            },
+        )
+        mock_gmail.assert_not_called()
+
     def test_submit_form_requested_action_is_supported_but_blocked_with_read_through(self):
         service = object()
         with patch(
