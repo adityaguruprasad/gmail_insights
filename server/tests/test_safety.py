@@ -762,6 +762,26 @@ class SafetyPolicyTests(unittest.TestCase):
             "Allow macros for this document.",
             "Turn on macros in the attached workbook.",
             "Enable macros in the attached Excel spreadsheet and review it.",
+            "Enable content in the attached document.",
+            "Click Enable Content in the spreadsheet.",
+            "Press Enable Editing for the workbook.",
+            "Select Enable Content to view the invoice.",
+            "Action item: click Enable Content in the attached file.",
+            "Enable Protected View editing in the document.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["enable_macros"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_office_button_ui_nouns(self):
+        cases = [
+            "Click the Enable Content button in the document.",
+            "Press the Enable Editing prompt to view the invoice.",
+            "Select the Enable Content banner in the spreadsheet.",
+            "Choose the Enable Protected View editing button in the document.",
         ]
 
         for text in cases:
@@ -809,6 +829,8 @@ class SafetyPolicyTests(unittest.TestCase):
         cases = [
             "Enable macros\nin the spreadsheet.",
             "Turn on macros\nin the attached workbook.",
+            "Click Enable Content\nin the spreadsheet.",
+            "Press Enable Editing\nfor the workbook.",
         ]
 
         for text in cases:
@@ -825,6 +847,9 @@ class SafetyPolicyTests(unittest.TestCase):
             "The attachment is an executable for manual review.\n"
             "Macro instructions are included.\n"
             "Macros are disabled by policy.\n"
+            "The email mentions Enable Content instructions for manual review.\n"
+            "Protected View warnings are present for analysis.\n"
+            "Do not enable content from this email.\n"
             "The script output is summarized.\n"
             "Do not run the installer."
         )
@@ -833,6 +858,18 @@ class SafetyPolicyTests(unittest.TestCase):
 
         self.assertEqual(guarded, text)
         self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_generic_editing_guidance(self):
+        cases = [
+            "Please enable editing.",
+            "Enable editing in your profile.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, text)
+                self.assertEqual(blocked, [])
 
     def test_neutralize_unsafe_action_suggestions_blocks_print_directives(self):
         cases = [

@@ -303,6 +303,31 @@ _MACRO_ACTION_SUFFIX = (
     r"(?:\s+(?:and|then|to)\s+[\w-]+(?:\s+[\w-]+){0,8})?"
     rf"{_TARGET_END}"
 )
+_OFFICE_ACTIVE_CONTENT_TARGET = r"(?:content|editing|protected\s+view\s+editing)\b"
+_OFFICE_ENABLE_BUTTON_TARGET = (
+    r"(?:enable\s+(?:content|editing)|enable\s+protected\s+view\s+editing)\b"
+)
+_OFFICE_ENABLE_BUTTON_UI_NOUN = r"(?:buttons?|prompts?|banners?)"
+_OFFICE_ACTIVE_CONTENT_CONTEXT_NOUN = (
+    r"(?:documents?|spreadsheets?|workbooks?|attachments?|files?|docs?|"
+    r"sheets?|invoices?|reports?|forms?)"
+)
+_OFFICE_ACTIVE_CONTENT_CONTEXT_TARGET = (
+    rf"(?:(?:the|this|that|an?|your)\s+)?"
+    rf"(?:[\w-]+\s+){{0,3}}"
+    rf"{_OFFICE_ACTIVE_CONTENT_CONTEXT_NOUN}\b"
+)
+_OFFICE_ACTIVE_CONTENT_VIEW_TARGET = (
+    rf"(?:(?:the|this|that|an?|your)\s+)?"
+    rf"(?:[\w-]+\s+){{0,3}}"
+    rf"(?:content|{_OFFICE_ACTIVE_CONTENT_CONTEXT_NOUN})\b"
+)
+_OFFICE_ACTIVE_CONTENT_ACTION_SUFFIX = (
+    rf"(?:\s+(?:in|for|on|within)\s+{_OFFICE_ACTIVE_CONTENT_CONTEXT_TARGET}|"
+    rf"\s+to\s+(?:view|open|read|see|access|display)\s+"
+    rf"{_OFFICE_ACTIVE_CONTENT_VIEW_TARGET})"
+    rf"{_TARGET_END}"
+)
 # Forward exfiltration extends attachment/file nouns with email/message/thread content nouns.
 _FORWARD_EXFIL_OBJECT_NOUN = (
     rf"(?:attachments?|email\s+contents?|message\s+contents?|"
@@ -1259,6 +1284,17 @@ _DIRECTIVE_PATTERNS = {
         re.compile(
             rf"{_ACTION_SUGGESTION_START}(?:enable|allow|turn\s+on)\s+"
             rf"{_MACRO_CONTEXT_TARGET}\s+{_MACRO_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:enable|allow|turn\s+on)\s+"
+            rf"{_OFFICE_ACTIVE_CONTENT_TARGET}"
+            rf"{_OFFICE_ACTIVE_CONTENT_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:click|press|select|choose)\s+"
+            rf"(?:the\s+)?{_OFFICE_ENABLE_BUTTON_TARGET}"
+            rf"(?:\s+{_OFFICE_ENABLE_BUTTON_UI_NOUN})?"
+            rf"{_OFFICE_ACTIVE_CONTENT_ACTION_SUFFIX}"
         ),
     ],
     "print_email": [
