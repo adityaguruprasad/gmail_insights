@@ -36,6 +36,7 @@ BLOCKED_ACTIONS = {
     "open_attachment",
     "download_attachment",
     "run_executable",
+    "install_software",
     "enable_macros",
     "disable_security_software",
     "print_email",
@@ -299,6 +300,47 @@ _EXECUTABLE_FOLLOWUP_SUFFIX = (
 _EXECUTABLE_ACTION_SUFFIX = (
     rf"{_EXECUTABLE_SOURCE_SUFFIX}{_EXECUTABLE_FOLLOWUP_SUFFIX}{_TARGET_END}"
 )
+_INSTALL_SOFTWARE_NOUN = (
+    r"(?:software|apps?|applications?|packages?|clients?|agents?|"
+    r"tools?|command[-\s]?line\s+tools?|cli(?:\s+tools?)?|updates?|"
+    r"browser\s+extensions?|extensions?)"
+)
+_INSTALL_SOFTWARE_TARGET = (
+    rf"(?:(?:the|this|that|an?|your)\s+)?"
+    rf"(?:[\w-]+\s+){{0,3}}{_INSTALL_SOFTWARE_NOUN}\b"
+)
+_INSTALL_SOFTWARE_SOURCE = (
+    r"(?:(?:the|this|that|an?|your)\s+)?"
+    r"(?:email|message|thread|attachment|link|url|website|webpage|page|site|"
+    r"app\s+store|store)\b"
+)
+_INSTALL_SOFTWARE_SOURCE_SUFFIX = (
+    rf"(?:\s+(?:from|in|on|via|through|using|with)\s+"
+    rf"{_INSTALL_SOFTWARE_SOURCE})?"
+)
+_INSTALL_SOFTWARE_ACTION_SUFFIX = (
+    rf"{_INSTALL_SOFTWARE_SOURCE_SUFFIX}{_TARGET_END}"
+)
+_PACKAGE_MANAGER_INSTALL_COMMAND = (
+    r"(?:"
+    r"(?:npm|pnpm)\s+(?:install|i)|"
+    r"yarn\s+(?:add|install)|"
+    r"pip3?\s+install|"
+    r"python3?\s+-m\s+pip\s+install|"
+    r"gem\s+install|"
+    r"cargo\s+install|"
+    r"go\s+install|"
+    r"brew\s+install|"
+    r"apt(?:-get)?\s+install|"
+    r"yum\s+install|"
+    r"dnf\s+install|"
+    r"apk\s+add|"
+    r"choco(?:latey)?\s+install|"
+    r"winget\s+install|"
+    r"scoop\s+install"
+    r")"
+)
+_PACKAGE_MANAGER_COMMAND_ARGS = r"(?:\s+[\w@./:+%#&=?-]+){0,8}"
 _MACRO_TARGET = r"macros?\b"
 _MACRO_CONTEXT_NOUN = (
     r"(?:documents?|spreadsheets?|workbooks?|attachments?|files?|docs?|sheets?)"
@@ -1246,6 +1288,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "open_attachment",
     "download_attachment",
     "run_executable",
+    "install_software",
     "enable_macros",
     "disable_security_software",
     "print_email",
@@ -1290,6 +1333,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
 }
 _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "run_executable",
+    "install_software",
     "enable_macros",
     "disable_security_software",
     "sign_in",
@@ -1607,6 +1651,20 @@ _DIRECTIVE_PATTERNS = {
         re.compile(
             rf"{_ACTION_SUGGESTION_START}open\s+{_EXECUTABLE_OBJECT_TARGET}\s+"
             rf"and\s+(?:run|execute)(?:\s+it)?{_TARGET_END}"
+        ),
+    ],
+    "install_software": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:install|download\s+and\s+install|download\s+then\s+install|"
+            rf"download,\s*then\s+install)\s+"
+            rf"{_INSTALL_SOFTWARE_TARGET}{_INSTALL_SOFTWARE_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:run|execute)\s+"
+            rf"{_PACKAGE_MANAGER_INSTALL_COMMAND}"
+            rf"{_PACKAGE_MANAGER_COMMAND_ARGS}"
+            rf"{_INSTALL_SOFTWARE_SOURCE_SUFFIX}{_TARGET_END}"
         ),
     ],
     "enable_macros": [
@@ -2362,7 +2420,8 @@ def _directive_actions(line: str) -> List[str]:
         if any(pattern.search(line) for pattern in patterns)
     ]
     actions = _suppress_overlapping_crypto_wallet_payment_actions(line, actions)
-    return _suppress_overlapping_gift_card_payment_actions(line, actions)
+    actions = _suppress_overlapping_gift_card_payment_actions(line, actions)
+    return _suppress_overlapping_install_software_actions(line, actions)
 
 
 def _directive_match_spans(line: str, action: str) -> List[Tuple[int, int]]:
@@ -2429,6 +2488,34 @@ def _suppress_overlapping_gift_card_payment_actions(
         return actions
 
     return [action for action in actions if action not in suppressed]
+
+
+def _suppress_overlapping_install_software_actions(
+    line: str, actions: List[str]
+) -> List[str]:
+    if "install_software" not in actions:
+        return actions
+
+    more_specific_actions = {
+        "authorize_app",
+        "run_executable",
+        "enable_macros",
+        "install_profile",
+    }
+    overlapping_actions = more_specific_actions.intersection(actions)
+    if not overlapping_actions:
+        return actions
+
+    install_spans = _directive_match_spans(line, "install_software")
+    if any(
+        _spans_overlap(install_span, specific_span)
+        for install_span in install_spans
+        for action in overlapping_actions
+        for specific_span in _directive_match_spans(line, action)
+    ):
+        return [action for action in actions if action != "install_software"]
+
+    return actions
 
 
 def _suppress_crypto_wallet_payment_overlap(

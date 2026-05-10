@@ -161,6 +161,29 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(blocked, sorted(actions))
         self.assertFalse(set(actions).intersection(effective))
 
+    def test_install_software_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(["read", "install_software"])
+
+        self.assertEqual(effective, ["read"])
+        self.assertEqual(blocked, ["install_software"])
+        self.assertNotIn("install_software", effective)
+
+        safety = safety_metadata("install_software")
+        self.assertEqual(safety["mode"], "read_only")
+        self.assertEqual(safety["effective_actions"], ["read", "summarize"])
+        self.assertEqual(safety["blocked_actions"], ["install_software"])
+        self.assertIn("install_software", safety_module.BLOCKED_ACTIONS)
+        self.assertNotIn("install_software", safety_module.ALLOWED_ACTIONS)
+        self.assertIn(
+            "install_software",
+            safety_module._DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS,
+        )
+        self.assertIn(
+            "install_software",
+            safety_module._DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS,
+        )
+        self.assertNotIn("install_software", safety_module._ACTION_WORD_PATTERNS)
+
     def test_disable_security_software_action_is_supported_but_blocked(self):
         effective, blocked = evaluate_requested_actions(
             ["read", "disable_security_software"]
@@ -892,6 +915,50 @@ class SafetyPolicyTests(unittest.TestCase):
                 self.assertEqual(guarded, "[Unsafe action suggestion removed]")
                 self.assertEqual(blocked, ["run_executable"])
 
+    def test_neutralize_unsafe_action_suggestions_blocks_install_software_directives(self):
+        cases = [
+            "Install the app from this email.",
+            "Install this package.",
+            "Install the browser extension from this email.",
+            "Install the command-line tool.",
+            "Download and install the client.",
+            "Download and install the browser extension.",
+            "Run npm install from this email.",
+            "Run pip install using the link.",
+            "Recommended action: install the update.",
+            "Action item: download and install the tool.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["install_software"])
+
+    def test_neutralize_unsafe_action_suggestions_keeps_download_attachment_for_download_install_attachment(self):
+        guarded, blocked = neutralize_unsafe_action_suggestions(
+            "Download and install the attachment from this email."
+        )
+
+        self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+        self.assertEqual(blocked, ["download_attachment"])
+        self.assertNotIn("install_software", blocked)
+
+    def test_neutralize_unsafe_action_suggestions_keeps_specific_install_related_labels(self):
+        cases = [
+            ("Install the browser extension.", "authorize_app"),
+            ("Install the configuration profile.", "install_profile"),
+            ("Open and run the installer.", "run_executable"),
+            ("Enable macros.", "enable_macros"),
+        ]
+
+        for text, action in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, [action])
+                self.assertNotIn("install_software", blocked)
+
     def test_neutralize_unsafe_action_suggestions_blocks_enable_macros_directives(self):
         cases = [
             "Enable macros.",
@@ -962,6 +1029,23 @@ class SafetyPolicyTests(unittest.TestCase):
                 )
                 self.assertEqual(blocked, ["run_executable"])
 
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_install_software_directives(self):
+        cases = [
+            "Install the\npackage.",
+            "Download and install\nthe client.",
+            "Run npm install\nusing the link.",
+            "Recommended action: install\nthe update.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["install_software"])
+
     def test_neutralize_unsafe_action_suggestions_blocks_split_line_enable_macros_directives(self):
         cases = [
             "Enable macros\nin the spreadsheet.",
@@ -989,6 +1073,21 @@ class SafetyPolicyTests(unittest.TestCase):
             "Do not enable content from this email.\n"
             "The script output is summarized.\n"
             "Do not run the installer."
+        )
+
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_install_software_descriptions(self):
+        text = (
+            "The email mentions installation instructions for manual review\n"
+            "The package was installed yesterday\n"
+            "Do not install software from this email\n"
+            "Installation metrics are summarized\n"
+            "The app is already installed by policy\n"
+            "The email mentions npm install instructions for manual review"
         )
 
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
