@@ -311,6 +311,19 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(safety["effective_actions"], ["read", "summarize"])
         self.assertEqual(safety["blocked_actions"], ["authorize_app"])
 
+    def test_mailbox_access_grant_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(["grant_mailbox_access"])
+
+        self.assertEqual(effective, ["read", "summarize"])
+        self.assertEqual(blocked, ["grant_mailbox_access"])
+        self.assertNotIn("grant_mailbox_access", effective)
+
+        safety = safety_metadata("grant_mailbox_access")
+        self.assertEqual(safety["mode"], "read_only")
+        self.assertEqual(safety["effective_actions"], ["read", "summarize"])
+        self.assertEqual(safety["blocked_actions"], ["grant_mailbox_access"])
+        self.assertIn("grant_mailbox_access", safety_module.BLOCKED_ACTIONS)
+
     def test_security_settings_action_is_supported_but_blocked(self):
         effective, blocked = evaluate_requested_actions(
             ["read", "change_security_settings"]
@@ -1275,6 +1288,61 @@ class SafetyPolicyTests(unittest.TestCase):
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)
         self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_mailbox_access_grants(self):
+        cases = [
+            "Add the sender as a delegate",
+            "Add accounting@example.com as a mailbox delegate",
+            "Grant mailbox access to the assistant",
+            "Give the vendor access to this inbox",
+            "Share Gmail access with the customer",
+            "Delegate inbox access to accounting@example.com",
+            "Recommended action: add the sender as a Gmail delegate",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["grant_mailbox_access"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_mailbox_access_grants(self):
+        cases = [
+            "Add the sender\nas a delegate",
+            "Grant mailbox access\nto the assistant",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["grant_mailbox_access"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_mailbox_access_descriptions(self):
+        text = (
+            "The email mentions delegate access for manual review\n"
+            "Mailbox delegation is disabled by policy\n"
+            "The sender asks how delegate access works\n"
+            "Access metrics are summarized in the report\n"
+            "Do not add the sender as a delegate"
+        )
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_mailbox_access_split_line_handling_uses_directive_sets_without_action_words(self):
+        self.assertIn(
+            "grant_mailbox_access",
+            safety_module._DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS,
+        )
+        self.assertIn(
+            "grant_mailbox_access",
+            safety_module._DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS,
+        )
+        self.assertNotIn("grant_mailbox_access", safety_module._ACTION_WORD_PATTERNS)
 
     def test_neutralize_unsafe_action_suggestions_blocks_security_setting_directives(self):
         cases = [
