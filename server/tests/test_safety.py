@@ -2475,12 +2475,53 @@ class SafetyPolicyTests(unittest.TestCase):
                 self.assertEqual(guarded, "[Unsafe action suggestion removed]")
                 self.assertEqual(blocked, ["make_payment"])
 
+    def test_neutralize_unsafe_action_suggestions_blocks_gift_card_code_directives(
+        self,
+    ):
+        cases = [
+            "Redeem the gift card.",
+            "Use the gift-code on the portal.",
+            "Use the gift card code on the portal.",
+            "Enter the gift-card PIN at checkout.",
+            "Enter the gift card PIN at checkout.",
+            "Submit the gift card number using the link.",
+            "Send the gift card code to the sender.",
+            "Share the gift card PIN with support.",
+            "Recommended action: provide the gift card code now.",
+            "Action item: activate the gift card.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["make_payment"])
+
     def test_neutralize_unsafe_action_suggestions_blocks_split_line_payment_directives(self):
         cases = [
             "Pay the\ninvoice.",
             "Wire the funds\nto the vendor.",
             "Action item: pay the outstanding\nbalance.",
             "Recommended action: authorize\nthe payment.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["make_payment"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_gift_card_code_directives(
+        self,
+    ):
+        cases = [
+            "Redeem the\ngift card.",
+            "Enter the gift card\nPIN.",
+            "Use the gift card\ncode on the portal.",
+            "Submit the gift card\nnumber using the link.",
         ]
 
         for text in cases:
@@ -2502,6 +2543,18 @@ class SafetyPolicyTests(unittest.TestCase):
             "Invoice payment metrics are summarized.\n"
             "Pay attention to the customer.\n"
             "Pay close attention to the supplier invoice."
+        )
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_gift_card_descriptions(self):
+        text = (
+            "The email mentions a gift card for manual review.\n"
+            "Gift card instructions are included for analysis.\n"
+            "The gift card was redeemed yesterday.\n"
+            "Do not redeem the gift card.\n"
+            "Gift card metrics are summarized."
         )
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)

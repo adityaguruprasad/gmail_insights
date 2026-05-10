@@ -763,6 +763,31 @@ _CRYPTO_PAYMENT_APPROVAL_TARGET = (
     rf"(?:[\w-]+\s+){{0,2}}{_CRYPTO_CONTEXT_DESCRIPTOR}\s+transactions?\b"
 )
 _PURCHASE_TARGET_NOUN = r"(?:gift\s+cards?|licenses?|subscriptions?|software|products?)"
+_GIFT_CARD_TARGET_MODIFIER = (
+    r"(?:(?!(?:to|from|for|with|about|over|into|onto|at|by|as|on|using)\b)"
+    r"[\w-]+\s+)"
+)
+_GIFT_CARD_VALUE_TARGET = (
+    rf"(?:(?:the|this|that|an?|your)\s+)?(?:{_GIFT_CARD_TARGET_MODIFIER}){{0,3}}"
+    r"(?:gift[-\s]?card\s+(?:codes?|pins?|card[-\s]?numbers?|numbers?)|"
+    r"gift[-\s]?codes?)\b"
+)
+_GIFT_CARD_REDEMPTION_TARGET = (
+    rf"(?:(?:the|this|that|an?|your)\s+)?(?:{_GIFT_CARD_TARGET_MODIFIER}){{0,3}}"
+    r"(?:gift[-\s]?card(?:\s+(?:codes?|pins?|card[-\s]?numbers?|numbers?))?|"
+    r"gift[-\s]?codes?)\b"
+)
+_GIFT_CARD_PAYMENT_TERM_RE = re.compile(r"(?i)\bgift[-\s]?(?:cards?|codes?)\b")
+_GIFT_CARD_DESTINATION = (
+    r"(?:(?:the|this|that|your)\s+)?"
+    r"(?:portal|website|site|app|application|form|link|checkout|payment\s+page|"
+    r"support|sender|recipient|person|agent|representative)\b"
+)
+_GIFT_CARD_ACTION_SUFFIX = (
+    rf"(?:\s+(?:to|into|in|on|through|via|using|with|at)\s+"
+    rf"{_GIFT_CARD_DESTINATION})?"
+    rf"{_TARGET_END}"
+)
 _REFUND_TARGET_NOUN = (
     r"(?:customers?|clients?|buyers?|users?|accounts?|orders?|payments?|charges?|"
     r"transactions?|invoices?)"
@@ -1138,6 +1163,7 @@ _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "create_task",
     "provide_sensitive_info",
     "crypto_wallet_action",
+    "make_payment",
     "create_forwarding_rule",
     "print_email",
     "export_data",
@@ -1740,6 +1766,14 @@ _DIRECTIVE_PATTERNS = {
             rf"{_PURCHASE_TARGET_NOUN}\b{_TARGET_END}"
         ),
         re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:redeem|use|activate)\s+"
+            rf"{_GIFT_CARD_REDEMPTION_TARGET}{_GIFT_CARD_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:enter|submit|provide|share|send)\s+"
+            rf"{_GIFT_CARD_VALUE_TARGET}{_GIFT_CARD_ACTION_SUFFIX}"
+        ),
+        re.compile(
             rf"{_ACTION_SUGGESTION_START}refund\s+"
             rf"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){{0,3}}"
             rf"{_REFUND_TARGET_NOUN}\b{_TARGET_END}"
@@ -2069,7 +2103,8 @@ def _directive_actions(line: str) -> List[str]:
         for action, patterns in _DIRECTIVE_PATTERNS.items()
         if any(pattern.search(line) for pattern in patterns)
     ]
-    return _suppress_overlapping_crypto_wallet_payment_actions(line, actions)
+    actions = _suppress_overlapping_crypto_wallet_payment_actions(line, actions)
+    return _suppress_overlapping_gift_card_payment_actions(line, actions)
 
 
 def _directive_match_spans(line: str, action: str) -> List[Tuple[int, int]]:
@@ -2102,6 +2137,40 @@ def _suppress_overlapping_crypto_wallet_payment_actions(
         return [action for action in actions if action != "make_payment"]
 
     return actions
+
+
+def _suppress_overlapping_gift_card_payment_actions(
+    line: str, actions: List[str]
+) -> List[str]:
+    if "make_payment" not in actions:
+        return actions
+
+    gift_card_payment_spans = [
+        (start, end)
+        for start, end in _directive_match_spans(line, "make_payment")
+        if _GIFT_CARD_PAYMENT_TERM_RE.search(line[start:end])
+    ]
+    if not gift_card_payment_spans:
+        return actions
+
+    overlapping_actions = {
+        "provide_sensitive_info",
+        "send",
+        "update_payment_method",
+    }
+    suppressed = set()
+    for action in overlapping_actions.intersection(actions):
+        if any(
+            _spans_overlap(action_span, payment_span)
+            for action_span in _directive_match_spans(line, action)
+            for payment_span in gift_card_payment_spans
+        ):
+            suppressed.add(action)
+
+    if not suppressed:
+        return actions
+
+    return [action for action in actions if action not in suppressed]
 
 
 def _suppress_crypto_wallet_payment_overlap(
