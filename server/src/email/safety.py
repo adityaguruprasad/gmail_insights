@@ -1073,6 +1073,20 @@ _SECURITY_ENROLLMENT_SUFFIX = (
 _SECURITY_BACKUP_CODES_TARGET = (
     r"(?:(?:the|this|that|your|my|our)\s+)?backup\s+codes?\b"
 )
+_SECURITY_QUESTION_TARGET = (
+    r"(?:(?:the|this|that|your|my|our|an?)\s+)?"
+    r"(?:(?:account\s+)?security|(?:account\s+)?recovery)\s+questions?\b"
+)
+_SECURITY_QUESTION_MUTATION_SUFFIX = (
+    rf"(?:\s+(?:to|for|in|on|within)\s+{_SECURITY_ACCOUNT_SETTING_TARGET}|"
+    rf"\s+(?:using|via|through)\s+{_SECURITY_ENROLLMENT_METHOD_TARGET})?"
+    rf"{_TARGET_END}"
+)
+_SECURITY_QUESTION_ANSWER_SUFFIX = (
+    r"(?:\s+(?:with|using|as)\s+"
+    r"[\w'@./:+%#&=?-]+(?:\s+[\w'@./:+%#&=?-]+){0,8})?"
+    rf"{_TARGET_END}"
+)
 _SECURITY_PROTECTION_TARGET = (
     r"(?:(?:the|this|that|your|my|our)\s+)?"
     r"(?:spam|phishing|spam\s+and\s+phishing|phishing\s+and\s+spam)\s+"
@@ -2263,6 +2277,16 @@ _DIRECTIVE_PATTERNS = {
         re.compile(
             rf"{_ACTION_SUGGESTION_START}(?:reset|regenerate|replace)\s+"
             rf"{_SECURITY_BACKUP_CODES_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:add|change|configure|create|edit|replace|reset|"
+            rf"set(?:\s+up)?|update)\s+"
+            rf"{_SECURITY_QUESTION_TARGET}{_SECURITY_QUESTION_MUTATION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}answer\s+"
+            rf"{_SECURITY_QUESTION_TARGET}{_SECURITY_QUESTION_ANSWER_SUFFIX}"
         ),
         re.compile(
             rf"{_ACTION_SUGGESTION_START}(?:disable|deactivate|turn\s+off|lower|reduce|weaken)\s+"

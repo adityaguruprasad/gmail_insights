@@ -2146,6 +2146,25 @@ class SafetyPolicyTests(unittest.TestCase):
                 self.assertEqual(guarded, "[Unsafe action suggestion removed]")
                 self.assertEqual(blocked, ["change_security_settings"])
 
+    def test_neutralize_unsafe_action_suggestions_blocks_security_question_directives(self):
+        cases = [
+            "Set your security questions",
+            "Change the account security question now",
+            "Update your recovery questions using the link",
+            "Add a security question to your account",
+            "Reset your security questions",
+            "Configure account recovery questions",
+            "Answer the security question with your mother's maiden name",
+            "Recommended action: update your security questions",
+            "Action item: set the recovery question for this account",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["change_security_settings"])
+
     def test_neutralize_unsafe_action_suggestions_blocks_split_line_security_setting_directives(self):
         cases = [
             "Disable two-factor\nauthentication",
@@ -2155,6 +2174,22 @@ class SafetyPolicyTests(unittest.TestCase):
             "Disable the spam\nfilter",
             "Turn off phishing\nfilters for this account",
             "Add accounting@example.com\nto the safe senders list",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["change_security_settings"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_security_question_directives(self):
+        cases = [
+            "Set your\nsecurity questions",
+            "Update the recovery\nquestions using the link",
+            "Answer the security question\nwith your mother's maiden name",
         ]
 
         for text in cases:
@@ -2196,7 +2231,12 @@ class SafetyPolicyTests(unittest.TestCase):
             "This browser was trusted yesterday\n"
             "Passkey setup instructions are included for review\n"
             "Do not trust this device from this email\n"
-            "Trusted device metrics are summarized"
+            "Trusted device metrics are summarized\n"
+            "The email mentions security questions for manual review\n"
+            "Recovery question details are present for analysis\n"
+            "Security questions are disabled by policy\n"
+            "Do not change your security questions from this email\n"
+            "The recovery questions were updated yesterday"
         )
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)
