@@ -46,6 +46,7 @@ BLOCKED_ACTIONS = {
     "send_sms",
     "create_contact",
     "update_contact",
+    "update_account_contact",
     "use_verification_code",
     "accept_invite",
     "decline_invite",
@@ -635,6 +636,25 @@ _SECURITY_ACCOUNT_SETTING_SUFFIX = (
     r"(?:(?:your|the|this|that|my|our)\s+)?"
     r"(?:account|gmail|google\s+account|email\s+account))?"
 )
+_ACCOUNT_CONTACT_CHANNEL_NOUN = r"(?:email(?:\s+address)?|phone(?:\s+number)?)"
+_ACCOUNT_CONTACT_FIELD_TARGET = (
+    r"(?:(?:the|this|that|your|my|our|an?)\s+)?"
+    r"(?:"
+    rf"(?:recovery|backup|alternate|notification)\s+{_ACCOUNT_CONTACT_CHANNEL_NOUN}\b|"
+    rf"account\s+{_ACCOUNT_CONTACT_CHANNEL_NOUN}\b|"
+    rf"{_ACCOUNT_CONTACT_CHANNEL_NOUN}\s+"
+    r"(?:on|for|in)\s+(?:(?:your|the|this|that|my|our)\s+)?account\b"
+    r")"
+)
+_ACCOUNT_CONTACT_VALUE_TARGET = rf"(?:{_EMAIL_TARGET}|{_PHONE_NUMBER_TARGET})"
+_ACCOUNT_CONTACT_ACCOUNT_CONTEXT = (
+    r"(?:(?:your|the|this|that|my|our)\s+)?account\b"
+)
+_ACCOUNT_CONTACT_ACTION_SUFFIX = (
+    rf"(?:\s+(?:to|with)\s+{_ACCOUNT_CONTACT_VALUE_TARGET})?"
+    rf"(?:\s+(?:to|for|on|in|from)\s+{_ACCOUNT_CONTACT_ACCOUNT_CONTEXT})?"
+    rf"{_TARGET_END}"
+)
 _FORM_OBJECT = (
     r"(?:(?:the|this|that|an?|your)\s+)?"
     r"(?:(?:[\w-]+\s+){0,3})?forms?\b"
@@ -740,6 +760,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "send_sms",
     "create_contact",
     "update_contact",
+    "update_account_contact",
     "use_verification_code",
     "accept_invite",
     "decline_invite",
@@ -764,6 +785,7 @@ _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "change_password",
     "authorize_app",
     "change_security_settings",
+    "update_account_contact",
     "create_task",
     "provide_sensitive_info",
     "create_forwarding_rule",
@@ -1126,6 +1148,12 @@ _DIRECTIVE_PATTERNS = {
         re.compile(
             rf"{_ACTION_SUGGESTION_START}add\s+{_CONTACT_DETAIL_TARGET}\s+"
             rf"to\s+{_CONTACT_RECORD_TARGET}{_TARGET_END}"
+        ),
+    ],
+    "update_account_contact": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:update|change|add|set|replace|remove|delete)\s+"
+            rf"{_ACCOUNT_CONTACT_FIELD_TARGET}{_ACCOUNT_CONTACT_ACTION_SUFFIX}"
         ),
     ],
     "use_verification_code": [

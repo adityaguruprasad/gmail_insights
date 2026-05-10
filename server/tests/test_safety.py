@@ -195,6 +195,20 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(blocked, sorted(actions))
         self.assertFalse(set(actions).intersection(effective))
 
+    def test_account_contact_update_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(
+            ["read", "update_account_contact"]
+        )
+
+        self.assertEqual(effective, ["read"])
+        self.assertEqual(blocked, ["update_account_contact"])
+        self.assertNotIn("update_account_contact", effective)
+
+        safety = safety_metadata("update_account_contact")
+        self.assertEqual(safety["mode"], "read_only")
+        self.assertEqual(safety["effective_actions"], ["read", "summarize"])
+        self.assertEqual(safety["blocked_actions"], ["update_account_contact"])
+
     def test_verification_code_action_is_supported_but_blocked(self):
         effective, blocked = evaluate_requested_actions(["read", "use_verification_code"])
 
@@ -1305,6 +1319,73 @@ class SafetyPolicyTests(unittest.TestCase):
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)
         self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_account_contact_updates(self):
+        cases = [
+            "Update your recovery email to attacker@example.com",
+            "Change the recovery phone number now",
+            "Add a backup email address to the account",
+            "Set your notification email to jane@example.com",
+            "Replace the account phone number with +1 415-555-1212",
+            "Recommended action: update your alternate email address",
+            "Action item: change the recovery phone",
+            "Update the phone number on the account.",
+            "Remove the recovery email from your account",
+            "Delete the backup phone number from the account",
+            "Recommended action: remove your alternate email address",
+            "Action item: delete the notification phone",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["update_account_contact"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_account_contact_updates(self):
+        cases = [
+            "Update your recovery\nemail",
+            "Replace the account\nphone number",
+            "Set your notification email\nto jane@example.com",
+            "Action item: change the recovery\nphone",
+            "Remove the recovery\nemail",
+            "Delete the backup phone\nfrom the account",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n"
+                    "[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["update_account_contact"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_account_contact_descriptions(self):
+        text = (
+            "The email mentions a recovery email for manual review\n"
+            "Account contact settings are discussed in the policy update\n"
+            "The recovery phone number was changed yesterday\n"
+            "Notification email metrics are summarized\n"
+            "The recovery email was removed yesterday for manual review\n"
+            "Do not update your recovery email from this message"
+        )
+
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_account_contact_split_line_handling_uses_directive_sets_without_action_words(self):
+        self.assertIn(
+            "update_account_contact",
+            safety_module._DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS,
+        )
+        self.assertIn(
+            "update_account_contact",
+            safety_module._DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS,
+        )
+        self.assertNotIn("update_account_contact", safety_module._ACTION_WORD_PATTERNS)
 
     def test_neutralize_unsafe_action_suggestions_blocks_submit_form_directives(self):
         cases = [
