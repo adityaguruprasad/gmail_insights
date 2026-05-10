@@ -1813,10 +1813,42 @@ class SafetyPolicyTests(unittest.TestCase):
                 self.assertEqual(guarded, "[Unsafe action suggestion removed]")
                 self.assertEqual(blocked, ["provide_sensitive_info"])
 
+    def test_neutralize_unsafe_action_suggestions_blocks_identity_document_disclosure_directives(self):
+        cases = [
+            "Provide your passport now.",
+            "Submit your driver's license scan using the link.",
+            "Upload your government ID to the portal.",
+            "Share your photo ID details with the sender.",
+            "Reply with your national ID information.",
+            "Enter your identity document image in the form.",
+            "Send your passport scan to support.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["provide_sensitive_info"])
+
     def test_neutralize_unsafe_action_suggestions_blocks_split_line_sensitive_info_disclosures(self):
         cases = [
             "Provide your\nSSN",
             "Enter your date of birth\nin the form.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["provide_sensitive_info"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_identity_document_disclosures(self):
+        cases = [
+            "Provide your\npassport number",
+            "Upload your government ID scan\nto the portal.",
         ]
 
         for text in cases:
@@ -1835,6 +1867,18 @@ class SafetyPolicyTests(unittest.TestCase):
             "Credential risk is high; do not share it.\n"
             "Tax ID requirements are described in the policy update.\n"
             "Bank account details are present for analysis."
+        )
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_identity_document_descriptions(self):
+        text = (
+            "The email asks for a passport for manual review.\n"
+            "Passport details are present for analysis.\n"
+            "Identity document instructions are included.\n"
+            "Do not upload your passport.\n"
+            "The passport was renewed yesterday."
         )
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)

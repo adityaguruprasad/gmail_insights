@@ -801,11 +801,20 @@ _SENSITIVE_INFO_PAYMENT_METHOD_NOUN = (
     r"debit\s+card(?:\s+(?:numbers?|details|information|info))?|"
     r"card\s+numbers?)"
 )
+_IDENTITY_DOCUMENT_NOUN_SUFFIX = (
+    r"(?:\s+(?:numbers?|details|information|info|scans?|photos?|images?))?"
+)
 _SENSITIVE_INFO_NON_PAYMENT_NOUN = (
     r"(?:ssn|s\.s\.n|social\s+security\s+(?:numbers?|no)|"
     r"dates?\s+of\s+birth|birth\s+dates?|dob|"
     r"tax\s+(?:ids?|identification\s+numbers?)|tin|ein|"
     r"mother'?s\s+maiden\s+name|maiden\s+name|"
+    rf"passports?{_IDENTITY_DOCUMENT_NOUN_SUFFIX}|"
+    rf"(?:driver'?s|drivers?|driving)\s+licenses?{_IDENTITY_DOCUMENT_NOUN_SUFFIX}|"
+    rf"government\s+ids?{_IDENTITY_DOCUMENT_NOUN_SUFFIX}|"
+    rf"photo\s+ids?{_IDENTITY_DOCUMENT_NOUN_SUFFIX}|"
+    rf"national\s+ids?{_IDENTITY_DOCUMENT_NOUN_SUFFIX}|"
+    rf"identity\s+documents?{_IDENTITY_DOCUMENT_NOUN_SUFFIX}|"
     r"(?<!bank\s)account\s+numbers?|"
     r"credentials?|passwords?|passphrases?|pins?)"
 )
@@ -938,7 +947,7 @@ _DIRECTIVE_PATTERNS = {
             rf"{_SENSITIVE_INFO_PAYMENT_OVERLAP_ACTION_TARGET}"
         ),
         re.compile(
-            rf"{_ACTION_SUGGESTION_START}(?:share|disclose|send)\s+"
+            rf"{_ACTION_SUGGESTION_START}(?:share|disclose|send|upload)\s+"
             rf"{_SENSITIVE_INFO_ACTION_TARGET}"
         ),
         re.compile(
