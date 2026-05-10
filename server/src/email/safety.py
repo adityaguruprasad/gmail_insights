@@ -62,6 +62,7 @@ BLOCKED_ACTIONS = {
     "authorize_app",
     "grant_mailbox_access",
     "change_security_settings",
+    "install_profile",
     "update_email_signature",
     "submit_form",
 }
@@ -704,6 +705,26 @@ _SECURITY_ACCOUNT_SETTING_SUFFIX = (
     r"(?:(?:your|the|this|that|my|our)\s+)?"
     r"(?:account|gmail|google\s+account|email\s+account))?"
 )
+_INSTALL_PROFILE_NOUN = (
+    r"(?:configuration\s+profiles?|config\s+profiles?|mdm\s+profiles?|"
+    r"mobile\s+device\s+management\s+profiles?|vpn\s+profiles?|profiles?|"
+    r"root\s+certificates?|ca\s+certificates?|certificate\s+authority\s+certificates?|"
+    r"browser\s+certificates?|trust\s+certificates?|certificates?)"
+)
+_INSTALL_PROFILE_TARGET = (
+    r"(?:(?:the|this|that|an?|your|my|our)\s+)?"
+    rf"(?:[\w-]+\s+){{0,2}}{_INSTALL_PROFILE_NOUN}\b"
+)
+_INSTALL_PROFILE_LOCATION = (
+    r"(?:(?:the|this|that|an?|your|my|our)\s+)?"
+    r"(?:email|message|thread|attachment|link|site|website|device|computer|"
+    r"phone|iphone|ipad|android|mac|pc|browser|system|settings|keychain|"
+    r"certificate\s+store|trust\s+store)\b"
+)
+_INSTALL_PROFILE_ACTION_SUFFIX = (
+    rf"(?:\s+(?:from|in|on|to|into|onto|for|within)\s+"
+    rf"{_INSTALL_PROFILE_LOCATION}){{0,2}}{_TARGET_END}"
+)
 _ACCOUNT_CONTACT_CHANNEL_NOUN = r"(?:email(?:\s+address)?|phone(?:\s+number)?)"
 _ACCOUNT_CONTACT_FIELD_TARGET = (
     r"(?:(?:the|this|that|your|my|our|an?)\s+)?"
@@ -844,6 +865,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "authorize_app",
     "grant_mailbox_access",
     "change_security_settings",
+    "install_profile",
     "update_email_signature",
     "submit_form",
     "create_forwarding_rule",
@@ -857,6 +879,7 @@ _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "authorize_app",
     "grant_mailbox_access",
     "change_security_settings",
+    "install_profile",
     "update_account_contact",
     "update_email_signature",
     "create_task",
@@ -1515,6 +1538,12 @@ _DIRECTIVE_PATTERNS = {
         re.compile(
             rf"{_ACTION_SUGGESTION_START}add\s+{_SECURITY_SAFE_SENDER_ENTRY_TARGET}\s+"
             rf"to\s+{_SECURITY_SAFE_SENDER_LIST_TARGET}{_TARGET_END}"
+        ),
+    ],
+    "install_profile": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:install|add|trust)\s+"
+            rf"{_INSTALL_PROFILE_TARGET}{_INSTALL_PROFILE_ACTION_SUFFIX}"
         ),
     ],
     "submit_form": [

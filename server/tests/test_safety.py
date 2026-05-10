@@ -351,6 +351,19 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(safety["effective_actions"], ["read", "summarize"])
         self.assertEqual(safety["blocked_actions"], ["change_security_settings"])
 
+    def test_install_profile_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(["read", "install_profile"])
+
+        self.assertEqual(effective, ["read"])
+        self.assertEqual(blocked, ["install_profile"])
+        self.assertNotIn("install_profile", effective)
+
+        safety = safety_metadata("install_profile")
+        self.assertEqual(safety["mode"], "read_only")
+        self.assertEqual(safety["effective_actions"], ["read", "summarize"])
+        self.assertEqual(safety["blocked_actions"], ["install_profile"])
+        self.assertIn("install_profile", safety_module.BLOCKED_ACTIONS)
+
     def test_submit_form_action_is_supported_but_blocked(self):
         effective, blocked = evaluate_requested_actions(
             ["read", "summarize", "submit_form"]
@@ -1482,6 +1495,63 @@ class SafetyPolicyTests(unittest.TestCase):
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)
         self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_install_profile_directives(self):
+        cases = [
+            "Install the configuration profile.",
+            "Install the MDM profile now.",
+            "Add the root certificate to your device.",
+            "Trust the CA certificate.",
+            "Install the VPN profile from this email.",
+            "Recommended action: install the browser certificate.",
+            "Action item: trust this certificate.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["install_profile"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_install_profile_directives(self):
+        cases = [
+            "Install the\nconfiguration profile",
+            "Trust the\nroot certificate",
+            "Install the profile\nfrom this email.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["install_profile"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_install_profile_descriptions(self):
+        text = (
+            "The email mentions a configuration profile for manual review.\n"
+            "Certificate details are present for analysis.\n"
+            "The certificate was installed yesterday.\n"
+            "Do not install the profile from this email.\n"
+            "Trust metrics are summarized in the report."
+        )
+
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_install_profile_split_line_handling_uses_directive_sets_without_action_words(self):
+        self.assertIn(
+            "install_profile",
+            safety_module._DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS,
+        )
+        self.assertIn(
+            "install_profile",
+            safety_module._DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS,
+        )
+        self.assertNotIn("install_profile", safety_module._ACTION_WORD_PATTERNS)
 
     def test_neutralize_unsafe_action_suggestions_blocks_account_contact_updates(self):
         cases = [
