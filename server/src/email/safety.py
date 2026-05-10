@@ -729,6 +729,30 @@ _SECURITY_KEY_TARGET = (
     r"(?:(?:the|this|that|your|my|our|an?)\s+)?"
     r"(?:[\w-]+\s+){0,2}security\s+keys?\b"
 )
+_SECURITY_ACCOUNT_SETTING_TARGET = (
+    r"(?:(?:your|the|this|that|my|our)\s+)?"
+    r"(?:account|gmail|google\s+account|email\s+account)\b"
+)
+_TRUSTED_DEVICE_TARGET = (
+    r"(?:(?:the|this|that|your|my|our|an?)\s+)?"
+    r"(?:[\w-]+\s+){0,2}(?:device|browser|computer|phone)\b"
+)
+_TRUSTED_DEVICE_SETTING_TARGET = (
+    r"(?:(?:the|this|that|your|my|our|an?)\s+)?"
+    r"(?:[\w-]+\s+){0,2}trusted\s+"
+    r"(?:device|browser|computer|phone)s?\b"
+)
+_SECURITY_PASSKEY_TARGET = (
+    r"(?:(?:the|this|that|your|my|our|an?)\s+)?passkeys?\b"
+)
+_SECURITY_ENROLLMENT_METHOD_TARGET = (
+    r"(?:(?:the|this|that|your|my|our|an?)\s+)?"
+    r"(?:link|url|page|browser|device|phone|computer)\b"
+)
+_SECURITY_ENROLLMENT_SUFFIX = (
+    rf"(?:\s+(?:for|to|in|on|within)\s+{_SECURITY_ACCOUNT_SETTING_TARGET}|"
+    rf"\s+(?:using|via|through)\s+{_SECURITY_ENROLLMENT_METHOD_TARGET})?"
+)
 _SECURITY_BACKUP_CODES_TARGET = (
     r"(?:(?:the|this|that|your|my|our)\s+)?backup\s+codes?\b"
 )
@@ -754,8 +778,7 @@ _SECURITY_FILTER_SCOPE_SUFFIX = (
 )
 _SECURITY_ACCOUNT_SETTING_SUFFIX = (
     r"(?:\s+(?:from|for|in|on|within)\s+"
-    r"(?:(?:your|the|this|that|my|our)\s+)?"
-    r"(?:account|gmail|google\s+account|email\s+account))?"
+    rf"{_SECURITY_ACCOUNT_SETTING_TARGET})?"
 )
 _MAIL_ACCESS_ACCOUNT_CONTEXT = (
     r"(?:(?:this|that|the|my|your|our)\s+)?"
@@ -1635,6 +1658,32 @@ _DIRECTIVE_PATTERNS = {
         ),
     ],
     "change_security_settings": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:trust|remember)\s+"
+            rf"{_TRUSTED_DEVICE_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}add\s+{_TRUSTED_DEVICE_TARGET}\s+"
+            rf"as\s+{_TRUSTED_DEVICE_SETTING_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}mark\s+{_TRUSTED_DEVICE_TARGET}\s+"
+            rf"as\s+trusted{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:register|create|add|set\s+up|enroll)\s+"
+            rf"{_SECURITY_PASSKEY_TARGET}{_SECURITY_ENROLLMENT_SUFFIX}"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}enroll\s+{_TRUSTED_DEVICE_TARGET}\s+"
+            rf"for\s+{_SECURITY_PASSKEY_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:add|register|enroll|create|set\s+up)\s+"
+            rf"{_SECURITY_KEY_TARGET}{_SECURITY_ENROLLMENT_SUFFIX}"
+            rf"{_TARGET_END}"
+        ),
         re.compile(
             rf"{_ACTION_SUGGESTION_START}(?:disable|deactivate|turn\s+off)\s+"
             rf"{_SECURITY_AUTH_FACTOR_TARGET}{_TARGET_END}"

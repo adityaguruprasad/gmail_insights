@@ -1574,6 +1574,26 @@ class SafetyPolicyTests(unittest.TestCase):
                 self.assertEqual(guarded, "[Unsafe action suggestion removed]")
                 self.assertEqual(blocked, ["change_security_settings"])
 
+    def test_neutralize_unsafe_action_suggestions_blocks_trusted_device_and_passkey_directives(self):
+        cases = [
+            "Trust this device",
+            "Remember this browser",
+            "Add this device as a trusted device",
+            "Mark this computer as trusted now",
+            "Register a passkey for this account",
+            "Create a passkey using the link",
+            "Add a security key to your account",
+            "Enroll this device for passkeys",
+            "Recommended action: trust this browser",
+            "Action item: add this phone as a trusted device",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["change_security_settings"])
+
     def test_neutralize_unsafe_action_suggestions_blocks_split_line_security_setting_directives(self):
         cases = [
             "Disable two-factor\nauthentication",
@@ -1583,6 +1603,21 @@ class SafetyPolicyTests(unittest.TestCase):
             "Disable the spam\nfilter",
             "Turn off phishing\nfilters for this account",
             "Add accounting@example.com\nto the safe senders list",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["change_security_settings"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_trusted_device_and_passkey_directives(self):
+        cases = [
+            "Trust this\ndevice",
+            "Register a passkey\nfor this account",
         ]
 
         for text in cases:
@@ -1604,11 +1639,30 @@ class SafetyPolicyTests(unittest.TestCase):
             "The backup codes were reset yesterday\n"
             "The email mentions spam filter settings for manual review\n"
             "The domain is already allow-listed by policy\n"
-            "Filtering metrics are summarized"
+            "Filtering metrics are summarized\n"
+            "The email mentions trusted device settings for manual review\n"
+            "This browser was trusted yesterday\n"
+            "Passkey setup instructions are included for review\n"
+            "Do not trust this device from this email\n"
+            "Trusted device metrics are summarized"
         )
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)
         self.assertEqual(blocked, [])
+
+    def test_security_settings_split_line_handling_uses_directive_sets_without_action_words(self):
+        self.assertIn(
+            "change_security_settings",
+            safety_module._DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS,
+        )
+        self.assertIn(
+            "change_security_settings",
+            safety_module._DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS,
+        )
+        self.assertNotIn(
+            "change_security_settings",
+            safety_module._ACTION_WORD_PATTERNS,
+        )
 
     def test_neutralize_unsafe_action_suggestions_blocks_mail_access_setting_directives(self):
         cases = [
