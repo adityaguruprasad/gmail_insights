@@ -1,5 +1,6 @@
 """Validation helpers for /query_insights payloads."""
 
+import re
 from collections.abc import Iterable, Mapping
 from typing import Any, Dict, List
 
@@ -13,6 +14,17 @@ MAX_RESULTS = 100
 MAX_ACTION_LENGTH = 64
 MAX_REQUESTED_ACTIONS = 20
 SUPPORTED_ACTIONS = ALLOWED_ACTIONS | BLOCKED_ACTIONS
+BLOCKED_QUERY_SCOPE_VALUES = {
+    "in": {"all", "allmail", "anywhere", "draft", "drafts", "sent", "spam", "trash"},
+    "is": {"draft", "drafts", "sent", "spam", "trash"},
+    "label": {"draft", "drafts", "sent", "spam", "trash"},
+}
+_QUERY_SCOPE_OPERATOR_RE = "|".join(re.escape(operator) for operator in BLOCKED_QUERY_SCOPE_VALUES)
+_QUERY_SCOPE_RE = re.compile(
+    rf"(?i)(?<![\w.:\-@])(?P<operator>{_QUERY_SCOPE_OPERATOR_RE})\s*:\s*"
+    r"(?P<value>\"(?:\\.|[^\"])*\"|'(?:\\.|[^'])*'|\([^)]*\)|\{[^}]*\}|[^\s(){}]+)"
+)
+_QUERY_SCOPE_VALUE_SPLIT_RE = re.compile(r"[\s,|]+")
 
 
 class QueryInsightsValidationError(ValueError):
@@ -97,6 +109,10 @@ def _validate_query(raw_query: Any) -> str:
         raise QueryInsightsValidationError("Invalid query: must be 512 characters or fewer")
     if any(ord(char) < 32 or ord(char) == 127 for char in query):
         raise QueryInsightsValidationError("Invalid query: control characters are not allowed")
+    if _contains_blocked_query_scope(query):
+        raise QueryInsightsValidationError(
+            "Invalid query: broad or sensitive mailbox scopes are not allowed"
+        )
 
     return query
 
@@ -127,6 +143,59 @@ def _validate_max_results(raw_max_results: Any) -> int:
         raise QueryInsightsValidationError("Invalid max_results: must be between 1 and 100")
 
     return max_results
+
+
+def _query_value_terms(value: str) -> set[str]:
+    value = value.strip("'\"(){}").lower()
+    return {
+        part
+        for part in _QUERY_SCOPE_VALUE_SPLIT_RE.split(value)
+        if part and part.lower() != "or"
+    }
+
+
+def _quoted_spans(text: str) -> List[tuple[int, int]]:
+    spans = []
+    index = 0
+    while index < len(text):
+        if text[index] not in {"'", '"'}:
+            index += 1
+            continue
+
+        quote = text[index]
+        start = index
+        closed = False
+        index += 1
+        while index < len(text):
+            if text[index] == "\\":
+                index += 2
+                continue
+            if text[index] == quote:
+                index += 1
+                closed = True
+                break
+            index += 1
+        if closed:
+            spans.append((start, index))
+
+    return spans
+
+
+def _is_inside_quoted_value(index: int, spans: List[tuple[int, int]]) -> bool:
+    return any(start < index < end for start, end in spans)
+
+
+def _contains_blocked_query_scope(query: str) -> bool:
+    quoted_spans = _quoted_spans(query)
+    for match in _QUERY_SCOPE_RE.finditer(query):
+        if _is_inside_quoted_value(match.start(), quoted_spans):
+            continue
+
+        operator = match.group("operator").lower()
+        if _query_value_terms(match.group("value")) & BLOCKED_QUERY_SCOPE_VALUES[operator]:
+            return True
+
+    return False
 
 
 def validate_query_insights_payload(payload: Mapping[str, Any] | None) -> Dict[str, Any]:

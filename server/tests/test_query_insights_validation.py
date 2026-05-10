@@ -66,6 +66,48 @@ class QueryInsightsValidationTests(unittest.TestCase):
         self.assertIn("control characters", response.get_json()["error"])
         mock_gmail.assert_not_called()
 
+    def test_query_with_broad_or_sensitive_mailbox_scope_rejected(self):
+        cases = [
+            "in:anywhere",
+            "in:drafts",
+            "IN:sent from:billing",
+            "is:draft",
+            "is:trash",
+            "label:spam",
+            "from:alerts in:(sent OR inbox)",
+            'in:"sent"',
+            '"unterminated quote in:anywhere',
+        ]
+
+        for query in cases:
+            with self.subTest(query=query):
+                with patch("app._gmail_service_from_token") as mock_gmail:
+                    response = self.client.post(
+                        "/query_insights",
+                        json={"token": "test-token", "query": query},
+                    )
+
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("mailbox scopes", response.get_json()["error"])
+                mock_gmail.assert_not_called()
+
+    def test_query_scope_guard_preserves_normal_scoped_searches(self):
+        service = object()
+        query = 'from:alerts in:inbox after:2026/04/01 -in:spam subject:"in:anywhere"'
+
+        with patch("app._gmail_service_from_token", return_value=service), patch(
+            "app.get_emails_by_query", return_value=[]
+        ) as mock_fetch:
+            response = self.client.post(
+                "/query_insights",
+                json={"token": "test-token", "query": query, "max_results": 4},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(body["query"], query)
+        mock_fetch.assert_called_once_with(service, query=query, max_results=4)
+
     def test_unknown_requested_actions_rejected_before_gmail(self):
         with patch("app._gmail_service_from_token") as mock_gmail:
             response = self.client.post(
