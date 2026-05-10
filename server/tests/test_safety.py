@@ -185,6 +185,19 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(blocked, ["load_remote_content"])
         self.assertNotIn("load_remote_content", effective)
 
+    def test_remote_access_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(["read", "start_remote_access"])
+
+        self.assertEqual(effective, ["read"])
+        self.assertEqual(blocked, ["start_remote_access"])
+        self.assertNotIn("start_remote_access", effective)
+
+        safety = safety_metadata("start_remote_access")
+        self.assertEqual(safety["mode"], "read_only")
+        self.assertEqual(safety["effective_actions"], ["read", "summarize"])
+        self.assertEqual(safety["blocked_actions"], ["start_remote_access"])
+        self.assertIn("start_remote_access", safety_module.BLOCKED_ACTIONS)
+
     def test_qr_code_follow_up_action_is_supported_but_blocked(self):
         effective, blocked = evaluate_requested_actions(["read", "scan_qr_code"])
 
@@ -977,6 +990,66 @@ class SafetyPolicyTests(unittest.TestCase):
 
         self.assertEqual(guarded, text)
         self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_remote_access_directives(self):
+        cases = [
+            "Start a remote desktop session.",
+            "Join the screen sharing session.",
+            "Share your screen with the sender.",
+            "Give the technician remote access.",
+            "Allow remote control of your computer.",
+            "Connect to the support session.",
+            "Recommended action: start a remote support session.",
+            "Action item: share your screen with support.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["start_remote_access"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_remote_access_directives(self):
+        cases = [
+            "Start a remote\ndesktop session.",
+            "Recommended action: start a remote support\nsession.",
+            "Share your screen\nwith support.",
+            "Action item: share your screen\nwith support.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["start_remote_access"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_remote_access_descriptions(self):
+        text = (
+            "The email mentions remote access for manual review.\n"
+            "Screen sharing is disabled by policy.\n"
+            "The sender asks how remote support works.\n"
+            "Remote desktop metrics are summarized.\n"
+            "Do not share your screen with the sender."
+        )
+
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_remote_access_split_line_handling_uses_directive_sets_without_action_words(self):
+        self.assertIn(
+            "start_remote_access",
+            safety_module._DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS,
+        )
+        self.assertIn(
+            "start_remote_access",
+            safety_module._DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS,
+        )
+        self.assertNotIn("start_remote_access", safety_module._ACTION_WORD_PATTERNS)
 
     def test_neutralize_unsafe_action_suggestions_blocks_qr_code_directives(self):
         cases = [

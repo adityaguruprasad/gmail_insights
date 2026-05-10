@@ -42,6 +42,7 @@ BLOCKED_ACTIONS = {
     "upload_file",
     "load_remote_content",
     "scan_qr_code",
+    "start_remote_access",
     "call_phone",
     "send_sms",
     "create_contact",
@@ -520,6 +521,32 @@ _REMOTE_CONTENT_LOAD_TARGET = (
     rf"(?:{_REMOTE_CONTENT_RESOURCE_TARGET}"
     rf"{_REMOTE_CONTENT_SENDER_SUFFIX}|{_REMOTE_CONTENT_SENDER_TARGET})"
 )
+_REMOTE_ACCESS_SESSION_NOUN = (
+    r"(?:(?:remote\s+(?:desktop|support|assistance)|screen[-\s]+sharing|support)"
+    r"\s+sessions?)"
+)
+_REMOTE_ACCESS_SESSION_TARGET = (
+    r"(?:(?:the|this|that|an?|your)\s+)?"
+    rf"(?:[\w-]+\s+){{0,2}}{_REMOTE_ACCESS_SESSION_NOUN}\b"
+)
+_REMOTE_ACCESS_DEVICE_TARGET = (
+    r"(?:(?:your|my|our|the|this|that|an?)\s+)?"
+    r"(?:[\w-]+\s+){0,2}(?:computer|device|desktop|laptop|machine|pc|mac|system)\b"
+)
+_REMOTE_ACCESS_PERMISSION_TARGET = (
+    rf"(?:remote\s+access(?:\s+(?:to|of)\s+{_REMOTE_ACCESS_DEVICE_TARGET})?|"
+    rf"remote\s+control(?:\s+of\s+{_REMOTE_ACCESS_DEVICE_TARGET})?)"
+)
+_REMOTE_ACCESS_GRANTEE_NOUN = (
+    r"(?:support\s+team|customer\s+support|technical\s+support|it\s+support|"
+    r"help\s*desk|sender|recipient|contact|customer|client|person|user|"
+    r"technician|support|agent|representative|vendor|supplier|it)"
+)
+_REMOTE_ACCESS_GRANTEE_TARGET = (
+    rf"(?:{_EMAIL_TARGET}|(?:(?:the|this|that|an?|your|my|our)\s+)?"
+    rf"(?:[\w-]+\s+){{0,2}}{_REMOTE_ACCESS_GRANTEE_NOUN}\b)"
+)
+_SCREEN_SHARE_TARGET = r"(?:(?:your|my|our|the|this|that)\s+)?screens?\b"
 _FINANCIAL_AMOUNT = (
     r"(?:[$\u20ac\u00a3]\s?\d[\d,]*(?:\.\d+)?|"
     r"\d+(?:\.\d+)?\s*(?:btc|bitcoin|eth|ether|ethereum|usdc|usdt|usd|eur|gbp))"
@@ -795,6 +822,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "upload_file",
     "load_remote_content",
     "scan_qr_code",
+    "start_remote_access",
     "call_phone",
     "send_sms",
     "create_contact",
@@ -835,6 +863,7 @@ _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "print_email",
     "export_data",
     "set_auto_reply",
+    "start_remote_access",
 }
 _DIRECTIVE_PATTERNS = {
     "provide_sensitive_info": [
@@ -1133,6 +1162,34 @@ _DIRECTIVE_PATTERNS = {
         re.compile(
             rf"{_ACTION_SUGGESTION_START}enable\s+"
             rf"{_REMOTE_CONTENT_LOAD_TARGET}{_TARGET_END}"
+        ),
+    ],
+    "start_remote_access": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:start|join)\s+"
+            rf"{_REMOTE_ACCESS_SESSION_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}connect\s+to\s+"
+            rf"{_REMOTE_ACCESS_SESSION_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}share\s+{_SCREEN_SHARE_TARGET}\s+"
+            rf"(?:with|to)\s+{_REMOTE_ACCESS_GRANTEE_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:grant|give|provide)\s+"
+            rf"{_REMOTE_ACCESS_GRANTEE_TARGET}\s+"
+            rf"{_REMOTE_ACCESS_PERMISSION_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:grant|give|provide)\s+"
+            rf"{_REMOTE_ACCESS_PERMISSION_TARGET}\s+(?:to|for)\s+"
+            rf"{_REMOTE_ACCESS_GRANTEE_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:allow|enable)\s+"
+            rf"{_REMOTE_ACCESS_PERMISSION_TARGET}{_TARGET_END}"
         ),
     ],
     "scan_qr_code": [
