@@ -52,6 +52,7 @@ BLOCKED_ACTIONS = {
     "update_contact",
     "update_account_contact",
     "use_verification_code",
+    "approve_login_prompt",
     "accept_invite",
     "decline_invite",
     "tentative_invite",
@@ -562,6 +563,39 @@ _VERIFICATION_CODE_PURPOSE_SUFFIX = (
 _VERIFICATION_CODE_ACTION_SUFFIX = (
     rf"(?:{_VERIFICATION_CODE_DESTINATION_SUFFIX}|{_VERIFICATION_CODE_PURPOSE_SUFFIX})"
     rf"{_TARGET_END}"
+)
+_LOGIN_APPROVAL_SERVICE = (
+    r"(?:duo|okta(?:\s+verify)?|microsoft\s+authenticator|google\s+authenticator|"
+    r"authy|authenticator(?:\s+app)?|mfa\s+app|2fa\s+app)"
+)
+_LOGIN_APPROVAL_CONTEXT = (
+    rf"(?:{_LOGIN_APPROVAL_SERVICE}|login|log[-\s]?in|sign[-\s]?in|"
+    r"authentication|auth|verification|mfa|2fa|two[-\s]?factor|multi[-\s]?factor)"
+)
+_LOGIN_APPROVAL_REQUEST_NOUN = (
+    r"(?:prompts?|requests?|notifications?|push(?:\s+notifications?)?|"
+    r"approval(?:\s+requests?)?|challenges?)"
+)
+_LOGIN_APPROVAL_CONTEXTUAL_TARGET = (
+    r"(?:(?:the|this|that|your|an?)\s+)?"
+    rf"(?:(?:{_LOGIN_APPROVAL_CONTEXT})\s+){{1,3}}"
+    rf"{_LOGIN_APPROVAL_REQUEST_NOUN}\b"
+)
+_LOGIN_APPROVAL_SERVICE_TARGET = (
+    r"(?:(?:the|this|that|your|an?)\s+)?"
+    rf"{_LOGIN_APPROVAL_SERVICE}\b"
+)
+_LOGIN_APPROVAL_SERVICE_SUFFIX = (
+    rf"(?:\s+(?:in|on|from|through|via|using)\s+{_LOGIN_APPROVAL_SERVICE_TARGET})?"
+)
+_LOGIN_APPROVAL_PROMPT_TARGET = (
+    rf"(?:{_LOGIN_APPROVAL_CONTEXTUAL_TARGET}{_LOGIN_APPROVAL_SERVICE_SUFFIX}|"
+    rf"(?:(?:the|this|that|your|an?)\s+)?"
+    rf"{_LOGIN_APPROVAL_REQUEST_NOUN}\b\s+"
+    rf"(?:in|on|from|through|via|using)\s+{_LOGIN_APPROVAL_SERVICE_TARGET})"
+)
+_LOGIN_APPROVAL_RESPONSE_TARGET = (
+    rf"(?:{_LOGIN_APPROVAL_PROMPT_TARGET}|{_LOGIN_APPROVAL_SERVICE_TARGET})"
 )
 _SIGN_IN_TARGET_NOUN = (
     r"(?:accounts?|portals?|sites?|websites?|webpages?|apps?|applications?|gmail|"
@@ -1146,6 +1180,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "update_contact",
     "update_account_contact",
     "use_verification_code",
+    "approve_login_prompt",
     "accept_invite",
     "decline_invite",
     "tentative_invite",
@@ -1182,6 +1217,7 @@ _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "change_mail_access_settings",
     "install_profile",
     "update_account_contact",
+    "approve_login_prompt",
     "update_email_signature",
     "create_task",
     "provide_sensitive_info",
@@ -1722,6 +1758,26 @@ _DIRECTIVE_PATTERNS = {
         re.compile(
             rf"{_ACTION_SUGGESTION_START}(?:reply|respond)\s+with\s+"
             rf"{_VERIFICATION_CODE_TARGET}{_VERIFICATION_CODE_ACTION_SUFFIX}"
+        ),
+    ],
+    "approve_login_prompt": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:approve|accept|allow|confirm)\s+"
+            rf"{_LOGIN_APPROVAL_PROMPT_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}(?:approve|accept|allow|confirm)\s+"
+            rf"{_LOGIN_APPROVAL_PROMPT_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:tap|click|press|select|choose)\s+"
+            rf"(?:yes|approve|allow|accept|confirm)\s+"
+            rf"(?:on|in|within)\s+{_LOGIN_APPROVAL_RESPONSE_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}(?:tap|click|press|select|choose)\s+"
+            rf"(?:yes|approve|allow|accept|confirm)\s+"
+            rf"(?:on|in|within)\s+{_LOGIN_APPROVAL_RESPONSE_TARGET}{_TARGET_END}"
         ),
     ],
     "accept_invite": [

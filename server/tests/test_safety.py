@@ -306,6 +306,31 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(blocked, ["use_verification_code"])
         self.assertNotIn("use_verification_code", effective)
 
+    def test_login_prompt_approval_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(
+            ["read", "approve_login_prompt"]
+        )
+
+        self.assertEqual(effective, ["read"])
+        self.assertEqual(blocked, ["approve_login_prompt"])
+        self.assertNotIn("approve_login_prompt", effective)
+
+        safety = safety_metadata("approve_login_prompt")
+        self.assertEqual(safety["mode"], "read_only")
+        self.assertEqual(safety["effective_actions"], ["read", "summarize"])
+        self.assertEqual(safety["blocked_actions"], ["approve_login_prompt"])
+        self.assertIn("approve_login_prompt", safety_module.BLOCKED_ACTIONS)
+        self.assertNotIn("approve_login_prompt", safety_module.ALLOWED_ACTIONS)
+        self.assertIn(
+            "approve_login_prompt",
+            safety_module._DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS,
+        )
+        self.assertIn(
+            "approve_login_prompt",
+            safety_module._DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS,
+        )
+        self.assertNotIn("approve_login_prompt", safety_module._ACTION_WORD_PATTERNS)
+
     def test_calendar_rsvp_follow_up_actions_are_supported_but_blocked(self):
         actions = [
             "accept_invite",
@@ -1493,6 +1518,72 @@ class SafetyPolicyTests(unittest.TestCase):
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)
         self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_login_prompt_approval_directives(self):
+        cases = [
+            "Approve the MFA prompt.",
+            "Accept the login request.",
+            "Allow the sign-in notification.",
+            "Confirm the authentication challenge.",
+            "Approve the Duo push.",
+            "Approve the Okta Verify push notification.",
+            "Confirm the push in Microsoft Authenticator.",
+            "Tap Yes in the Microsoft Authenticator prompt.",
+            "Click Approve in Duo.",
+            "Recommended action: approve the MFA prompt.",
+            "Action item: tap approve in Okta.",
+            "Review notes: recommended action: confirm the sign-in request.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["approve_login_prompt"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_login_prompt_approvals(self):
+        cases = [
+            "Approve the MFA\nprompt.",
+            "Accept the login\nrequest.",
+            "Tap Yes in the Microsoft Authenticator\nprompt.",
+            "Recommended action: confirm the sign-in\nrequest.",
+            "Action item: tap approve\nin Duo.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["approve_login_prompt"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_login_prompt_descriptions(self):
+        text = (
+            "The email asks the user to approve an MFA prompt for manual review.\n"
+            "MFA prompt details are present for analysis.\n"
+            "Sign-in request risk is high; do not approve it.\n"
+            "Do not approve the Duo push from this email.\n"
+            "Action item: review the MFA prompt manually.\n"
+            "The Microsoft Authenticator notification was approved yesterday."
+        )
+
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_login_prompt_approval_split_line_handling_uses_directive_sets_without_action_words(self):
+        self.assertIn(
+            "approve_login_prompt",
+            safety_module._DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS,
+        )
+        self.assertIn(
+            "approve_login_prompt",
+            safety_module._DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS,
+        )
+        self.assertNotIn("approve_login_prompt", safety_module._ACTION_WORD_PATTERNS)
 
     def test_neutralize_unsafe_action_suggestions_blocks_sign_in_directives(self):
         cases = [
