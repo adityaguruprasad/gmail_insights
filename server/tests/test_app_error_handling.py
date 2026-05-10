@@ -20,7 +20,7 @@ class _StubAnthropic:
 anthropic_stub.Anthropic = _StubAnthropic
 sys.modules.setdefault("anthropic", anthropic_stub)
 
-import app as app_module
+import app as app_module  # noqa: E402
 
 
 class ApiErrorHandlingTests(unittest.TestCase):

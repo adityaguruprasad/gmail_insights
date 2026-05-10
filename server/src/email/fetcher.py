@@ -1,4 +1,6 @@
 import base64
+import re
+from html.parser import HTMLParser
 from typing import Dict, List, Optional
 
 
@@ -6,36 +8,169 @@ def _decode_base64_urlsafe(data: Optional[str]) -> str:
     if not data:
         return ""
 
-    padding = '=' * (-len(data) % 4)
     try:
-        return base64.urlsafe_b64decode(data + padding).decode("utf-8", errors="replace")
+        encoded = data.encode("ascii").translate(None, b" \t\n\r\f\v")
+        padding = b"=" * (-len(encoded) % 4)
+        decoded = base64.b64decode(
+            encoded + padding,
+            altchars=b"-_",
+            validate=True,
+        )
+        return decoded.decode("utf-8", errors="replace")
     except Exception:
         return ""
+
+
+_HTML_CONTENT_TAGS_TO_DROP = {"script", "style", "template", "noscript"}
+_HTML_BLOCK_TAGS = {
+    "address",
+    "article",
+    "aside",
+    "blockquote",
+    "br",
+    "caption",
+    "dd",
+    "div",
+    "dl",
+    "dt",
+    "figcaption",
+    "figure",
+    "footer",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "header",
+    "hr",
+    "li",
+    "main",
+    "nav",
+    "ol",
+    "p",
+    "pre",
+    "section",
+    "table",
+    "tbody",
+    "td",
+    "tfoot",
+    "th",
+    "thead",
+    "tr",
+    "ul",
+}
+
+
+class _HTMLToPlainTextParser(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self._chunks: List[str] = []
+        self._drop_depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        tag = tag.lower()
+        if tag in _HTML_CONTENT_TAGS_TO_DROP:
+            self._drop_depth += 1
+            return
+
+        if self._drop_depth:
+            return
+
+        if tag in _HTML_BLOCK_TAGS:
+            self._chunks.append("\n")
+
+    def handle_endtag(self, tag):
+        tag = tag.lower()
+        if tag in _HTML_CONTENT_TAGS_TO_DROP:
+            if self._drop_depth:
+                self._drop_depth -= 1
+            return
+
+        if self._drop_depth:
+            return
+
+        if tag in _HTML_BLOCK_TAGS:
+            self._chunks.append("\n")
+
+    def handle_data(self, data):
+        if not self._drop_depth:
+            self._chunks.append(data)
+
+    def handle_comment(self, data):
+        return
+
+    def get_text(self) -> str:
+        text = "".join(self._chunks)
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        text = text.replace("\xa0", " ")
+        text = re.sub(r"[^\S\n]+", " ", text)
+        text = re.sub(r" *\n *", "\n", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
+
+
+def _html_to_plain_text(content: str) -> str:
+    if not content:
+        return ""
+
+    parser = _HTMLToPlainTextParser()
+    try:
+        parser.feed(content)
+        parser.close()
+    except Exception:
+        return ""
+
+    return parser.get_text()
+
+
+def _base_mime_type(mime_type: str) -> str:
+    return mime_type.split(";", 1)[0].strip().lower()
+
+
+def _is_attachment_part(part: Dict) -> bool:
+    if part.get("filename"):
+        return True
+
+    disposition = _header_value(part.get("headers", []) or [], "Content-Disposition", "")
+    disposition_type = disposition.split(";", 1)[0].strip().lower()
+    return disposition_type == "attachment"
+
+
+def _find_decoded_mime_part(payload: Dict, mime_type: str) -> Optional[str]:
+    if not payload or _is_attachment_part(payload):
+        return None
+
+    if _base_mime_type(payload.get("mimeType", "")) == mime_type:
+        data = payload.get("body", {}).get("data")
+        if data is None:
+            return None
+        decoded = _decode_base64_urlsafe(data)
+        if decoded:
+            return decoded
+        return None
+
+    for part in payload.get("parts", []) or []:
+        decoded = _find_decoded_mime_part(part, mime_type)
+        if decoded is not None:
+            return decoded
+
+    return None
 
 
 def _extract_plain_text(payload: Dict) -> str:
     if not payload:
         return ""
 
-    mime_type = payload.get("mimeType", "")
-    body = payload.get("body", {})
+    plain_text = _find_decoded_mime_part(payload, "text/plain")
+    if plain_text is not None:
+        return plain_text
 
-    if mime_type == "text/plain":
-        return _decode_base64_urlsafe(body.get("data"))
+    html_text = _find_decoded_mime_part(payload, "text/html")
+    if html_text is not None:
+        return _html_to_plain_text(html_text)
 
-    parts = payload.get("parts", []) or []
-    for part in parts:
-        part_mime_type = part.get("mimeType", "")
-        if part_mime_type == "text/plain":
-            return _decode_base64_urlsafe(part.get("body", {}).get("data"))
-
-        nested_parts = part.get("parts")
-        if nested_parts:
-            nested_text = _extract_plain_text(part)
-            if nested_text:
-                return nested_text
-
-    return _decode_base64_urlsafe(body.get("data"))
+    return ""
 
 
 def _header_value(headers: List[Dict], key: str, default: str = "") -> str:
