@@ -65,6 +65,7 @@ BLOCKED_ACTIONS = {
     "sign_in",
     "create_external_account",
     "change_password",
+    "password_manager_action",
     "authorize_app",
     "grant_mailbox_access",
     "change_security_settings",
@@ -898,6 +899,66 @@ _PASSWORD_ACTION_SUFFIX = (
     rf"(?:\s+{_URGENCY_SUFFIX})?"
     r"(?=\s*(?:$|[.!?,:;]))"
 )
+_BROWSER_PASSWORD_APP = (
+    r"(?:chrome|edge|firefox|safari|brave|browser|web\s+browser)"
+)
+_PASSWORD_MANAGER_STORE = (
+    r"(?:(?:the|this|that|your|my|our)\s+)?"
+    rf"(?:(?:{_BROWSER_PASSWORD_APP})\s+)?"
+    r"(?:password|credential)\s+managers?\b"
+)
+_PASSWORD_MANAGER_BROWSER_LOCATION = (
+    r"(?:(?:the|this|that|your|my|our)\s+)?"
+    rf"{_BROWSER_PASSWORD_APP}\b"
+)
+_PASSWORD_MANAGER_LOCATION = (
+    rf"(?:{_PASSWORD_MANAGER_STORE}|{_PASSWORD_MANAGER_BROWSER_LOCATION})"
+)
+_PASSWORD_MANAGER_SPECIFIC_PASSWORD_OBJECT = (
+    r"(?:(?:all|the|your|my|our|this|that|these|those)\s+)?"
+    rf"(?:(?:saved|stored|{_BROWSER_PASSWORD_APP})\s+){{1,3}}passwords?\b"
+)
+_PASSWORD_MANAGER_GENERIC_PASSWORD_OBJECT = (
+    r"(?:(?:all|the|your|my|our|this|that|these|those)\s+)?passwords?\b"
+)
+_PASSWORD_MANAGER_CONTEXTUAL_PASSWORD_OBJECT = (
+    rf"(?:{_PASSWORD_MANAGER_SPECIFIC_PASSWORD_OBJECT}|"
+    rf"{_PASSWORD_MANAGER_GENERIC_PASSWORD_OBJECT}\s+"
+    rf"(?:from|in|within|out\s+of)\s+{_PASSWORD_MANAGER_LOCATION})"
+)
+_PASSWORD_MANAGER_EXPORT_DESTINATION = (
+    r"(?:csv|file|spreadsheet|document|json|archive|zip|backup|text\s+file)\b"
+)
+_PASSWORD_MANAGER_EXPORT_ACTION_SUFFIX = (
+    rf"(?:\s+(?:from|in|within|out\s+of)\s+{_PASSWORD_MANAGER_LOCATION})?"
+    rf"(?:\s+(?:to|into|in|on|as)\s+(?:(?:an?|the)\s+)?"
+    rf"{_PASSWORD_MANAGER_EXPORT_DESTINATION})?"
+    rf"{_TARGET_END}"
+)
+_PASSWORD_MANAGER_IMPORT_SOURCE = (
+    r"(?:(?:the|this|that|an?|your)\s+)?"
+    r"(?:attachment|attached\s+file|file|csv|spreadsheet|document|"
+    r"password\s+file|export(?:ed)?\s+file)\b"
+)
+_PASSWORD_MANAGER_IMPORT_TARGET = (
+    rf"(?:{_PASSWORD_MANAGER_SPECIFIC_PASSWORD_OBJECT}"
+    rf"(?:\s+(?:from|using|via)\s+{_PASSWORD_MANAGER_IMPORT_SOURCE})?|"
+    rf"{_PASSWORD_MANAGER_GENERIC_PASSWORD_OBJECT}\s+"
+    rf"(?:from|using|via)\s+{_PASSWORD_MANAGER_IMPORT_SOURCE})"
+)
+_PASSWORD_MANAGER_SAVE_TARGET = (
+    r"(?:(?:the|this|that|your|my|our|new|saved|generated|provided)\s+)?"
+    r"password\b"
+)
+_PASSWORD_MANAGER_PROTECTION_TARGET = (
+    rf"(?:{_PASSWORD_MANAGER_STORE}|"
+    r"(?:(?:the|this|that|your|my|our)\s+)?"
+    rf"(?:(?:{_BROWSER_PASSWORD_APP})\s+)?password\s+manager\s+protection\b"
+    rf"(?:\s+(?:in|within|for|on)\s+{_PASSWORD_MANAGER_LOCATION})?|"
+    r"(?:(?:the|this|that|your|my|our)\s+)?"
+    rf"(?:(?:{_BROWSER_PASSWORD_APP})\s+)?password\s+protection\b"
+    rf"(?:\s+(?:in|within|for|on)\s+{_PASSWORD_MANAGER_LOCATION})?)"
+)
 _AUTHZ_OBJECT_NOUN = (
     r"(?:apps?|applications?|integrations?|browser\s+extensions?|extensions?|"
     r"oauth\s+(?:apps?|applications?|clients?)|"
@@ -1214,6 +1275,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "sign_in",
     "create_external_account",
     "change_password",
+    "password_manager_action",
     "authorize_app",
     "grant_mailbox_access",
     "change_security_settings",
@@ -1233,6 +1295,7 @@ _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "sign_in",
     "create_external_account",
     "change_password",
+    "password_manager_action",
     "authorize_app",
     "grant_mailbox_access",
     "change_security_settings",
@@ -1970,6 +2033,56 @@ _DIRECTIVE_PATTERNS = {
         re.compile(
             rf"{_ACTION_SUGGESTION_START}(?:reset|change|update|set|recover|create)\s+"
             rf"{_PASSWORD_CREDENTIAL_TARGET}{_PASSWORD_ACTION_SUFFIX}"
+        ),
+    ],
+    "password_manager_action": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:export|download|copy)\s+"
+            rf"{_PASSWORD_MANAGER_CONTEXTUAL_PASSWORD_OBJECT}"
+            rf"{_PASSWORD_MANAGER_EXPORT_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}(?:export|download|copy)\s+"
+            rf"{_PASSWORD_MANAGER_CONTEXTUAL_PASSWORD_OBJECT}"
+            rf"{_PASSWORD_MANAGER_EXPORT_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:show|reveal)\s+"
+            rf"{_PASSWORD_MANAGER_CONTEXTUAL_PASSWORD_OBJECT}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}(?:show|reveal)\s+"
+            rf"{_PASSWORD_MANAGER_CONTEXTUAL_PASSWORD_OBJECT}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}import\s+"
+            rf"{_PASSWORD_MANAGER_IMPORT_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}import\s+"
+            rf"{_PASSWORD_MANAGER_IMPORT_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}save\s+"
+            rf"{_PASSWORD_MANAGER_SAVE_TARGET}\s+"
+            rf"(?:to|into|in|with|using|on)\s+{_PASSWORD_MANAGER_LOCATION}"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}save\s+"
+            rf"{_PASSWORD_MANAGER_SAVE_TARGET}\s+"
+            rf"(?:to|into|in|with|using|on)\s+{_PASSWORD_MANAGER_LOCATION}"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:disable|deactivate|turn\s+off|switch\s+off)\s+"
+            rf"{_PASSWORD_MANAGER_PROTECTION_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:disable|deactivate|turn\s+off|switch\s+off)\s+"
+            rf"{_PASSWORD_MANAGER_PROTECTION_TARGET}{_TARGET_END}"
         ),
     ],
     "authorize_app": [
