@@ -351,6 +351,21 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(safety["effective_actions"], ["read", "summarize"])
         self.assertEqual(safety["blocked_actions"], ["change_security_settings"])
 
+    def test_mail_access_settings_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(
+            ["change_mail_access_settings"]
+        )
+
+        self.assertEqual(effective, ["read", "summarize"])
+        self.assertEqual(blocked, ["change_mail_access_settings"])
+        self.assertNotIn("change_mail_access_settings", effective)
+
+        safety = safety_metadata("change_mail_access_settings")
+        self.assertEqual(safety["mode"], "read_only")
+        self.assertEqual(safety["effective_actions"], ["read", "summarize"])
+        self.assertEqual(safety["blocked_actions"], ["change_mail_access_settings"])
+        self.assertIn("change_mail_access_settings", safety_module.BLOCKED_ACTIONS)
+
     def test_install_profile_action_is_supported_but_blocked(self):
         effective, blocked = evaluate_requested_actions(["read", "install_profile"])
 
@@ -1495,6 +1510,108 @@ class SafetyPolicyTests(unittest.TestCase):
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)
         self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_mail_access_setting_directives(self):
+        cases = [
+            "Enable IMAP access",
+            "Turn on POP for this account",
+            "Enable POP3 in Gmail",
+            "Enable POP 3 access",
+            "Enable POP-3 access",
+            "Enable IMAPS access",
+            "Enable less secure apps",
+            "Allow less secure apps",
+            "Turn on less secure app access",
+            "Create an app password for this account",
+            "Set up an app password",
+            "Generate a Gmail app password",
+            "Generate a Google Workspace app password",
+            "Request a Google app password",
+            "Make an app password",
+            "Reset your app password",
+            "Configure mail client access settings",
+            "Update email access protocols",
+            "Disable IMAP access now",
+            "Recommended action: enable IMAP access.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["change_mail_access_settings"])
+
+    def test_neutralize_unsafe_action_suggestions_classifies_less_secure_app_access_as_mail_access(self):
+        cases = [
+            "Authorize less secure app",
+            "Authorize a less secure app",
+            "Authorize the less secure app",
+            "Authorize this less secure app",
+            "Authorize my less secure apps",
+            "Approve your less secure app access",
+            "Approve our less secure apps access",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["change_mail_access_settings"])
+                self.assertNotIn("authorize_app", blocked)
+
+    def test_neutralize_unsafe_action_suggestions_classifies_app_password_as_mail_access(self):
+        guarded, blocked = neutralize_unsafe_action_suggestions(
+            "Reset your app password."
+        )
+
+        self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+        self.assertEqual(blocked, ["change_mail_access_settings"])
+        self.assertNotIn("change_password", blocked)
+        self.assertNotIn("authorize_app", blocked)
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_mail_access_setting_directives(self):
+        cases = [
+            "Enable IMAP\naccess",
+            "Allow less secure\napps",
+            "Create an app\npassword for this account",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["change_mail_access_settings"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_mail_access_setting_descriptions(self):
+        text = (
+            "The email mentions IMAP settings for manual review\n"
+            "POP access is disabled by policy\n"
+            "Less secure app access is discussed\n"
+            "The app password was created yesterday\n"
+            "Do not enable IMAP access from this email\n"
+            "Mail client access metrics are summarized"
+        )
+
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_mail_access_settings_split_line_handling_uses_directive_sets_without_action_words(self):
+        self.assertIn(
+            "change_mail_access_settings",
+            safety_module._DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS,
+        )
+        self.assertIn(
+            "change_mail_access_settings",
+            safety_module._DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS,
+        )
+        self.assertNotIn(
+            "change_mail_access_settings",
+            safety_module._ACTION_WORD_PATTERNS,
+        )
 
     def test_neutralize_unsafe_action_suggestions_blocks_install_profile_directives(self):
         cases = [

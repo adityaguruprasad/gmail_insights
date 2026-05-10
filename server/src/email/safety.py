@@ -62,6 +62,7 @@ BLOCKED_ACTIONS = {
     "authorize_app",
     "grant_mailbox_access",
     "change_security_settings",
+    "change_mail_access_settings",
     "install_profile",
     "update_email_signature",
     "submit_form",
@@ -616,12 +617,17 @@ _PAYMENT_METHOD_ACTION_SUFFIX = (
     rf"{_PAYMENT_METHOD_DESTINATION})?"
     rf"{_TARGET_END}"
 )
+_APP_PASSWORD_CREDENTIAL = (
+    r"(?:(?:an?|the|this|that|my|your|our|new)\s+){0,2}"
+    r"(?:(?:gmail|google(?:\s+workspace)?)\s+)?app\s+passwords?\b"
+)
 _PASSWORD_CREDENTIAL_NOUN = r"(?:password|credentials?)"
 _PASSWORD_ACCOUNT_CONTEXT = (
     r"(?:(?:this|that|the|your|an?)\s+)?"
     r"(?:account|portal|site|website|webpage|app|application|login|profile|service)\b"
 )
 _PASSWORD_CREDENTIAL_TARGET = (
+    rf"(?!{_APP_PASSWORD_CREDENTIAL})"
     rf"(?:(?:(?:your|the|this|that|an?|new|login|account|portal|site|website|"
     rf"app|application|email|online)\s+){{0,4}}{_PASSWORD_CREDENTIAL_NOUN}\b"
     rf"(?:\s+for\s+{_PASSWORD_ACCOUNT_CONTEXT})?)"
@@ -641,7 +647,11 @@ _AUTHZ_OBJECT_NOUN = (
     r"oauth\s+(?:apps?|applications?|clients?)|"
     r"third[-\s]?party\s+(?:apps?|applications?|services?))"
 )
+_LESS_SECURE_APP_ACCESS_CORE = (
+    r"(?:(?:the|this|that|an?|my|your|our)\s+)?less\s+secure\s+apps?(?:\s+access)?"
+)
 _AUTHZ_OBJECT_TARGET = (
+    rf"(?!{_LESS_SECURE_APP_ACCESS_CORE}\b)"
     rf"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){{0,2}}"
     rf"{_AUTHZ_OBJECT_NOUN}\b"
 )
@@ -705,6 +715,35 @@ _SECURITY_ACCOUNT_SETTING_SUFFIX = (
     r"(?:(?:your|the|this|that|my|our)\s+)?"
     r"(?:account|gmail|google\s+account|email\s+account))?"
 )
+_MAIL_ACCESS_ACCOUNT_CONTEXT = (
+    r"(?:(?:this|that|the|my|your|our)\s+)?"
+    r"(?:account|gmail|google\s+account|email\s+account)\b"
+)
+_MAIL_ACCESS_CONTEXT_SUFFIX = (
+    rf"(?:\s+(?:for|in|on|within)\s+{_MAIL_ACCESS_ACCOUNT_CONTEXT})?"
+)
+_MAIL_ACCESS_PROTOCOL = r"(?:imaps?|pop(?:3s?|-3s?|\s+3)?)"
+_MAIL_ACCESS_PROTOCOL_TARGET = (
+    rf"(?:{_MAIL_ACCESS_PROTOCOL}\b\s+(?:access|settings?)|"
+    rf"{_MAIL_ACCESS_PROTOCOL}\b(?=\s+(?:for|in|on|within)\b))"
+    rf"{_MAIL_ACCESS_CONTEXT_SUFFIX}"
+)
+_LESS_SECURE_APP_ACCESS_TARGET = (
+    rf"{_LESS_SECURE_APP_ACCESS_CORE}\b{_MAIL_ACCESS_CONTEXT_SUFFIX}"
+)
+_MAIL_CLIENT_ACCESS_SETTING_TARGET = (
+    r"(?:"
+    r"(?:insecure\s+)?mail[-\s]+client\s+access(?:\s+settings?)?|"
+    r"(?:email|mail)\s+access\s+(?:protocols?|settings?)"
+    r")\b"
+    rf"{_MAIL_ACCESS_CONTEXT_SUFFIX}"
+)
+_MAIL_ACCESS_SETTING_TARGET = (
+    rf"(?:{_MAIL_ACCESS_PROTOCOL_TARGET}|"
+    rf"{_LESS_SECURE_APP_ACCESS_TARGET}|"
+    rf"{_MAIL_CLIENT_ACCESS_SETTING_TARGET})"
+)
+_APP_PASSWORD_TARGET = rf"{_APP_PASSWORD_CREDENTIAL}{_MAIL_ACCESS_CONTEXT_SUFFIX}"
 _INSTALL_PROFILE_NOUN = (
     r"(?:configuration\s+profiles?|config\s+profiles?|mdm\s+profiles?|"
     r"mobile\s+device\s+management\s+profiles?|vpn\s+profiles?|profiles?|"
@@ -865,6 +904,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "authorize_app",
     "grant_mailbox_access",
     "change_security_settings",
+    "change_mail_access_settings",
     "install_profile",
     "update_email_signature",
     "submit_form",
@@ -879,6 +919,7 @@ _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "authorize_app",
     "grant_mailbox_access",
     "change_security_settings",
+    "change_mail_access_settings",
     "install_profile",
     "update_account_contact",
     "update_email_signature",
@@ -1538,6 +1579,20 @@ _DIRECTIVE_PATTERNS = {
         re.compile(
             rf"{_ACTION_SUGGESTION_START}add\s+{_SECURITY_SAFE_SENDER_ENTRY_TARGET}\s+"
             rf"to\s+{_SECURITY_SAFE_SENDER_LIST_TARGET}{_TARGET_END}"
+        ),
+    ],
+    "change_mail_access_settings": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:enable|disable|allow|authorize|approve|change|update|modify|configure|"
+            rf"turn\s+on|turn\s+off|switch\s+on|switch\s+off)\s+"
+            rf"{_MAIL_ACCESS_SETTING_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:create|generate|set(?:\s+up)?|update|change|reset|replace|"
+            rf"recover|remove|delete|revoke|disable|make|request|obtain)\s+"
+            rf"{_APP_PASSWORD_TARGET}{_TARGET_END}"
         ),
     ],
     "install_profile": [
