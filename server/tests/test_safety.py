@@ -161,6 +161,34 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(blocked, sorted(actions))
         self.assertFalse(set(actions).intersection(effective))
 
+    def test_disable_security_software_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(
+            ["read", "disable_security_software"]
+        )
+
+        self.assertEqual(effective, ["read"])
+        self.assertEqual(blocked, ["disable_security_software"])
+        self.assertNotIn("disable_security_software", effective)
+
+        safety = safety_metadata("disable_security_software")
+        self.assertEqual(safety["mode"], "read_only")
+        self.assertEqual(safety["effective_actions"], ["read", "summarize"])
+        self.assertEqual(safety["blocked_actions"], ["disable_security_software"])
+        self.assertIn("disable_security_software", safety_module.BLOCKED_ACTIONS)
+        self.assertNotIn("disable_security_software", safety_module.ALLOWED_ACTIONS)
+        self.assertIn(
+            "disable_security_software",
+            safety_module._DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS,
+        )
+        self.assertIn(
+            "disable_security_software",
+            safety_module._DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS,
+        )
+        self.assertNotIn(
+            "disable_security_software",
+            safety_module._ACTION_WORD_PATTERNS,
+        )
+
     def test_print_email_action_is_supported_but_blocked(self):
         effective, blocked = evaluate_requested_actions(["read", "print_email"])
 
@@ -892,6 +920,78 @@ class SafetyPolicyTests(unittest.TestCase):
             "Do not enable content from this email.\n"
             "The script output is summarized.\n"
             "Do not run the installer."
+        )
+
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_disable_security_software_directives(self):
+        cases = [
+            "Disable antivirus.",
+            "Turn off the firewall.",
+            "Disable Windows Defender.",
+            "Turn off real-time protection.",
+            "Bypass SmartScreen.",
+            "Allowlist this attachment in antivirus.",
+            "Whitelist this file in antivirus.",
+            "Add the file to antivirus exclusions.",
+            "Exclude the attachment from malware scanning.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["disable_security_software"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_security_software_recommendations(self):
+        cases = [
+            "Recommended action: disable antivirus.",
+            "Action item: turn off the firewall.",
+            "You should bypass SmartScreen.",
+            "Recommended action: add the file to antivirus exclusions.",
+            "Action item: exclude the attachment from malware scanning.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["disable_security_software"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_disable_security_software_directives(self):
+        cases = [
+            "Disable\nantivirus.",
+            "Disable Windows\nDefender.",
+            "Turn off real-time\nprotection.",
+            "Bypass\nSmartScreen.",
+            "Allowlist this attachment\nin antivirus.",
+            "Add the file\nto antivirus exclusions.",
+            "Add the file to antivirus\nexclusions.",
+            "Exclude the attachment\nfrom malware scanning.",
+            "Exclude the attachment from malware\nscanning.",
+            "Recommended action:\ndisable antivirus.",
+            "Recommended action: disable\nantivirus.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["disable_security_software"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_security_software_descriptions(self):
+        text = (
+            "The email mentions antivirus software for manual review.\n"
+            "Firewall settings are discussed.\n"
+            "Do not disable antivirus from this email.\n"
+            "Security software is enabled by policy.\n"
+            "Antivirus metrics are summarized."
         )
 
         guarded, blocked = neutralize_unsafe_action_suggestions(text)

@@ -37,6 +37,7 @@ BLOCKED_ACTIONS = {
     "download_attachment",
     "run_executable",
     "enable_macros",
+    "disable_security_software",
     "print_email",
     "export_data",
     "share_file",
@@ -333,6 +334,25 @@ _OFFICE_ACTIVE_CONTENT_ACTION_SUFFIX = (
     rf"\s+to\s+(?:view|open|read|see|access|display)\s+"
     rf"{_OFFICE_ACTIVE_CONTENT_VIEW_TARGET})"
     rf"{_TARGET_END}"
+)
+_LOCAL_SECURITY_TARGET_PREFIX = r"(?:(?:the|your|this|that|my|our)\s+)?"
+_LOCAL_SECURITY_CONTROL_TARGET = (
+    rf"{_LOCAL_SECURITY_TARGET_PREFIX}"
+    r"(?:anti[-\s]?virus(?:\s+(?:software|protection|scanner|scanning))?|"
+    r"anti[-\s]?malware(?:\s+(?:software|protection|scanner|scanning))?|"
+    r"security\s+software|endpoint\s+protection|firewall|"
+    r"(?:windows|microsoft)\s+defender|gatekeeper|smart\s*screen|"
+    r"real[-\s]?time\s+(?:protection|scanning|monitoring)|"
+    r"(?:malware|virus)\s+(?:protection|scanning|scanner))\b"
+)
+_LOCAL_SECURITY_EXCLUSION_PRODUCT = (
+    rf"{_LOCAL_SECURITY_TARGET_PREFIX}"
+    r"(?:anti[-\s]?virus(?:\s+software)?|anti[-\s]?malware|"
+    r"(?:windows|microsoft)\s+defender|malware|virus)\b"
+)
+_LOCAL_SECURITY_EXCLUSION_TARGET = (
+    rf"{_LOCAL_SECURITY_EXCLUSION_PRODUCT}\s+"
+    r"(?:exclusions?|exclusion\s+lists?|allow[-\s]?lists?|white[-\s]?lists?)\b"
 )
 # Forward exfiltration extends attachment/file nouns with email/message/thread content nouns.
 _FORWARD_EXFIL_OBJECT_NOUN = (
@@ -1110,6 +1130,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "download_attachment",
     "run_executable",
     "enable_macros",
+    "disable_security_software",
     "print_email",
     "export_data",
     "share_file",
@@ -1150,6 +1171,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
 _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "run_executable",
     "enable_macros",
+    "disable_security_software",
     "sign_in",
     "create_external_account",
     "change_password",
@@ -1483,6 +1505,30 @@ _DIRECTIVE_PATTERNS = {
             rf"(?:the\s+)?{_OFFICE_ENABLE_BUTTON_TARGET}"
             rf"(?:\s+{_OFFICE_ENABLE_BUTTON_UI_NOUN})?"
             rf"{_OFFICE_ACTIVE_CONTENT_ACTION_SUFFIX}"
+        ),
+    ],
+    "disable_security_software": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:disable|deactivate|turn\s+off|switch\s+off|shut\s+off)\s+"
+            rf"{_LOCAL_SECURITY_CONTROL_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:bypass|override)\s+"
+            rf"{_LOCAL_SECURITY_CONTROL_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:allow[-\s]?list|white[-\s]?list)\s+"
+            rf"{_FILE_OBJECT_TARGET}\s+(?:in|with|on|for)\s+"
+            rf"{_LOCAL_SECURITY_CONTROL_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}add\s+{_FILE_OBJECT_TARGET}\s+to\s+"
+            rf"{_LOCAL_SECURITY_EXCLUSION_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}exclude\s+{_FILE_OBJECT_TARGET}\s+"
+            rf"from\s+{_LOCAL_SECURITY_CONTROL_TARGET}{_TARGET_END}"
         ),
     ],
     "print_email": [
