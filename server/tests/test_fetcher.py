@@ -36,8 +36,10 @@ class _ExecuteRequest:
 class _MessagesResource:
     def __init__(self, messages_by_id):
         self.messages_by_id = messages_by_id
+        self.list_calls = []
 
     def list(self, userId, q, maxResults):
+        self.list_calls.append({"userId": userId, "q": q, "maxResults": maxResults})
         return _ExecuteRequest(
             {"messages": [{"id": message_id} for message_id in self.messages_by_id]}
         )
@@ -55,6 +57,10 @@ class _GmailService:
 
     def messages(self):
         return self._messages
+
+    @property
+    def list_calls(self):
+        return self._messages.list_calls
 
 
 class FetcherBodyExtractionTests(unittest.TestCase):
@@ -233,6 +239,83 @@ class FetcherBodyExtractionTests(unittest.TestCase):
         self.assertNotIn("<script>", emails[0]["content"])
         self.assertNotIn("delete all mail", emails[0]["content"])
         self.assertNotIn("https://evil.example", emails[0]["content"])
+
+
+class FetcherDomainQueryTests(unittest.TestCase):
+    def test_get_emails_from_domains_normalizes_safe_domains_in_query(self):
+        service = _GmailService({})
+
+        emails = fetcher.get_emails_from_domains(
+            service,
+            [" Example.COM ", "@Alerts.Security.Example.co.UK"],
+            max_results=7,
+        )
+
+        self.assertEqual(emails, [])
+        self.assertEqual(
+            service.list_calls,
+            [
+                {
+                    "userId": "me",
+                    "q": "from:example.com OR from:alerts.security.example.co.uk",
+                    "maxResults": 7,
+                }
+            ],
+        )
+
+    def test_get_emails_from_domains_omits_injection_like_domains(self):
+        service = _GmailService({})
+
+        fetcher.get_emails_from_domains(
+            service,
+            [
+                "example.com OR in:anywhere",
+                "alerts.security.EXAMPLE.co.UK",
+                "foo.com) OR in:anywhere",
+                "bad:operator.com",
+                "foo.com/bar",
+                "*.example.com",
+                '"example.com"',
+                "{example.com}",
+                "billing.example.com",
+            ],
+        )
+
+        self.assertEqual(len(service.list_calls), 1)
+        query = service.list_calls[0]["q"]
+        self.assertEqual(
+            query,
+            "from:alerts.security.example.co.uk OR from:billing.example.com",
+        )
+        self.assertNotIn("in:anywhere", query)
+        self.assertNotIn("bad:operator.com", query)
+        self.assertNotIn("foo.com/bar", query)
+        self.assertNotIn("*.example.com", query)
+        self.assertNotIn('"example.com"', query)
+        self.assertNotIn("{example.com}", query)
+
+    def test_get_emails_from_domains_all_invalid_returns_empty_without_list_call(self):
+        service = _GmailService({})
+
+        emails = fetcher.get_emails_from_domains(
+            service,
+            [
+                "",
+                "   ",
+                "example.com OR in:anywhere",
+                "foo.com) OR in:anywhere",
+                "bad:operator.com",
+                "-bad.example.com",
+                "bad-.example.com",
+                "example.c",
+                "example.123",
+                "a" * 64 + ".example.com",
+                "a" * 250 + ".com",
+            ],
+        )
+
+        self.assertEqual(emails, [])
+        self.assertEqual(service.list_calls, [])
 
 
 if __name__ == "__main__":

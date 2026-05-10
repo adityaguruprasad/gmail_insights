@@ -219,8 +219,35 @@ def get_emails_by_query(service, query: str, max_results: int = 100) -> List[Dic
     return emails
 
 
+_DOMAIN_LABEL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+_FINAL_DOMAIN_LABEL_RE = re.compile(r"^[a-z]{2,}$")
+
+
+def _normalize_safe_domain(domain: str) -> Optional[str]:
+    normalized = domain.strip().lower()
+    if normalized.startswith("@"):
+        normalized = normalized[1:]
+
+    if not normalized or len(normalized) > 253:
+        return None
+
+    labels = normalized.split(".")
+    if len(labels) < 2 or not _FINAL_DOMAIN_LABEL_RE.fullmatch(labels[-1]):
+        return None
+
+    for label in labels:
+        if not 1 <= len(label) <= 63 or not _DOMAIN_LABEL_RE.fullmatch(label):
+            return None
+
+    return normalized
+
+
 def get_emails_from_domains(service, domains, max_results: int = 100):
-    valid_domains = [domain.strip() for domain in domains if domain and domain.strip()]
+    valid_domains = [
+        normalized
+        for domain in domains
+        if domain and (normalized := _normalize_safe_domain(domain))
+    ]
     if not valid_domains:
         return []
 
