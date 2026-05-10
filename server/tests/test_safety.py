@@ -478,6 +478,22 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(safety["blocked_actions"], ["change_mail_access_settings"])
         self.assertIn("change_mail_access_settings", safety_module.BLOCKED_ACTIONS)
 
+    def test_network_settings_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(
+            ["read", "change_network_settings"]
+        )
+
+        self.assertEqual(effective, ["read"])
+        self.assertEqual(blocked, ["change_network_settings"])
+        self.assertNotIn("change_network_settings", effective)
+
+        safety = safety_metadata("change_network_settings")
+        self.assertEqual(safety["mode"], "read_only")
+        self.assertEqual(safety["effective_actions"], ["read", "summarize"])
+        self.assertEqual(safety["blocked_actions"], ["change_network_settings"])
+        self.assertIn("change_network_settings", safety_module.BLOCKED_ACTIONS)
+        self.assertNotIn("change_network_settings", safety_module.ALLOWED_ACTIONS)
+
     def test_install_profile_action_is_supported_but_blocked(self):
         effective, blocked = evaluate_requested_actions(["read", "install_profile"])
 
@@ -2117,6 +2133,67 @@ class SafetyPolicyTests(unittest.TestCase):
         )
         self.assertNotIn(
             "change_mail_access_settings",
+            safety_module._ACTION_WORD_PATTERNS,
+        )
+
+    def test_neutralize_unsafe_action_suggestions_blocks_network_setting_directives(self):
+        cases = [
+            "Change your DNS settings",
+            "Set the DNS server to 8.8.8.8",
+            "Update your proxy settings now",
+            "Configure the proxy to proxy.example.com",
+            "Turn on the VPN from this email",
+            "Disable the VPN for this site",
+            "Action item: change the network settings",
+            "Recommended action: set the proxy server",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["change_network_settings"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_network_setting_directives(self):
+        cases = [
+            "Change your DNS\nsettings",
+            "Configure the proxy\nserver",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["change_network_settings"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_network_setting_descriptions(self):
+        text = (
+            "The email mentions DNS settings for manual review\n"
+            "Proxy settings are discussed in the policy update\n"
+            "VPN details are present for analysis\n"
+            "Do not change your DNS settings from this email\n"
+            "Network settings metrics are summarized\n"
+            "The VPN was disabled yesterday"
+        )
+
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_network_settings_split_line_handling_uses_directive_sets_without_action_words(self):
+        self.assertIn(
+            "change_network_settings",
+            safety_module._DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS,
+        )
+        self.assertIn(
+            "change_network_settings",
+            safety_module._DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS,
+        )
+        self.assertNotIn(
+            "change_network_settings",
             safety_module._ACTION_WORD_PATTERNS,
         )
 

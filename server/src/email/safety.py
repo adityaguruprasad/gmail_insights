@@ -69,6 +69,7 @@ BLOCKED_ACTIONS = {
     "grant_mailbox_access",
     "change_security_settings",
     "change_mail_access_settings",
+    "change_network_settings",
     "install_profile",
     "update_email_signature",
     "submit_form",
@@ -1022,6 +1023,26 @@ _MAIL_ACCESS_SETTING_TARGET = (
     rf"{_MAIL_CLIENT_ACCESS_SETTING_TARGET})"
 )
 _APP_PASSWORD_TARGET = rf"{_APP_PASSWORD_CREDENTIAL}{_MAIL_ACCESS_CONTEXT_SUFFIX}"
+_NETWORK_SETTING_TARGET = (
+    r"(?:(?:the|this|that|your|my|our|an?)\s+)?"
+    r"(?:"
+    r"dns(?:\s+(?:settings?|configuration|preferences?|servers?|resolvers?|addresses?))?|"
+    r"proxy(?:\s+(?:settings?|configuration|preferences?|servers?))?|"
+    r"vpn(?:\s+(?:settings?|configuration|preferences?))?|"
+    r"network\s+(?:settings?|configuration|preferences?)"
+    r")\b"
+)
+_NETWORK_SETTING_VALUE = r"[\w@./:+%#&=?-]+(?:\s+[\w@./:+%#&=?-]+){0,4}"
+_NETWORK_SETTING_CONTEXT = (
+    r"(?:(?:the|this|that|your|my|our|an?)\s+)?"
+    r"(?:email|message|thread|site|website|webpage|page|app|application|"
+    r"device|computer|phone|browser|system|network|settings)\b"
+)
+_NETWORK_SETTING_ACTION_SUFFIX = (
+    rf"(?:\s+(?:to|as|using|via|through|with)\s+{_NETWORK_SETTING_VALUE})?"
+    rf"(?:\s+(?:from|in|on|for|within)\s+{_NETWORK_SETTING_CONTEXT})?"
+    rf"{_TARGET_END}"
+)
 _INSTALL_PROFILE_NOUN = (
     r"(?:configuration\s+profiles?|config\s+profiles?|mdm\s+profiles?|"
     r"mobile\s+device\s+management\s+profiles?|vpn\s+profiles?|profiles?|"
@@ -1197,6 +1218,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "grant_mailbox_access",
     "change_security_settings",
     "change_mail_access_settings",
+    "change_network_settings",
     "install_profile",
     "update_email_signature",
     "submit_form",
@@ -1215,6 +1237,7 @@ _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "grant_mailbox_access",
     "change_security_settings",
     "change_mail_access_settings",
+    "change_network_settings",
     "install_profile",
     "update_account_contact",
     "approve_login_prompt",
@@ -2096,6 +2119,20 @@ _DIRECTIVE_PATTERNS = {
             rf"(?:create|generate|set(?:\s+up)?|update|change|reset|replace|"
             rf"recover|remove|delete|revoke|disable|make|request|obtain)\s+"
             rf"{_APP_PASSWORD_TARGET}{_TARGET_END}"
+        ),
+    ],
+    "change_network_settings": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:change|update|modify|configure|set(?:\s+up)?|reset|enable|disable|"
+            rf"turn\s+on|turn\s+off|switch\s+on|switch\s+off)\s+"
+            rf"{_NETWORK_SETTING_TARGET}{_NETWORK_SETTING_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:change|update|modify|configure|set(?:\s+up)?|reset|enable|disable|"
+            rf"turn\s+on|turn\s+off|switch\s+on|switch\s+off)\s+"
+            rf"{_NETWORK_SETTING_TARGET}{_NETWORK_SETTING_ACTION_SUFFIX}"
         ),
     ],
     "install_profile": [
