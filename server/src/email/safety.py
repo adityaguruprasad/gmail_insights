@@ -348,8 +348,10 @@ _EMAIL_SIGNATURE_DETAIL_SUFFIX = (
 _EMAIL_SIGNATURE_ACTION_TARGET = (
     rf"{_EMAIL_SIGNATURE_TARGET}{_EMAIL_SIGNATURE_DETAIL_SUFFIX}{_TARGET_END}"
 )
+# Exclude ambiguous software/client/account-only nouns here so OAuth/app-access
+# directives stay classified under authorize_app unless the phrasing is mailbox-specific.
 _MAILBOX_ACCESS_GRANTEE_NOUN = (
-    r"(?:sender|recipient|contact|customer|client|person|user|assistant|"
+    r"(?:sender|recipient|contact|customer|person|user|assistant|"
     r"vendor|supplier|accounting|accountant|bookkeeper|security|team|owner|"
     r"agent|representative)"
 )
@@ -359,15 +361,15 @@ _MAILBOX_ACCESS_GRANTEE_TARGET = (
 )
 _MAILBOX_ACCESS_RESOURCE = (
     r"(?:(?:this|that|the|my|your|our)\s+)?"
-    r"(?:gmail|google\s+account|email\s+account|mailbox|inbox|account)\b"
+    r"(?:gmail|google\s+account|email\s+account|mailbox|inbox)\b"
 )
 _MAILBOX_DELEGATE_ROLE = (
-    r"(?:(?:gmail|mailbox|inbox|email|account)\s+)?delegates?\b"
+    r"(?:(?:gmail|mailbox|inbox|email)\s+)?delegates?\b"
 )
 _MAILBOX_ACCESS_PERMISSION = (
-    r"(?:(?:gmail|google\s+account|email\s+account|mailbox|inbox|account|"
+    r"(?:(?:gmail|google\s+account|email\s+account|mailbox|inbox|"
     r"delegate|delegation)\s+access|"
-    r"(?:gmail|mailbox|inbox|email|account)\s+delegation)\b"
+    r"(?:gmail|mailbox|inbox|email)\s+delegation)\b"
 )
 _MAILBOX_ACCESS_CONTEXT_SUFFIX = (
     rf"(?:\s+(?:for|in|on|within)\s+{_MAILBOX_ACCESS_RESOURCE})?"
@@ -1453,10 +1455,33 @@ _DIRECTIVE_PATTERNS = {
             rf"{_TARGET_END}"
         ),
         re.compile(
+            rf"{_ACTION_SUGGESTION_START}set\s+up\s+"
+            rf"{_MAILBOX_ACCESS_GRANTEE_TARGET}\s+as\s+(?:an?\s+)?"
+            rf"{_MAILBOX_DELEGATE_ROLE}{_MAILBOX_ACCESS_CONTEXT_SUFFIX}"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
             rf"{_ACTION_SUGGESTION_START}(?:grant|give|share|delegate)\s+"
             rf"{_MAILBOX_ACCESS_PERMISSION}\s+(?:to|with)\s+"
             rf"{_MAILBOX_ACCESS_GRANTEE_TARGET}{_MAILBOX_ACCESS_CONTEXT_SUFFIX}"
             rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:grant|give)\s+"
+            rf"{_MAILBOX_ACCESS_GRANTEE_TARGET}\s+"
+            rf"{_MAILBOX_ACCESS_PERMISSION}{_MAILBOX_ACCESS_CONTEXT_SUFFIX}"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}provide\s+"
+            rf"{_MAILBOX_ACCESS_GRANTEE_TARGET}\s+with\s+"
+            rf"{_MAILBOX_ACCESS_PERMISSION}{_MAILBOX_ACCESS_CONTEXT_SUFFIX}"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}allow\s+"
+            rf"{_MAILBOX_ACCESS_GRANTEE_TARGET}\s+to\s+access\s+"
+            rf"{_MAILBOX_ACCESS_RESOURCE}{_TARGET_END}"
         ),
         re.compile(
             rf"{_ACTION_SUGGESTION_START}(?:grant|give)\s+"
