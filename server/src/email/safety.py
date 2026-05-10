@@ -41,6 +41,7 @@ BLOCKED_ACTIONS = {
     "share_file",
     "upload_file",
     "load_remote_content",
+    "enable_browser_notifications",
     "scan_qr_code",
     "start_remote_access",
     "call_phone",
@@ -525,6 +526,24 @@ _REMOTE_CONTENT_LOAD_TARGET = (
     rf"(?:{_REMOTE_CONTENT_RESOURCE_TARGET}"
     rf"{_REMOTE_CONTENT_SENDER_SUFFIX}|{_REMOTE_CONTENT_SENDER_TARGET})"
 )
+_BROWSER_NOTIFICATION_CONTEXT = (
+    r"(?:(?:the|this|that|your|an?)\s+)?"
+    r"(?:browser|site|website|web\s+site|service|sender)\b"
+)
+_BROWSER_NOTIFICATION_SEND_NOUN = (
+    r"(?:(?:browser|site|website|web\s+site|web|push)\s+)?notifications?\b"
+)
+_BROWSER_NOTIFICATION_CONTEXT_SUFFIX = (
+    rf"(?:\s+(?:for|from|in|on|within)\s+{_BROWSER_NOTIFICATION_CONTEXT})?"
+)
+_BROWSER_NOTIFICATION_PERMISSION_TARGET = (
+    rf"(?:"
+    rf"(?:browser|site|website|web\s+site|web|push)\s+notifications?"
+    rf"{_BROWSER_NOTIFICATION_CONTEXT_SUFFIX}|"
+    rf"notifications?\s+(?:for|from|in|on|within)\s+"
+    rf"{_BROWSER_NOTIFICATION_CONTEXT}"
+    rf")"
+)
 _REMOTE_ACCESS_SESSION_NOUN = (
     r"(?:(?:remote\s+(?:desktop|support|assistance)|screen[-\s]+sharing|support)"
     r"\s+sessions?)"
@@ -892,6 +911,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "share_file",
     "upload_file",
     "load_remote_content",
+    "enable_browser_notifications",
     "scan_qr_code",
     "start_remote_access",
     "call_phone",
@@ -939,6 +959,7 @@ _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "export_data",
     "set_auto_reply",
     "start_remote_access",
+    "enable_browser_notifications",
 }
 _DIRECTIVE_PATTERNS = {
     "provide_sensitive_info": [
@@ -1237,6 +1258,22 @@ _DIRECTIVE_PATTERNS = {
         re.compile(
             rf"{_ACTION_SUGGESTION_START}enable\s+"
             rf"{_REMOTE_CONTENT_LOAD_TARGET}{_TARGET_END}"
+        ),
+    ],
+    "enable_browser_notifications": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:enable|allow|permit|turn\s+on)\s+"
+            rf"{_BROWSER_NOTIFICATION_PERMISSION_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}subscribe\s+to\s+"
+            rf"{_BROWSER_NOTIFICATION_PERMISSION_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:allow|permit)\s+"
+            rf"{_BROWSER_NOTIFICATION_CONTEXT}\s+to\s+"
+            rf"(?:send(?:\s+you)?|push|deliver)\s+"
+            rf"{_BROWSER_NOTIFICATION_SEND_NOUN}{_TARGET_END}"
         ),
     ],
     "start_remote_access": [

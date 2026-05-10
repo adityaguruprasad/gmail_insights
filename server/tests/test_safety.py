@@ -185,6 +185,24 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(blocked, ["load_remote_content"])
         self.assertNotIn("load_remote_content", effective)
 
+    def test_browser_notifications_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(
+            ["read", "enable_browser_notifications"]
+        )
+
+        self.assertEqual(effective, ["read"])
+        self.assertEqual(blocked, ["enable_browser_notifications"])
+        self.assertNotIn("enable_browser_notifications", effective)
+
+        safety = safety_metadata("enable_browser_notifications")
+        self.assertEqual(safety["mode"], "read_only")
+        self.assertEqual(safety["effective_actions"], ["read", "summarize"])
+        self.assertEqual(safety["blocked_actions"], ["enable_browser_notifications"])
+        self.assertIn(
+            "enable_browser_notifications",
+            safety_module.BLOCKED_ACTIONS,
+        )
+
     def test_remote_access_action_is_supported_but_blocked(self):
         effective, blocked = evaluate_requested_actions(["read", "start_remote_access"])
 
@@ -1018,6 +1036,71 @@ class SafetyPolicyTests(unittest.TestCase):
 
         self.assertEqual(guarded, text)
         self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_browser_notification_directives(self):
+        cases = [
+            "Enable browser notifications.",
+            "Allow notifications for this site.",
+            "Turn on push notifications in the browser.",
+            "Permit website notifications for the sender.",
+            "Subscribe to push notifications from the service.",
+            "Recommended action: enable notifications for this website.",
+            "Action item: allow the site to send notifications.",
+            "Allow this site to send you notifications.",
+            "Allow the site to push notifications.",
+            "Permit the website to deliver notifications.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["enable_browser_notifications"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_browser_notification_directives(self):
+        cases = [
+            "Enable browser\nnotifications.",
+            "Allow notifications\nfor this site.",
+            "Turn on push notifications\nin the browser.",
+            "Action item: allow the site\nto send notifications.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["enable_browser_notifications"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_browser_notification_descriptions(self):
+        text = (
+            "The email mentions browser notifications for manual review.\n"
+            "Notification settings are disabled by policy.\n"
+            "The sender asks how notifications work.\n"
+            "Push notification metrics are summarized.\n"
+            "Do not enable browser notifications from this email."
+        )
+
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_browser_notifications_split_line_handling_uses_directive_sets_without_action_words(self):
+        self.assertIn(
+            "enable_browser_notifications",
+            safety_module._DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS,
+        )
+        self.assertIn(
+            "enable_browser_notifications",
+            safety_module._DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS,
+        )
+        self.assertNotIn(
+            "enable_browser_notifications",
+            safety_module._ACTION_WORD_PATTERNS,
+        )
 
     def test_neutralize_unsafe_action_suggestions_blocks_remote_access_directives(self):
         cases = [
