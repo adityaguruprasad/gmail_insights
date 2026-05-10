@@ -61,6 +61,7 @@ BLOCKED_ACTIONS = {
     "make_payment",
     "update_payment_method",
     "sign_in",
+    "create_external_account",
     "change_password",
     "authorize_app",
     "grant_mailbox_access",
@@ -559,6 +560,46 @@ _SIGN_IN_DESTINATION_SUFFIX = (
 )
 _SIGN_IN_SESSION_VERB = r"(?:sign\s+in|log\s+in|login|authenticate)\b"
 _SIGN_IN_COMPACT_VERB = r"(?:sign\s+into|log\s+into)\b"
+_EXTERNAL_ACCOUNT_DESTINATION_NOUN = (
+    r"(?:accounts?|services?|portals?|sites?|websites?|webpages?|apps?|"
+    r"applications?|platforms?)"
+)
+_EXTERNAL_ACCOUNT_DESTINATION = (
+    r"(?:(?:the|this|that|your|an?|new)\s+)?(?:[\w-]+\s+){0,3}"
+    rf"{_EXTERNAL_ACCOUNT_DESTINATION_NOUN}\b"
+)
+_EXTERNAL_ACCOUNT_SOURCE = (
+    rf"(?:{_LINK_TARGET}|"
+    r"(?:(?:the|this|that|an?)\s+)?(?:email|message|thread))"
+)
+_EXTERNAL_ACCOUNT_SOURCE_SUFFIX = (
+    rf"(?:\s+(?:using|via|through|from)\s+{_EXTERNAL_ACCOUNT_SOURCE})?"
+)
+_EXTERNAL_ACCOUNT_CONTEXT_SUFFIX = (
+    rf"(?:\s+(?:on|at|in|with|for)\s+{_EXTERNAL_ACCOUNT_DESTINATION}"
+    rf"{_EXTERNAL_ACCOUNT_SOURCE_SUFFIX}|"
+    rf"{_EXTERNAL_ACCOUNT_SOURCE_SUFFIX})"
+    rf"{_TARGET_END}"
+)
+_EXTERNAL_ACCOUNT_CREATION_TARGET = (
+    r"(?:(?:an?|the|your|new)\s+){0,2}accounts?\b"
+    rf"{_EXTERNAL_ACCOUNT_CONTEXT_SUFFIX}"
+)
+_EXTERNAL_ACCOUNT_REGISTRATION_TARGET = (
+    rf"(?:"
+    rf"(?:for\s+)?(?:(?:an?|the|your|new)\s+){{0,2}}accounts?\b"
+    rf"{_EXTERNAL_ACCOUNT_CONTEXT_SUFFIX}|"
+    rf"(?:for|on|at|with)\s+{_EXTERNAL_ACCOUNT_DESTINATION}"
+    rf"{_EXTERNAL_ACCOUNT_SOURCE_SUFFIX}{_TARGET_END}|"
+    rf"(?:using|via|through)\s+{_EXTERNAL_ACCOUNT_SOURCE}{_TARGET_END}"
+    rf")"
+)
+_EXTERNAL_ACCOUNT_SIGNUP_TARGET = (
+    rf"(?:\s+(?:for|on|at|with|to)\s+{_EXTERNAL_ACCOUNT_DESTINATION}"
+    rf"{_EXTERNAL_ACCOUNT_SOURCE_SUFFIX}|"
+    rf"\s+(?:using|via|through)\s+{_EXTERNAL_ACCOUNT_SOURCE})?"
+    rf"{_TARGET_END}"
+)
 _NON_VERIFICATION_CODE_SEND_TARGET_START = (
     rf"(?!(?:{_VERIFICATION_CODE_TARGET}{_VERIFICATION_CODE_ACTION_SUFFIX}|"
     rf"{_VERIFICATION_CODE_TARGET_PREFIX}{_TARGET_END}))"
@@ -1068,6 +1109,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "make_payment",
     "update_payment_method",
     "sign_in",
+    "create_external_account",
     "change_password",
     "authorize_app",
     "grant_mailbox_access",
@@ -1084,6 +1126,7 @@ _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "run_executable",
     "enable_macros",
     "sign_in",
+    "create_external_account",
     "change_password",
     "authorize_app",
     "grant_mailbox_access",
@@ -1730,6 +1773,32 @@ _DIRECTIVE_PATTERNS = {
         re.compile(
             rf"{_ACTION_SUGGESTION_START}(?:verify|access)\s+"
             rf"{_SIGN_IN_TARGET}{_SIGN_IN_ACTION_END}"
+        ),
+    ],
+    "create_external_account": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:sign\s+up|sign-up|signup)"
+            rf"{_EXTERNAL_ACCOUNT_SIGNUP_TARGET}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}(?:sign\s+up|sign-up|signup)"
+            rf"{_EXTERNAL_ACCOUNT_SIGNUP_TARGET}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}create\s+"
+            rf"{_EXTERNAL_ACCOUNT_CREATION_TARGET}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}create\s+"
+            rf"{_EXTERNAL_ACCOUNT_CREATION_TARGET}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}register\s+"
+            rf"{_EXTERNAL_ACCOUNT_REGISTRATION_TARGET}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}register\s+"
+            rf"{_EXTERNAL_ACCOUNT_REGISTRATION_TARGET}"
         ),
     ],
     "change_password": [

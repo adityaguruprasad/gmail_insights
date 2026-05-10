@@ -464,6 +464,21 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(safety["effective_actions"], ["read", "summarize"])
         self.assertEqual(safety["blocked_actions"], ["sign_in"])
 
+    def test_create_external_account_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(
+            ["read", "create_external_account"]
+        )
+
+        self.assertEqual(effective, ["read"])
+        self.assertEqual(blocked, ["create_external_account"])
+        self.assertNotIn("create_external_account", effective)
+
+        safety = safety_metadata("create_external_account")
+        self.assertEqual(safety["mode"], "read_only")
+        self.assertEqual(safety["effective_actions"], ["read", "summarize"])
+        self.assertEqual(safety["blocked_actions"], ["create_external_account"])
+        self.assertIn("create_external_account", safety_module.BLOCKED_ACTIONS)
+
     def test_safety_metadata_read_only_mode(self):
         safety = safety_metadata("draft,archive_suggestion")
         self.assertEqual(safety["mode"], "read_only")
@@ -1447,6 +1462,78 @@ class SafetyPolicyTests(unittest.TestCase):
             "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
         )
         self.assertEqual(blocked, ["click_link", "sign_in"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_account_signup_directives(self):
+        cases = [
+            "Sign up for the service.",
+            "Create an account on the portal.",
+            "Register for an account using the link.",
+            "Sign up.",
+            "Register for the service.",
+            "Create a new account from this email.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["create_external_account"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_account_signup_recommendations(self):
+        cases = [
+            "Recommended action: sign up for the website.",
+            "Action item: create a new account from this email.",
+            "Review notes: recommended action: register for the service.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["create_external_account"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_account_signup_directives(self):
+        cases = [
+            "Sign up for\nthe service.",
+            "Create an account\nusing the link.",
+            "Register for an account\nusing the link.",
+            "Recommended action: sign up for\nthe website.",
+            "Action item: create a new account\nfrom this email.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["create_external_account"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_account_signup_descriptions(self):
+        text = (
+            "The email asks you to sign up for manual review.\n"
+            "Registration instructions are included for review.\n"
+            "The account was created yesterday.\n"
+            "Do not create an account from this email.\n"
+            "Signup metrics are summarized."
+        )
+
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_create_external_account_split_line_handling_uses_directive_sets_without_action_words(self):
+        self.assertIn(
+            "create_external_account",
+            safety_module._DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS,
+        )
+        self.assertIn(
+            "create_external_account",
+            safety_module._DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS,
+        )
+        self.assertNotIn("create_external_account", safety_module._ACTION_WORD_PATTERNS)
 
     def test_neutralize_unsafe_action_suggestions_blocks_password_change_directives(self):
         cases = [
