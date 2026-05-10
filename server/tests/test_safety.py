@@ -930,6 +930,11 @@ class SafetyPolicyTests(unittest.TestCase):
     def test_neutralize_unsafe_action_suggestions_blocks_disable_security_software_directives(self):
         cases = [
             "Disable antivirus.",
+            "Uninstall antivirus.",
+            "Remove Windows Defender.",
+            "Stop the firewall.",
+            "Kill real-time protection.",
+            "Terminate endpoint protection.",
             "Turn off the firewall.",
             "Disable Windows Defender.",
             "Turn off real-time protection.",
@@ -949,7 +954,9 @@ class SafetyPolicyTests(unittest.TestCase):
     def test_neutralize_unsafe_action_suggestions_blocks_security_software_recommendations(self):
         cases = [
             "Recommended action: disable antivirus.",
+            "Recommended action: stop malware scanning.",
             "Action item: turn off the firewall.",
+            "Action item: uninstall the security software.",
             "You should bypass SmartScreen.",
             "Recommended action: add the file to antivirus exclusions.",
             "Action item: exclude the attachment from malware scanning.",
@@ -964,6 +971,9 @@ class SafetyPolicyTests(unittest.TestCase):
     def test_neutralize_unsafe_action_suggestions_blocks_split_line_disable_security_software_directives(self):
         cases = [
             "Disable\nantivirus.",
+            "Uninstall\nantivirus.",
+            "Stop the\nfirewall.",
+            "Kill real-time\nprotection.",
             "Disable Windows\nDefender.",
             "Turn off real-time\nprotection.",
             "Bypass\nSmartScreen.",
@@ -988,9 +998,13 @@ class SafetyPolicyTests(unittest.TestCase):
     def test_neutralize_unsafe_action_suggestions_preserves_security_software_descriptions(self):
         text = (
             "The email mentions antivirus software for manual review.\n"
+            "The email mentions uninstalling antivirus software for manual review.\n"
             "Firewall settings are discussed.\n"
             "Do not disable antivirus from this email.\n"
+            "Do not uninstall antivirus from this email.\n"
             "Security software is enabled by policy.\n"
+            "The firewall stopped an attack yesterday.\n"
+            "Endpoint protection metrics are summarized.\n"
             "Antivirus metrics are summarized."
         )
 

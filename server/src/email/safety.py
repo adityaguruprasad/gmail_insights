@@ -340,7 +340,8 @@ _LOCAL_SECURITY_CONTROL_TARGET = (
     rf"{_LOCAL_SECURITY_TARGET_PREFIX}"
     r"(?:anti[-\s]?virus(?:\s+(?:software|protection|scanner|scanning))?|"
     r"anti[-\s]?malware(?:\s+(?:software|protection|scanner|scanning))?|"
-    r"security\s+software|endpoint\s+protection|firewall|"
+    r"security\s+(?:software|products?|protections?)|"
+    r"endpoint\s+protection|firewall|"
     r"(?:windows|microsoft)\s+defender|gatekeeper|smart\s*screen|"
     r"real[-\s]?time\s+(?:protection|scanning|monitoring)|"
     r"(?:malware|virus)\s+(?:protection|scanning|scanner))\b"
@@ -1511,6 +1512,11 @@ _DIRECTIVE_PATTERNS = {
         re.compile(
             rf"{_ACTION_SUGGESTION_START}"
             rf"(?:disable|deactivate|turn\s+off|switch\s+off|shut\s+off)\s+"
+            rf"{_LOCAL_SECURITY_CONTROL_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:uninstall|remove|stop|kill|terminate)\s+"
             rf"{_LOCAL_SECURITY_CONTROL_TARGET}{_TARGET_END}"
         ),
         re.compile(
