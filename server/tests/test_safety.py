@@ -52,6 +52,7 @@ class SafetyPolicyTests(unittest.TestCase):
             "move_to_inbox",
             "snooze",
             "create_filter",
+            "change_filter_settings",
             "create_forwarding_rule",
         ]
 
@@ -60,6 +61,21 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(effective, ["read"])
         self.assertEqual(blocked, sorted(mutation_actions))
         self.assertFalse(set(mutation_actions).intersection(effective))
+
+    def test_filter_rule_mutation_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(
+            ["read", "change_filter_settings"]
+        )
+
+        self.assertEqual(effective, ["read"])
+        self.assertEqual(blocked, ["change_filter_settings"])
+        self.assertNotIn("change_filter_settings", effective)
+
+        safety = safety_metadata("change_filter_settings")
+        self.assertEqual(safety["mode"], "read_only")
+        self.assertEqual(safety["effective_actions"], ["read", "summarize"])
+        self.assertEqual(safety["blocked_actions"], ["change_filter_settings"])
+        self.assertIn("change_filter_settings", safety_module.BLOCKED_ACTIONS)
 
     def test_forwarding_rule_action_is_supported_but_blocked(self):
         effective, blocked = evaluate_requested_actions(
@@ -2777,6 +2793,66 @@ class SafetyPolicyTests(unittest.TestCase):
         guarded, blocked = neutralize_unsafe_action_suggestions(descriptive)
         self.assertEqual(guarded, descriptive)
         self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_filter_rule_mutation_directives(self):
+        cases = [
+            "Update the Gmail filter for this sender.",
+            "Modify the mail rule to archive invoices.",
+            "Delete the filter for alerts.",
+            "Remove the inbox rule now.",
+            "Disable the Gmail filter for this sender.",
+            "Turn off the mail rule.",
+            "Recommended action: update the filter for this sender.",
+            "Action item: modify the mail rule to archive invoices.",
+            "The next step is clear: action item: delete the filter for alerts.",
+            "Review notes: recommended action: disable the Gmail filter for this sender.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["change_filter_settings"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_filter_rule_mutations(self):
+        cases = [
+            "Update the filter\nfor this sender.",
+            "Modify the mail\nrule to archive invoices.",
+            "Recommended action: delete the filter\nfor alerts.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["change_filter_settings"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_filter_rule_descriptions(self):
+        text = (
+            "The email mentions filter settings for manual review.\n"
+            "Filtering metrics are summarized.\n"
+            "The rule was updated yesterday.\n"
+            "Do not delete the filter from this email.\n"
+            "Filter details are present for analysis."
+        )
+
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_filter_rule_mutation_split_line_handling_uses_directive_sets_without_action_words(self):
+        self.assertIn(
+            "change_filter_settings",
+            safety_module._DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS,
+        )
+        self.assertIn(
+            "change_filter_settings",
+            safety_module._DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS,
+        )
+        self.assertNotIn("change_filter_settings", safety_module._ACTION_WORD_PATTERNS)
 
     def test_neutralize_unsafe_action_suggestions_preserves_benign_content(self):
         text = (

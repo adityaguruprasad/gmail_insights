@@ -27,6 +27,7 @@ BLOCKED_ACTIONS = {
     "move_to_inbox",
     "snooze",
     "create_filter",
+    "change_filter_settings",
     "create_forwarding_rule",
     "set_auto_reply",
     "unsubscribe",
@@ -149,6 +150,28 @@ _FILTER_CONNECTOR = r"\s+(?:for|from|that|to|matching|with|where|when)\b"
 _FILTER_TARGET = (
     rf"(?:(?:a|an|the)\s+filter(?:{_FILTER_CONNECTOR}|{_TARGET_END})|"
     rf"filter(?:{_FILTER_CONNECTOR}|{_TARGET_END}))"
+)
+_FILTER_RULE_MUTATION_VERB = (
+    r"(?:update|modify|change|edit|delete|remove|disable|deactivate|"
+    r"turn\s+off|enable|activate|turn\s+on)"
+)
+_FILTER_OBJECT_TARGET = (
+    r"(?:(?:the|an?|this|that|my|your|our)\s+)?"
+    r"(?:(?:gmail|google|mail|email|inbox)\s+)?"
+    r"filter(?:s|\s+settings?)?\b"
+)
+_FILTER_RULE_OBJECT_TARGET = (
+    rf"(?:{_FILTER_OBJECT_TARGET}|"
+    r"(?:(?:the|an?|this|that|my|your|our)\s+)?"
+    r"(?:gmail|mail|email|inbox)\s+rules?\b)"
+)
+_FILTER_RULE_DETAIL_SUFFIX = (
+    r"(?:\s+(?:for|from|matching|with|where|when|to|in|on|within)\s+"
+    r"(?:(?:the|this|that|these|those|my|your|our|an?)\s+)?"
+    r"[\w@./:+%#&=?-]+(?:\s+[\w@./:+%#&=?-]+){0,8})?"
+)
+_FILTER_RULE_ACTION_TARGET = (
+    rf"{_FILTER_RULE_OBJECT_TARGET}{_FILTER_RULE_DETAIL_SUFFIX}{_TARGET_END}"
 )
 _REPORT_PHISHING_TERM = r"(?:phishing|phish)"
 _REPORT_SPAM_TERM = r"(?:spam|junk|abuse)"
@@ -939,6 +962,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "submit_form",
     "create_forwarding_rule",
     "set_auto_reply",
+    "change_filter_settings",
 }
 _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "run_executable",
@@ -960,6 +984,7 @@ _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "set_auto_reply",
     "start_remote_access",
     "enable_browser_notifications",
+    "change_filter_settings",
 }
 _DIRECTIVE_PATTERNS = {
     "provide_sensitive_info": [
@@ -1104,6 +1129,16 @@ _DIRECTIVE_PATTERNS = {
         re.compile(rf"{_DIRECTIVE_START}create\s+{_FILTER_TARGET}"),
         re.compile(
             rf"{_RECOMMENDATION_PREFIX}\bcreate\s+{_FILTER_TARGET}"
+        ),
+    ],
+    "change_filter_settings": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}{_FILTER_RULE_MUTATION_VERB}\s+"
+            rf"{_FILTER_RULE_ACTION_TARGET}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}{_FILTER_RULE_MUTATION_VERB}\s+"
+            rf"{_FILTER_RULE_ACTION_TARGET}"
         ),
     ],
     "create_forwarding_rule": [
