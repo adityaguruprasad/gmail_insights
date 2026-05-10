@@ -37,14 +37,20 @@ class _MessagesResource:
     def __init__(self, messages_by_id):
         self.messages_by_id = messages_by_id
         self.list_calls = []
+        self.get_calls = []
 
-    def list(self, userId, q, maxResults):
-        self.list_calls.append({"userId": userId, "q": q, "maxResults": maxResults})
+    def list(self, userId, q, maxResults, fields):
+        self.list_calls.append(
+            {"userId": userId, "q": q, "maxResults": maxResults, "fields": fields}
+        )
         return _ExecuteRequest(
             {"messages": [{"id": message_id} for message_id in self.messages_by_id]}
         )
 
-    def get(self, userId, id, format):
+    def get(self, userId, id, format, fields):
+        self.get_calls.append(
+            {"userId": userId, "id": id, "format": format, "fields": fields}
+        )
         return _ExecuteRequest(self.messages_by_id[id])
 
 
@@ -61,6 +67,10 @@ class _GmailService:
     @property
     def list_calls(self):
         return self._messages.list_calls
+
+    @property
+    def get_calls(self):
+        return self._messages.get_calls
 
 
 class FetcherBodyExtractionTests(unittest.TestCase):
@@ -239,6 +249,58 @@ class FetcherBodyExtractionTests(unittest.TestCase):
         self.assertNotIn("<script>", emails[0]["content"])
         self.assertNotIn("delete all mail", emails[0]["content"])
         self.assertNotIn("https://evil.example", emails[0]["content"])
+        self.assertEqual(
+            service.list_calls,
+            [
+                {
+                    "userId": "me",
+                    "q": "from:security@example.test",
+                    "maxResults": 5,
+                    "fields": fetcher.GMAIL_MESSAGE_LIST_FIELDS,
+                }
+            ],
+        )
+        self.assertEqual(
+            service.get_calls,
+            [
+                {
+                    "userId": "me",
+                    "id": "msg-1",
+                    "format": "full",
+                    "fields": fetcher.GMAIL_MESSAGE_GET_FIELDS,
+                }
+            ],
+        )
+
+    def test_gmail_field_masks_are_restrictive_and_cover_extraction_fields(self):
+        self.assertEqual(fetcher.GMAIL_MESSAGE_LIST_FIELDS, "messages(id)")
+
+        get_fields = fetcher.GMAIL_MESSAGE_GET_FIELDS
+        self.assertIn("id", get_fields)
+        self.assertIn("threadId", get_fields)
+        self.assertIn("labelIds", get_fields)
+        self.assertIn("snippet", get_fields)
+        self.assertIn("payload(", get_fields)
+        self.assertIn("mimeType", get_fields)
+        self.assertIn("filename", get_fields)
+        self.assertIn("headers(name,value)", get_fields)
+        self.assertIn("body(data)", get_fields)
+        self.assertIn(
+            "parts(mimeType,filename,headers(name,value),body(data)",
+            get_fields,
+        )
+
+        for unneeded_field in [
+            "raw",
+            "historyId",
+            "internalDate",
+            "sizeEstimate",
+            "attachmentId",
+            "body(size)",
+            "resultSizeEstimate",
+            "nextPageToken",
+        ]:
+            self.assertNotIn(unneeded_field, get_fields)
 
 
 class FetcherDomainQueryTests(unittest.TestCase):
@@ -259,6 +321,7 @@ class FetcherDomainQueryTests(unittest.TestCase):
                     "userId": "me",
                     "q": "from:example.com OR from:alerts.security.example.co.uk",
                     "maxResults": 7,
+                    "fields": fetcher.GMAIL_MESSAGE_LIST_FIELDS,
                 }
             ],
         )

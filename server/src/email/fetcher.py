@@ -3,6 +3,26 @@ import re
 from html.parser import HTMLParser
 from typing import Dict, List, Optional
 
+GMAIL_MESSAGE_LIST_FIELDS = "messages(id)"
+GMAIL_MESSAGE_PART_FIELDS_MAX_DEPTH = 12
+_GMAIL_MESSAGE_PART_BASE_FIELDS = "mimeType,filename,headers(name,value),body(data)"
+
+
+def _gmail_message_part_fields(depth: int = GMAIL_MESSAGE_PART_FIELDS_MAX_DEPTH) -> str:
+    if depth <= 0:
+        return _GMAIL_MESSAGE_PART_BASE_FIELDS
+
+    return (
+        f"{_GMAIL_MESSAGE_PART_BASE_FIELDS},"
+        f"parts({_gmail_message_part_fields(depth - 1)})"
+    )
+
+
+GMAIL_MESSAGE_GET_FIELDS = (
+    "id,threadId,labelIds,snippet,"
+    f"payload({_gmail_message_part_fields()})"
+)
+
 
 def _decode_base64_urlsafe(data: Optional[str]) -> str:
     if not data:
@@ -184,7 +204,12 @@ def get_emails_by_query(service, query: str, max_results: int = 100) -> List[Dic
     results = (
         service.users()
         .messages()
-        .list(userId="me", q=query, maxResults=max_results)
+        .list(
+            userId="me",
+            q=query,
+            maxResults=max_results,
+            fields=GMAIL_MESSAGE_LIST_FIELDS,
+        )
         .execute()
     )
     messages = results.get("messages", [])
@@ -194,7 +219,12 @@ def get_emails_by_query(service, query: str, max_results: int = 100) -> List[Dic
         msg = (
             service.users()
             .messages()
-            .get(userId="me", id=message["id"], format="full")
+            .get(
+                userId="me",
+                id=message["id"],
+                format="full",
+                fields=GMAIL_MESSAGE_GET_FIELDS,
+            )
             .execute()
         )
 
