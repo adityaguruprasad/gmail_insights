@@ -26,8 +26,10 @@ BLOCKED_ACTIONS = {
     "report_spam",
     "move_to_inbox",
     "snooze",
+    "change_thread_mute_state",
     "create_filter",
     "change_filter_settings",
+    "change_blocked_senders",
     "create_forwarding_rule",
     "set_auto_reply",
     "unsubscribe",
@@ -98,6 +100,7 @@ _STRIPE_SECRET_KEY_RE = re.compile(r"\bsk_(?:live|test)_[A-Za-z0-9]{16,}\b")
 _ROLE_TAG_RE = re.compile(
     r"(?im)^(\s*)(system|assistant|user|developer|tool)\s*:\s*"
 )
+_ACTION_ROLE_PREFIX = r"(?:(?:system|assistant|user|developer|tool)\s*:\s*)?"
 _INSTRUCTION_PHRASE_RE = re.compile(
     r"(?i)\b("
     r"ignore\s+(all\s+)?(previous|prior|above)\s+instructions?"
@@ -111,7 +114,7 @@ _INSTRUCTION_PHRASE_RE = re.compile(
 _INSTRUCTION_XML_TAG_RE = re.compile(
     r"(?i)</?\s*(system|assistant|user|instruction|instructions|prompt|directive|policy)\b[^>]*>"
 )
-_DIRECTIVE_START = r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?"
+_DIRECTIVE_START = rf"(?i)^\s*(?:[-*]|\d+[.)])?\s*{_ACTION_ROLE_PREFIX}(?:please\s+)?"
 _RECOMMENDATION_KEYWORD = (
     r"(?:you\s+should|you\s+must|next\s+step(?:s)?|action\s+item(?:s)?|"
     r"recommended\s+action(?:s)?)"
@@ -154,6 +157,14 @@ _SNOOZE_TIME_SUFFIX = (
 _SNOOZE_TARGET_END = (
     rf"(?=\s*(?:$|[.!?,:;]|\b(?:{_URGENCY_SUFFIX}|{_SNOOZE_TIME_SUFFIX}|please)\b\s*(?:$|[.!?,:;])))"
 )
+_MUTE_CONVERSATION_NOUN = (
+    r"(?:messages?|emails?|threads?|conversations?|email\s+conversations?)"
+)
+_MUTE_CONVERSATION_OBJECT = (
+    r"(?:(?:the|this|that|these|those|an?|all)\s+)?"
+    rf"(?:(?:[\w-]+\s+){{0,3}}{_MUTE_CONVERSATION_NOUN})\b"
+)
+_MUTE_NOTIFICATION_NOUN = r"(?:notifications?|alerts?)"
 _FILTER_CONNECTOR = r"\s+(?:for|from|that|to|matching|with|where|when)\b"
 _FILTER_TARGET = (
     rf"(?:(?:a|an|the)\s+filter(?:{_FILTER_CONNECTOR}|{_TARGET_END})|"
@@ -223,6 +234,7 @@ _UNSUBSCRIBE_TARGET = (
 )
 _ACTION_SUGGESTION_START = (
     rf"(?i)^\s*(?:[-*]|\d+[.)])?\s*"
+    rf"{_ACTION_ROLE_PREFIX}"
     rf"(?:(?:{_RECOMMENDATION_KEYWORD})\s*:?\s*)?"
     r"(?:(?:please|first|then|next|just|now|also)\s+){0,4}"
 )
@@ -242,6 +254,21 @@ _BARE_DOMAIN_TARGET = (
 _EXTERNAL_URL_TARGET = (
     rf"(?:https?://[^\s<>)\]]{{1,2048}}|www\.[^\s<>)\]]{{1,2048}}|"
     rf"{_BARE_DOMAIN_TARGET})"
+)
+_BLOCKED_SENDER_ENTRY_NOUN = (
+    r"(?:senders?|contacts?|email\s+addresses?|addresses?|domains?)"
+)
+_BLOCKED_SENDER_ENTRY_TARGET = (
+    rf"(?:{_EMAIL_TARGET}(?:\s+(?:email\s+)?address)?|"
+    rf"{_BARE_DOMAIN_TARGET}(?:\s+domain)?|"
+    r"(?:(?:the|this|that|an?|your|my|our)\s+)?"
+    rf"(?:[\w-]+\s+){{0,2}}{_BLOCKED_SENDER_ENTRY_NOUN}\b)"
+)
+_BLOCKED_SENDER_LIST_TARGET = (
+    r"(?:(?:the|this|that|your|my|our)\s+)?"
+    r"(?:(?:blocked\s+senders?|blocked\s+contacts?|"
+    r"blocked\s+(?:email\s+)?addresses?|blocked\s+domains?|"
+    r"block(?:ed)?[-\s]?list)(?:\s+list)?)\b"
 )
 _LINK_TARGET = (
     rf"(?:{_EXTERNAL_URL_TARGET}|"
@@ -1389,6 +1416,8 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "create_forwarding_rule",
     "set_auto_reply",
     "change_filter_settings",
+    "change_blocked_senders",
+    "change_thread_mute_state",
 }
 _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "run_executable",
@@ -1420,6 +1449,8 @@ _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "start_remote_access",
     "enable_browser_notifications",
     "change_filter_settings",
+    "change_blocked_senders",
+    "change_thread_mute_state",
 }
 _DIRECTIVE_PATTERNS = {
     "provide_sensitive_info": [
@@ -1610,6 +1641,30 @@ _DIRECTIVE_PATTERNS = {
             rf"{_RECOMMENDATION_PREFIX}\bsnooze\s+{_SNOOZE_MAILBOX_OBJECT}\b{_SNOOZE_TARGET_END}"
         ),
     ],
+    "change_thread_mute_state": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:mute|unmute)\s+"
+            rf"{_MUTE_CONVERSATION_OBJECT}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}(?:mute|unmute)\s+"
+            rf"{_MUTE_CONVERSATION_OBJECT}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:silence|unsilence|mute|unmute|disable|enable|"
+            rf"turn\s+off|turn\s+on)\s+"
+            rf"{_MUTE_NOTIFICATION_NOUN}\s+for\s+"
+            rf"{_MUTE_CONVERSATION_OBJECT}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:silence|unsilence|mute|unmute|disable|enable|"
+            rf"turn\s+off|turn\s+on)\s+"
+            rf"{_MUTE_NOTIFICATION_NOUN}\s+for\s+"
+            rf"{_MUTE_CONVERSATION_OBJECT}{_TARGET_END}"
+        ),
+    ],
     "create_filter": [
         re.compile(rf"{_DIRECTIVE_START}create\s+{_FILTER_TARGET}"),
         re.compile(
@@ -1624,6 +1679,46 @@ _DIRECTIVE_PATTERNS = {
         re.compile(
             rf"{_MIDLINE_ACTION_SUGGESTION_START}{_FILTER_RULE_MUTATION_VERB}\s+"
             rf"{_FILTER_RULE_ACTION_TARGET}"
+        ),
+    ],
+    "change_blocked_senders": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:block|unblock)\s+"
+            rf"{_BLOCKED_SENDER_ENTRY_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}(?:block|unblock)\s+"
+            rf"{_BLOCKED_SENDER_ENTRY_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}add\s+"
+            rf"{_BLOCKED_SENDER_ENTRY_TARGET}\s+to\s+"
+            rf"{_BLOCKED_SENDER_LIST_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}add\s+"
+            rf"{_BLOCKED_SENDER_ENTRY_TARGET}\s+to\s+"
+            rf"{_BLOCKED_SENDER_LIST_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:put|place)\s+"
+            rf"{_BLOCKED_SENDER_ENTRY_TARGET}\s+(?:on|onto|in|into)\s+"
+            rf"{_BLOCKED_SENDER_LIST_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}(?:put|place)\s+"
+            rf"{_BLOCKED_SENDER_ENTRY_TARGET}\s+(?:on|onto|in|into)\s+"
+            rf"{_BLOCKED_SENDER_LIST_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:remove|delete)\s+"
+            rf"{_BLOCKED_SENDER_ENTRY_TARGET}\s+from\s+"
+            rf"{_BLOCKED_SENDER_LIST_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}(?:remove|delete)\s+"
+            rf"{_BLOCKED_SENDER_ENTRY_TARGET}\s+from\s+"
+            rf"{_BLOCKED_SENDER_LIST_TARGET}{_TARGET_END}"
         ),
     ],
     "create_forwarding_rule": [
