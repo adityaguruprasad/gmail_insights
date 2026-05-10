@@ -97,6 +97,93 @@ _AWS_ACCESS_KEY_ID_RE = re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b")
 _SLACK_TOKEN_RE = re.compile(r"\b(?:xox[abprs]|xapp)-[A-Za-z0-9-]{10,}\b")
 _GITHUB_TOKEN_RE = re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{20,255}\b")
 _STRIPE_SECRET_KEY_RE = re.compile(r"\bsk_(?:live|test)_[A-Za-z0-9]{16,}\b")
+_OTP_CONTEXT = (
+    r"(?:"
+    r"verification\s+(?:code|passcode|pin)|"
+    r"one[-\s]?time\s+(?:code|passcode|password|pin)|"
+    r"otp(?:\s+code)?|"
+    r"login\s+(?:code|passcode|pin)|"
+    r"sign[-\s]?in\s+(?:code|passcode|pin)|"
+    r"security\s+(?:code|passcode|pin)|"
+    r"2fa\s+(?:code|passcode|pin)|"
+    r"two[-\s]?factor\s+(?:code|passcode|pin)|"
+    r"password\s+reset\s+(?:code|passcode|pin)"
+    r")"
+)
+_ALPHANUMERIC_OTP_CODE = (
+    r"(?=[A-Za-z0-9]{4,8}(?![A-Za-z0-9]))"
+    r"(?=[A-Za-z0-9]*[A-Za-z])"
+    r"(?=[A-Za-z0-9]*\d)"
+    r"[A-Za-z0-9]{4,8}"
+)
+_OTP_CODE_VALUE = (
+    rf"(?<![A-Za-z0-9])(?:\d{{4,8}}|{_ALPHANUMERIC_OTP_CODE})(?![A-Za-z0-9])"
+)
+_OTP_PURPOSE_CONTEXT = (
+    r"(?:"
+    r"verify(?:\s+your\s+(?:account|email|identity))?|"
+    r"sign\s*in|"
+    r"log\s*in|"
+    r"complete\s+(?:your\s+)?login|"
+    r"authenticate|"
+    r"reset(?:\s+your)?\s+password"
+    r")"
+)
+_OTP_CODE_AFTER_CONTEXT_RE = re.compile(
+    rf"\b(?P<context>{_OTP_CONTEXT})\b"
+    rf"(?P<between>"
+    rf"\s*(?:is|are|:|=|-|\#)?\s*|"
+    rf"\s+(?:to|for)\s+{_OTP_PURPOSE_CONTEXT}\s*(?:is|:|=|-)?\s*"
+    rf")"
+    rf"(?P<code>{_OTP_CODE_VALUE})",
+    re.IGNORECASE,
+)
+_OTP_CODE_BEFORE_CONTEXT_RE = re.compile(
+    rf"(?P<code>{_OTP_CODE_VALUE})"
+    rf"(?P<between>\s+(?:is|as|for)\s+(?:your|the|this|a|an)?\s*)"
+    rf"(?P<context>{_OTP_CONTEXT})\b",
+    re.IGNORECASE,
+)
+_OTP_CODE_AFTER_ACTION_RE = re.compile(
+    rf"\b(?P<lead>(?:use|enter|type|copy|submit)\s+)"
+    rf"(?P<code>{_OTP_CODE_VALUE})"
+    rf"(?P<trail>\s+(?:to|for)\s+{_OTP_PURPOSE_CONTEXT}\b)",
+    re.IGNORECASE,
+)
+_SENSITIVE_LINK_URL_TARGET = (
+    r"(?:https?://[^\s<>\]\"']{1,2048}|www\.[^\s<>\]\"']{1,2048})"
+)
+_SENSITIVE_LINK_CONTEXT = (
+    r"(?:"
+    r"password\s+reset|"
+    r"reset\s+(?:your\s+)?password|"
+    r"forgot(?:ten)?\s+password|"
+    r"magic\s+(?:sign[-\s]?in|login)\s+link|"
+    r"magic\s+link|"
+    r"sign[-\s]?in\s+link|"
+    r"login\s+link|"
+    r"account\s+verification|"
+    r"email\s+verification|"
+    r"verify\s+(?:your\s+)?(?:account|email|identity)|"
+    r"confirm\s+(?:your\s+)?(?:account|email|identity)|"
+    r"(?:link|url)\s+to\s+(?:sign\s*in|log\s*in)"
+    r")"
+)
+_SENSITIVE_LINK_AFTER_CONTEXT_RE = re.compile(
+    rf"\b(?P<context>{_SENSITIVE_LINK_CONTEXT})\b"
+    rf"(?P<between>"
+    rf"(?:\s+(?:link|url|button|page))?\s*(?:is|:|=|-|at|here|below)?\s*"
+    rf")"
+    rf"(?P<url>{_SENSITIVE_LINK_URL_TARGET})",
+    re.IGNORECASE,
+)
+_SENSITIVE_LINK_BEFORE_CONTEXT_RE = re.compile(
+    rf"(?P<url>{_SENSITIVE_LINK_URL_TARGET})"
+    rf"(?P<between>\s+(?:is|as|for|to|will)\s+(?:your|the|this|a|an)?\s*)"
+    rf"(?P<context>{_SENSITIVE_LINK_CONTEXT})\b",
+    re.IGNORECASE,
+)
+_SENSITIVE_URL_TRAILING_PUNCTUATION = ".,;:!?)]}"
 _ROLE_TAG_RE = re.compile(
     r"(?im)^(\s*)(system|assistant|user|developer|tool)\s*:\s*"
 )
@@ -2577,6 +2664,41 @@ def safety_metadata(actions) -> dict:
     }
 
 
+def _replace_match_group(match: re.Match, group_name: str, replacement: str) -> str:
+    return (
+        match.string[match.start() : match.start(group_name)]
+        + replacement
+        + match.string[match.end(group_name) : match.end()]
+    )
+
+
+def _redact_otp_code(match: re.Match) -> str:
+    return _replace_match_group(match, "code", "[REDACTED_OTP]")
+
+
+def _redact_sensitive_link(match: re.Match) -> str:
+    url = match.group("url")
+    trailing_punctuation = ""
+    while url and url[-1] in _SENSITIVE_URL_TRAILING_PUNCTUATION:
+        trailing_punctuation = url[-1] + trailing_punctuation
+        url = url[:-1]
+
+    return (
+        match.string[match.start() : match.start("url")]
+        + "[REDACTED_SENSITIVE_LINK]"
+        + trailing_punctuation
+        + match.string[match.end("url") : match.end()]
+    )
+
+
+def _redact_short_lived_login_credentials(text: str) -> str:
+    redacted = _SENSITIVE_LINK_AFTER_CONTEXT_RE.sub(_redact_sensitive_link, text)
+    redacted = _SENSITIVE_LINK_BEFORE_CONTEXT_RE.sub(_redact_sensitive_link, redacted)
+    redacted = _OTP_CODE_AFTER_ACTION_RE.sub(_redact_otp_code, redacted)
+    redacted = _OTP_CODE_AFTER_CONTEXT_RE.sub(_redact_otp_code, redacted)
+    return _OTP_CODE_BEFORE_CONTEXT_RE.sub(_redact_otp_code, redacted)
+
+
 def redact_sensitive_content(text: str) -> str:
     if not text:
         return ""
@@ -2590,6 +2712,7 @@ def redact_sensitive_content(text: str) -> str:
     redacted = _STRIPE_SECRET_KEY_RE.sub("[REDACTED_STRIPE_KEY]", redacted)
     redacted = _BEARER_TOKEN_RE.sub(r"\1[REDACTED_TOKEN]", redacted)
     redacted = _API_TOKEN_RE.sub(r"\1\2[REDACTED_TOKEN]\2", redacted)
+    redacted = _redact_short_lived_login_credentials(redacted)
     redacted = _EMAIL_RE.sub("[REDACTED_EMAIL]", redacted)
     redacted = _PHONE_RE.sub("[REDACTED_PHONE]", redacted)
     return redacted

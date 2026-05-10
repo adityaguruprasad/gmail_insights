@@ -203,6 +203,34 @@ class ProcessorPromptTests(unittest.TestCase):
         self.assertIn("Snippet: Authorization: Bearer [REDACTED_TOKEN]", prompt)
         self.assertIn("Content:\nCall back at [REDACTED_PHONE]", prompt)
 
+    def test_prompt_redacts_login_codes_and_reset_links(self):
+        reset_link = "https://accounts.example.test/reset?token=secret123"
+        magic_link = "https://auth.example.test/magic?code=A1B2C3"
+        email = {
+            "subject": "Login code 482913",
+            "sender": "security@example.com",
+            "date": "2026-04-20",
+            "snippet": f"Magic sign-in link: {magic_link}",
+            "content": (
+                f"Password reset link: {reset_link}\n"
+                "1234 is your password reset code.\n"
+                "Docs: https://help.example.test/reset-faq"
+            ),
+            "is_archived": False,
+        }
+
+        prompt = processor._build_prompt(email, redact_sensitive=True)
+
+        for sensitive_value in ("482913", "1234", reset_link, magic_link):
+            with self.subTest(sensitive_value=sensitive_value):
+                self.assertNotIn(sensitive_value, prompt)
+
+        self.assertIn("Subject: Login code [REDACTED_OTP]", prompt)
+        self.assertIn("Magic sign-in link: [REDACTED_SENSITIVE_LINK]", prompt)
+        self.assertIn("Password reset link: [REDACTED_SENSITIVE_LINK]", prompt)
+        self.assertIn("[REDACTED_OTP] is your password reset code.", prompt)
+        self.assertIn("Docs: https://help.example.test/reset-faq", prompt)
+
     def test_prompt_redacts_sensitive_content_before_length_limit(self):
         token = _fixture_access_token()
         token_prefix_shorter_than_redaction_threshold = token[:15]
