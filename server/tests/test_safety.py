@@ -321,6 +321,31 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(blocked, ["make_payment"])
         self.assertNotIn("make_payment", effective)
 
+    def test_crypto_wallet_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(
+            ["read", "crypto_wallet_action"]
+        )
+
+        self.assertEqual(effective, ["read"])
+        self.assertEqual(blocked, ["crypto_wallet_action"])
+        self.assertNotIn("crypto_wallet_action", effective)
+
+        safety = safety_metadata("crypto_wallet_action")
+        self.assertEqual(safety["mode"], "read_only")
+        self.assertEqual(safety["effective_actions"], ["read", "summarize"])
+        self.assertEqual(safety["blocked_actions"], ["crypto_wallet_action"])
+        self.assertIn("crypto_wallet_action", safety_module.BLOCKED_ACTIONS)
+        self.assertNotIn("crypto_wallet_action", safety_module.ALLOWED_ACTIONS)
+        self.assertIn(
+            "crypto_wallet_action",
+            safety_module._DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS,
+        )
+        self.assertIn(
+            "crypto_wallet_action",
+            safety_module._DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS,
+        )
+        self.assertNotIn("crypto_wallet_action", safety_module._ACTION_WORD_PATTERNS)
+
     def test_payment_method_update_action_is_supported_but_blocked(self):
         effective, blocked = evaluate_requested_actions(
             ["read", "summarize", "update_payment_method"]
@@ -2391,6 +2416,110 @@ class SafetyPolicyTests(unittest.TestCase):
             "Pay attention to the customer.\n"
             "Pay close attention to the supplier invoice."
         )
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_crypto_wallet_directives(self):
+        cases = [
+            "Connect your wallet",
+            "Connect MetaMask to the site",
+            "Unlock the crypto wallet now",
+            "Sign the blockchain transaction",
+            "Approve the wallet transaction",
+            "Confirm the on-chain transaction in your wallet",
+            "Sign the message with MetaMask",
+            "Import your seed phrase into the wallet",
+            "Enter your recovery phrase on the website",
+            "Share your private key with support",
+            "Recommended action: connect your wallet",
+            "Action item: sign the transaction in your wallet",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["crypto_wallet_action"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_crypto_wallet_mnemonic_secrets(
+        self,
+    ):
+        cases = [
+            "Enter your mnemonic on the site",
+            "Share your mnemonic phrase with support",
+            "Share your mnemonic phrases with support",
+            "Action item: enter your seed phrase on the website.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["crypto_wallet_action"])
+
+    def test_neutralize_unsafe_action_suggestions_reports_wallet_approval_as_crypto_only(
+        self,
+    ):
+        cases = [
+            (
+                "Approve the transaction in your wallet",
+                "[Unsafe action suggestion removed]",
+            ),
+            (
+                "Action item: approve the transaction in your wallet.",
+                "[Unsafe action suggestion removed]",
+            ),
+            (
+                "Approve the transaction\nin your wallet.",
+                "[Unsafe action suggestion removed]\n"
+                "[Unsafe action suggestion removed]",
+            ),
+        ]
+
+        for text, expected_guarded in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, expected_guarded)
+                self.assertEqual(blocked, ["crypto_wallet_action"])
+
+    def test_neutralize_unsafe_action_suggestions_reports_separate_crypto_and_payment_directives(
+        self,
+    ):
+        text = "Connect your wallet, then approve the wire transfer."
+
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+
+        self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+        self.assertEqual(blocked, ["crypto_wallet_action", "make_payment"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_crypto_wallet_directives(self):
+        cases = [
+            "Connect your\nwallet",
+            "Sign the blockchain\ntransaction",
+            "Enter your seed phrase\nin the portal",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n"
+                    "[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["crypto_wallet_action"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_crypto_wallet_descriptions(self):
+        text = (
+            "The email mentions a crypto wallet for manual review\n"
+            "Wallet connection instructions are included for review\n"
+            "The transaction was signed yesterday\n"
+            "Do not connect your wallet from this email\n"
+            "Seed phrase risk is high; do not share it\n"
+            "Blockchain transaction metrics are summarized"
+        )
+
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)
         self.assertEqual(blocked, [])

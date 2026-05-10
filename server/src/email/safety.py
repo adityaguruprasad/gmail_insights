@@ -1,5 +1,5 @@
 import re
-from typing import Iterable, List, Tuple
+from typing import Iterable, List, Set, Tuple
 
 ALLOWED_ACTIONS = {
     "read",
@@ -57,6 +57,7 @@ BLOCKED_ACTIONS = {
     "create_calendar_event",
     "create_task",
     "provide_sensitive_info",
+    "crypto_wallet_action",
     "make_payment",
     "update_payment_method",
     "sign_in",
@@ -221,6 +222,10 @@ _ACTION_SUGGESTION_START = (
 _MIDLINE_ACTION_SUGGESTION_START = (
     rf"(?i)\b{_RECOMMENDATION_KEYWORD}\b\s*:?\s*"
     r"(?:(?:please|first|then|next|just|now|also)\s+){0,4}"
+)
+_SEQUENCED_ACTION_SUGGESTION_START = (
+    r"(?i)(?:[.!?,:;]\s*)?\b(?:then|next|also)\s+"
+    r"(?:(?:please|then|next|just|now|also)\s+){0,4}"
 )
 _LINK_NOUN = r"(?:link|url|website|webpage|page|site)"
 _DOMAIN_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
@@ -618,6 +623,64 @@ _REMOTE_ACCESS_GRANTEE_TARGET = (
     rf"(?:[\w-]+\s+){{0,2}}{_REMOTE_ACCESS_GRANTEE_NOUN}\b)"
 )
 _SCREEN_SHARE_TARGET = r"(?:(?:your|my|our|the|this|that)\s+)?screens?\b"
+_CRYPTO_WALLET_APP = (
+    r"(?:metamask|walletconnect|coinbase\s+wallet|trust\s+wallet|phantom|"
+    r"ledger|trezor)"
+)
+_CRYPTO_CONTEXT_DESCRIPTOR = (
+    r"(?:blockchain|on[-\s]?chain|wallet|crypto|web3|ethereum|bitcoin|"
+    r"token|nft)"
+)
+_CRYPTO_WALLET_TARGET = (
+    rf"(?:{_CRYPTO_WALLET_APP}\b|"
+    r"(?:(?:your|the|this|that|my|our|an?)\s+)?"
+    rf"(?:(?:{_CRYPTO_CONTEXT_DESCRIPTOR})\s+)?wallets?\b)"
+)
+_CRYPTO_WALLET_DESTINATION = (
+    r"(?:(?:the|this|that|your|an?)\s+)?"
+    r"(?:site|website|webpage|page|portal|app|application|dapp|d[-\s]?app|"
+    r"platform|browser)\b"
+)
+_CRYPTO_WALLET_CONNECTION_SUFFIX = (
+    rf"(?:\s+(?:to|with|through|via|on)\s+{_CRYPTO_WALLET_DESTINATION})?"
+)
+_CRYPTO_TRANSACTION_DETAILED_TARGET = (
+    r"(?:(?:the|this|that|your|an?)\s+)?"
+    rf"(?:{_CRYPTO_CONTEXT_DESCRIPTOR}\s+){{1,2}}transactions?\b"
+)
+_CRYPTO_TRANSACTION_WALLET_TARGET = (
+    r"(?:(?:the|this|that|your|an?)\s+)?transactions?\b\s+"
+    rf"(?:in|with|using|through|via|on)\s+{_CRYPTO_WALLET_TARGET}"
+)
+_CRYPTO_TRANSACTION_TARGET = (
+    rf"(?:{_CRYPTO_TRANSACTION_DETAILED_TARGET}|"
+    rf"{_CRYPTO_TRANSACTION_WALLET_TARGET})"
+)
+_CRYPTO_MESSAGE_TARGET = (
+    r"(?:(?:the|this|that|your|an?)\s+)?messages?\b\s+"
+    rf"(?:with|using|through|via|in|on)\s+{_CRYPTO_WALLET_TARGET}"
+)
+_CRYPTO_TRANSACTION_CONTEXT_SUFFIX = (
+    rf"(?:\s+(?:in|with|using|through|via|on)\s+{_CRYPTO_WALLET_TARGET})?"
+)
+_CRYPTO_WALLET_SECRET_NOUN = (
+    r"(?:(?:wallet\s+)?(?:seed|recovery|secret\s+recovery)\s+phrases?|"
+    r"mnemonic(?:\s+phrases?)?|"
+    r"private\s+keys?)"
+)
+_CRYPTO_WALLET_SECRET_TARGET = (
+    r"(?:(?:your|the|this|that|my|our|an?)\s+)?"
+    rf"(?:[\w-]+\s+){{0,2}}{_CRYPTO_WALLET_SECRET_NOUN}\b"
+)
+_CRYPTO_SECRET_DESTINATION = (
+    rf"(?:{_CRYPTO_WALLET_TARGET}|{_CRYPTO_WALLET_DESTINATION}|"
+    r"(?:(?:the|this|that|your|an?)\s+)?"
+    r"(?:support|team|agent|representative|person|company|service)\b)"
+)
+_CRYPTO_SECRET_DESTINATION_SUFFIX = (
+    rf"(?:\s+(?:to|with|into|in|on|through|via|using|at)\s+"
+    rf"{_CRYPTO_SECRET_DESTINATION})?"
+)
 _FINANCIAL_AMOUNT = (
     r"(?:[$\u20ac\u00a3]\s?\d[\d,]*(?:\.\d+)?|"
     r"\d+(?:\.\d+)?\s*(?:btc|bitcoin|eth|ether|ethereum|usdc|usdt|usd|eur|gbp))"
@@ -653,6 +716,10 @@ _PAYMENT_CHANNEL_TARGET = (
 _PAYMENT_APPROVAL_NOUN = (
     r"(?:transactions?|payments?|charges?|purchases?|wires?|transfers?|refunds?|"
     r"invoices?)"
+)
+_CRYPTO_PAYMENT_APPROVAL_TARGET = (
+    r"(?:(?:the|this|that|an?|your)\s+)?"
+    rf"(?:[\w-]+\s+){{0,2}}{_CRYPTO_CONTEXT_DESCRIPTOR}\s+transactions?\b"
 )
 _PURCHASE_TARGET_NOUN = r"(?:gift\s+cards?|licenses?|subscriptions?|software|products?)"
 _REFUND_TARGET_NOUN = (
@@ -997,6 +1064,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "create_calendar_event",
     "create_task",
     "provide_sensitive_info",
+    "crypto_wallet_action",
     "make_payment",
     "update_payment_method",
     "sign_in",
@@ -1026,6 +1094,7 @@ _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "update_email_signature",
     "create_task",
     "provide_sensitive_info",
+    "crypto_wallet_action",
     "create_forwarding_rule",
     "print_email",
     "export_data",
@@ -1047,6 +1116,56 @@ _DIRECTIVE_PATTERNS = {
         re.compile(
             rf"{_ACTION_SUGGESTION_START}(?:reply|respond)\s+with\s+"
             rf"{_SENSITIVE_INFO_ACTION_TARGET}"
+        ),
+    ],
+    "crypto_wallet_action": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:connect|link)\s+"
+            rf"{_CRYPTO_WALLET_TARGET}{_CRYPTO_WALLET_CONNECTION_SUFFIX}"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}(?:connect|link)\s+"
+            rf"{_CRYPTO_WALLET_TARGET}{_CRYPTO_WALLET_CONNECTION_SUFFIX}"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}unlock\s+"
+            rf"{_CRYPTO_WALLET_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}unlock\s+"
+            rf"{_CRYPTO_WALLET_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:sign|approve|authorize|confirm)\s+"
+            rf"{_CRYPTO_TRANSACTION_TARGET}{_CRYPTO_TRANSACTION_CONTEXT_SUFFIX}"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}(?:sign|approve|authorize|confirm)\s+"
+            rf"{_CRYPTO_TRANSACTION_TARGET}{_CRYPTO_TRANSACTION_CONTEXT_SUFFIX}"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}sign\s+"
+            rf"{_CRYPTO_MESSAGE_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}sign\s+"
+            rf"{_CRYPTO_MESSAGE_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:import|enter|input|type|paste|submit|provide|reveal|share|send|disclose)\s+"
+            rf"{_CRYPTO_WALLET_SECRET_TARGET}{_CRYPTO_SECRET_DESTINATION_SUFFIX}"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:import|enter|input|type|paste|submit|provide|reveal|share|send|disclose)\s+"
+            rf"{_CRYPTO_WALLET_SECRET_TARGET}{_CRYPTO_SECRET_DESTINATION_SUFFIX}"
+            rf"{_TARGET_END}"
         ),
     ],
     "send": [
@@ -1562,6 +1681,13 @@ _DIRECTIVE_PATTERNS = {
         ),
         re.compile(
             rf"{_ACTION_SUGGESTION_START}(?:approve|authorize)\s+"
+            rf"(?!{_CRYPTO_PAYMENT_APPROVAL_TARGET})"
+            rf"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){{0,3}}"
+            rf"{_PAYMENT_APPROVAL_NOUN}\b{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_SEQUENCED_ACTION_SUGGESTION_START}(?:approve|authorize)\s+"
+            rf"(?!{_CRYPTO_PAYMENT_APPROVAL_TARGET})"
             rf"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){{0,3}}"
             rf"{_PAYMENT_APPROVAL_NOUN}\b{_TARGET_END}"
         ),
@@ -1869,11 +1995,12 @@ def sanitize_untrusted_email_text(text: str) -> str:
 
 
 def _directive_actions(line: str) -> List[str]:
-    return [
+    actions = [
         action
         for action, patterns in _DIRECTIVE_PATTERNS.items()
         if any(pattern.search(line) for pattern in patterns)
     ]
+    return _suppress_overlapping_crypto_wallet_payment_actions(line, actions)
 
 
 def _directive_match_spans(line: str, action: str) -> List[Tuple[int, int]]:
@@ -1883,6 +2010,59 @@ def _directive_match_spans(line: str, action: str) -> List[Tuple[int, int]]:
         for match in [pattern.search(line)]
         if match
     ]
+
+
+def _spans_overlap(first: Tuple[int, int], second: Tuple[int, int]) -> bool:
+    return first[0] < second[1] and second[0] < first[1]
+
+
+def _suppress_overlapping_crypto_wallet_payment_actions(
+    line: str, actions: List[str]
+) -> List[str]:
+    action_set = set(actions)
+    if not {"crypto_wallet_action", "make_payment"}.issubset(action_set):
+        return actions
+
+    crypto_spans = _directive_match_spans(line, "crypto_wallet_action")
+    payment_spans = _directive_match_spans(line, "make_payment")
+    if any(
+        _spans_overlap(payment_span, crypto_span)
+        for payment_span in payment_spans
+        for crypto_span in crypto_spans
+    ):
+        return [action for action in actions if action != "make_payment"]
+
+    return actions
+
+
+def _suppress_crypto_wallet_payment_overlap(
+    lines: List[str],
+    index: int,
+    direct_actions_by_index: List[Set[str]],
+    combined: str,
+) -> None:
+    crypto_spans = _directive_match_spans(combined, "crypto_wallet_action")
+    if not crypto_spans:
+        return
+
+    line_offsets = (
+        (index, 0),
+        (index + 1, len(lines[index]) + 1),
+    )
+    for line_index, offset in line_offsets:
+        if "make_payment" not in direct_actions_by_index[line_index]:
+            continue
+
+        payment_spans = [
+            (start + offset, end + offset)
+            for start, end in _directive_match_spans(lines[line_index], "make_payment")
+        ]
+        if any(
+            _spans_overlap(payment_span, crypto_span)
+            for payment_span in payment_spans
+            for crypto_span in crypto_spans
+        ):
+            direct_actions_by_index[line_index].discard("make_payment")
 
 
 def neutralize_unsafe_action_suggestions(text: str) -> Tuple[str, List[str]]:
@@ -1899,7 +2079,6 @@ def neutralize_unsafe_action_suggestions(text: str) -> Tuple[str, List[str]]:
         actions = _directive_actions(line)
         direct_actions_by_index.append(set(actions))
         if actions:
-            blocked_found.update(actions)
             blocked_line_indexes.add(index)
 
     for index in range(len(lines) - 1):
@@ -1908,6 +2087,10 @@ def neutralize_unsafe_action_suggestions(text: str) -> Tuple[str, List[str]]:
         if not actions:
             continue
 
+        if "crypto_wallet_action" in actions:
+            _suppress_crypto_wallet_payment_overlap(
+                lines, index, direct_actions_by_index, combined
+            )
         blocked_found.update(actions)
         matched_any_line = False
         for action in actions:
@@ -1950,6 +2133,9 @@ def neutralize_unsafe_action_suggestions(text: str) -> Tuple[str, List[str]]:
 
         if not matched_any_line:
             blocked_line_indexes.update({index, index + 1})
+
+    for actions in direct_actions_by_index:
+        blocked_found.update(actions)
 
     guarded_lines = [
         "[Unsafe action suggestion removed]" if index in blocked_line_indexes else line
