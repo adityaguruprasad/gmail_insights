@@ -36,6 +36,7 @@ BLOCKED_ACTIONS = {
     "open_attachment",
     "download_attachment",
     "run_executable",
+    "run_shell_command",
     "install_software",
     "enable_macros",
     "disable_security_software",
@@ -299,6 +300,49 @@ _EXECUTABLE_FOLLOWUP_SUFFIX = (
 )
 _EXECUTABLE_ACTION_SUFFIX = (
     rf"{_EXECUTABLE_SOURCE_SUFFIX}{_EXECUTABLE_FOLLOWUP_SUFFIX}{_TARGET_END}"
+)
+_SHELL_COMMAND_NOUN = (
+    r"(?:commands?(?![-\s]?line\b)|shell\s+commands?|terminal\s+commands?|"
+    r"powershell\s+commands?|cmd\s+commands?)"
+)
+_SHELL_COMMAND_REFERENCE = (
+    rf"(?:(?:the|this|that|a|an|your|their|following|above|below)\s+)?"
+    rf"(?:[\w-]+\s+){{0,2}}{_SHELL_COMMAND_NOUN}\b"
+)
+_SHELL_COMMAND_DESTINATION = (
+    r"(?:(?:the|your|a|this|that)\s+)?"
+    r"(?:terminal|shell|console|command\s+prompt|cmd(?:\.exe)?|"
+    r"windows\s+terminal|power\s*shell|powershell|bash|zsh)\b"
+)
+_SHELL_COMMAND_SOURCE = (
+    r"(?:(?:the|this|that|an?|your)\s+)?(?:email|message|thread)\b"
+)
+_SHELL_COMMAND_SOURCE_SUFFIX = (
+    rf"(?:\s+(?:from|in|copied\s+from)\s+{_SHELL_COMMAND_SOURCE})?"
+)
+_SHELL_COMMAND_DESTINATION_SUFFIX = (
+    rf"(?:\s+(?:in|into|on|at|using|with)\s+{_SHELL_COMMAND_DESTINATION})?"
+)
+_SHELL_COMMAND_ACTION_SUFFIX = (
+    rf"{_SHELL_COMMAND_SOURCE_SUFFIX}{_SHELL_COMMAND_DESTINATION_SUFFIX}"
+    rf"(?:\s+(?:and|then|to|for)\s+[\w-]+(?:\s+[\w-]+){{0,8}})?"
+    rf"{_TARGET_END}"
+)
+_SHELL_COMMAND_COPY_SUFFIX = (
+    rf"{_SHELL_COMMAND_SOURCE_SUFFIX}\s+(?:into|in|to|at|on)\s+"
+    rf"{_SHELL_COMMAND_DESTINATION}{_TARGET_END}"
+)
+_SHELL_COMMAND_SNIPPET_COMMAND = (
+    r"(?:curl|wget|bash|sh|zsh|powershell|pwsh|cmd|python3?|ruby|perl|node|"
+    r"npx|npm|pnpm|yarn|pip3?|brew|apt(?:-get)?|yum|dnf|apk|choco(?:latey)?|"
+    r"winget|scoop|git|ssh|scp|rsync|chmod|chown|rm|mv|cp|mkdir|tar|unzip|"
+    r"docker|kubectl|openssl)"
+)
+_SHELL_COMMAND_SNIPPET_TOKEN = r"[\w@./:+%#&=?,-]+"
+_SHELL_COMMAND_SNIPPET = (
+    rf"(?:sudo\s+)?{_SHELL_COMMAND_SNIPPET_COMMAND}"
+    rf"(?:(?:\s+{_SHELL_COMMAND_SNIPPET_TOKEN})|"
+    rf"(?:\s*(?:&&|\|\||\||;|>)\s*{_SHELL_COMMAND_SNIPPET_TOKEN})){{0,12}}"
 )
 _INSTALL_SOFTWARE_NOUN = (
     r"(?:software|apps?|applications?|packages?|clients?|agents?|"
@@ -1302,6 +1346,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "open_attachment",
     "download_attachment",
     "run_executable",
+    "run_shell_command",
     "install_software",
     "enable_macros",
     "disable_security_software",
@@ -1347,6 +1392,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
 }
 _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "run_executable",
+    "run_shell_command",
     "install_software",
     "enable_macros",
     "disable_security_software",
@@ -1665,6 +1711,35 @@ _DIRECTIVE_PATTERNS = {
         re.compile(
             rf"{_ACTION_SUGGESTION_START}open\s+{_EXECUTABLE_OBJECT_TARGET}\s+"
             rf"and\s+(?:run|execute)(?:\s+it)?{_TARGET_END}"
+        ),
+    ],
+    "run_shell_command": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:run|execute)\s+"
+            rf"{_SHELL_COMMAND_REFERENCE}{_SHELL_COMMAND_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:run|execute)\s+"
+            rf"(?:the\s+)?following\s+command\s*:?\s+"
+            rf"{_SHELL_COMMAND_SNIPPET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:run|execute)\s+"
+            rf"{_SHELL_COMMAND_SNIPPET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:paste|copy\s+and\s+paste|copy)\s+"
+            rf"{_SHELL_COMMAND_REFERENCE}{_SHELL_COMMAND_COPY_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:paste|copy\s+and\s+paste|copy)\s+"
+            rf"(?:this|that|it){_SHELL_COMMAND_COPY_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}type\s+"
+            rf"{_SHELL_COMMAND_REFERENCE}{_SHELL_COMMAND_COPY_SUFFIX}"
         ),
     ],
     "install_software": [
@@ -2527,17 +2602,22 @@ def _suppress_overlapping_install_software_actions(
         "install_profile",
     }
     overlapping_actions = more_specific_actions.intersection(actions)
-    if not overlapping_actions:
-        return actions
 
     install_spans = _directive_match_spans(line, "install_software")
-    if any(
+    if overlapping_actions and any(
         _spans_overlap(install_span, specific_span)
         for install_span in install_spans
         for action in overlapping_actions
         for specific_span in _directive_match_spans(line, action)
     ):
         return [action for action in actions if action != "install_software"]
+
+    if "run_shell_command" in actions and any(
+        _spans_overlap(install_span, shell_span)
+        for install_span in install_spans
+        for shell_span in _directive_match_spans(line, "run_shell_command")
+    ):
+        return [action for action in actions if action != "run_shell_command"]
 
     return actions
 
