@@ -105,6 +105,12 @@ _AWS_ACCESS_KEY_ID_RE = re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b")
 _SLACK_TOKEN_RE = re.compile(r"\b(?:xox[abprs]|xapp)-[A-Za-z0-9-]{10,}\b")
 _GITHUB_TOKEN_RE = re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{20,255}\b")
 _STRIPE_SECRET_KEY_RE = re.compile(r"\bsk_(?:live|test)_[A-Za-z0-9]{16,}\b")
+_PAYMENT_CARD_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?<!\d[ -])"
+    r"(?P<payment_card>\d(?:[ -]?\d){12,18})"
+    r"(?![ -]?\d)(?![A-Za-z0-9])"
+)
+_US_SSN_RE = re.compile(r"(?<![A-Za-z0-9])\d{3}-\d{2}-\d{4}(?![A-Za-z0-9])")
 _PRIVATE_KEY_PLACEHOLDER = "[REDACTED_PRIVATE_KEY]"
 _PRIVATE_KEY_TYPE = (
     r"(?:PRIVATE KEY|RSA PRIVATE KEY|EC PRIVATE KEY|DSA PRIVATE KEY|"
@@ -3308,6 +3314,30 @@ def _redact_private_keys(text: str) -> str:
     return _PRIVATE_KEY_BLOCK_RE.sub(_PRIVATE_KEY_PLACEHOLDER, redacted)
 
 
+def _passes_luhn_checksum(digits: str) -> bool:
+    if not digits.isdigit() or not 13 <= len(digits) <= 19:
+        return False
+
+    total = 0
+    for index, char in enumerate(reversed(digits)):
+        digit = int(char)
+        if index % 2 == 1:
+            digit *= 2
+            if digit > 9:
+                digit -= 9
+        total += digit
+
+    return total % 10 == 0
+
+
+def _redact_payment_card(match: re.Match) -> str:
+    candidate = match.group("payment_card")
+    digits = candidate.replace(" ", "").replace("-", "")
+    if _passes_luhn_checksum(digits):
+        return "[REDACTED_PAYMENT_CARD]"
+    return candidate
+
+
 def redact_sensitive_content(text: str) -> str:
     if not text:
         return ""
@@ -3323,6 +3353,8 @@ def redact_sensitive_content(text: str) -> str:
     redacted = _BEARER_TOKEN_RE.sub(r"\1[REDACTED_TOKEN]", redacted)
     redacted = _API_TOKEN_RE.sub(r"\1\2[REDACTED_TOKEN]\2", redacted)
     redacted = _redact_short_lived_login_credentials(redacted)
+    redacted = _PAYMENT_CARD_RE.sub(_redact_payment_card, redacted)
+    redacted = _US_SSN_RE.sub("[REDACTED_SSN]", redacted)
     redacted = _EMAIL_RE.sub("[REDACTED_EMAIL]", redacted)
     redacted = _PHONE_RE.sub("[REDACTED_PHONE]", redacted)
     return redacted

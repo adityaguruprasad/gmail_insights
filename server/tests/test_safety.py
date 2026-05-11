@@ -1,3 +1,6 @@
+import importlib
+import sys
+import types
 import unittest
 
 from src.email import safety as safety_module
@@ -37,6 +40,26 @@ def _stripe_fixture_key(environment):
 
 def _private_key_delimiter(label, key_type):
     return _fixture_secret("--", "---", label, " ", key_type, "--", "---")
+
+
+def _processor_module():
+    if "src.email.processor" in sys.modules:
+        return sys.modules["src.email.processor"]
+
+    anthropic_stub = types.ModuleType("anthropic")
+    anthropic_stub.HUMAN_PROMPT = "\n\nHuman:"
+    anthropic_stub.AI_PROMPT = "\n\nAssistant:"
+
+    class _StubAnthropic:
+        def __init__(self, api_key=None):
+            self.api_key = api_key
+            self.completions = types.SimpleNamespace(
+                create=lambda **kwargs: types.SimpleNamespace(completion="ok")
+            )
+
+    anthropic_stub.Anthropic = _StubAnthropic
+    sys.modules["anthropic"] = anthropic_stub
+    return importlib.import_module("src.email.processor")
 
 
 class SafetyPolicyTests(unittest.TestCase):
@@ -893,6 +916,68 @@ class SafetyPolicyTests(unittest.TestCase):
                 "Password reset link: https://accounts.example.test/reset?token=reset123."
             ),
             "Password reset link: [REDACTED_SENSITIVE_LINK].",
+        )
+
+    def test_redaction_removes_valid_payment_card_numbers_with_separators(self):
+        card = "4111-1111-1111-1111"
+        text = f"Use payment card {card} for the billing test."
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(
+            redacted,
+            "Use payment card [REDACTED_PAYMENT_CARD] for the billing test.",
+        )
+        self.assertNotIn(card, redacted)
+
+    def test_redaction_preserves_invalid_payment_card_like_numbers(self):
+        text = "Reference 4111-1111-1111-1112 is an ordinary long numeric ID."
+
+        self.assertEqual(redact_sensitive_content(text), text)
+
+    def test_redaction_removes_dashed_us_ssns(self):
+        ssn = "123-45-6789"
+        text = f"Customer SSN {ssn}; appointment date 2026-05-10."
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertIn("[REDACTED_SSN]", redacted)
+        self.assertNotIn(ssn, redacted)
+        self.assertIn("2026-05-10", redacted)
+
+    def test_build_prompt_redacts_financial_and_government_identifiers(self):
+        processor = _processor_module()
+        card = "4111 1111 1111 1111"
+        ssn = "123-45-6789"
+        email = {
+            "subject": f"Payment profile for {card} and {ssn}",
+            "sender": "Billing Ops",
+            "date": "2026-05-10",
+            "snippet": "Sensitive account update",
+            "security_warnings": [
+                f"Identifier exposure detected for card {card} and SSN {ssn}."
+            ],
+            "content": f"Please review card {card} and SSN {ssn}.",
+            "is_archived": False,
+        }
+
+        prompt = processor._build_prompt(email, redact_sensitive=True)
+
+        self.assertNotIn(card, prompt)
+        self.assertNotIn(ssn, prompt)
+        self.assertIn(
+            "Subject: Payment profile for [REDACTED_PAYMENT_CARD] and [REDACTED_SSN]",
+            prompt,
+        )
+        self.assertIn(
+            "Security warnings (read-only): Identifier exposure detected for card "
+            "[REDACTED_PAYMENT_CARD] and SSN [REDACTED_SSN].",
+            prompt,
+        )
+        self.assertIn(
+            "Content:\nPlease review card [REDACTED_PAYMENT_CARD] and SSN "
+            "[REDACTED_SSN].",
+            prompt,
         )
 
     def test_redaction_preserves_benign_numbers_dates_prices_and_urls(self):
