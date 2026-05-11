@@ -35,6 +35,10 @@ def _stripe_fixture_key(environment):
     return _fixture_secret("sk", "_", environment, "_", "abcdefghijklm", "nopqrstuvwxyz")
 
 
+def _private_key_delimiter(label, key_type):
+    return _fixture_secret("--", "---", label, " ", key_type, "--", "---")
+
+
 class SafetyPolicyTests(unittest.TestCase):
     def test_blocked_actions_are_detected(self):
         effective, blocked = evaluate_requested_actions(["read", "reply", "delete"])
@@ -723,6 +727,54 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertNotIn("415-555-1212", redacted)
         self.assertIn("[REDACTED_EMAIL]", redacted)
         self.assertIn("[REDACTED_PHONE]", redacted)
+
+    def test_redaction_removes_pem_private_key_blocks(self):
+        key_type = _fixture_secret("PRIVATE", " ", "KEY")
+        body = _fixture_secret("not", "-", "real", "-", "key", "-", "body")
+        begin = _private_key_delimiter("BEGIN", key_type)
+        end = _private_key_delimiter("END", key_type)
+        text = f"before\n{begin}\n{body}\n{end}\nafter"
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(redacted, "before\n[REDACTED_PRIVATE_KEY]\nafter")
+        self.assertNotIn(body, redacted)
+        self.assertNotIn(begin, redacted)
+        self.assertNotIn(end, redacted)
+
+    def test_redaction_removes_openssh_private_key_blocks(self):
+        key_type = _fixture_secret("OPEN", "SSH", " ", "PRIVATE", " ", "KEY")
+        body = _fixture_secret("open", "ssh", "-", "fixture", "-", "body")
+        begin = _private_key_delimiter("BEGIN", key_type)
+        end = _private_key_delimiter("END", key_type)
+        text = f"prefix\n{begin}\n{body}\n{end}\nsuffix"
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(redacted, "prefix\n[REDACTED_PRIVATE_KEY]\nsuffix")
+        self.assertNotIn(body, redacted)
+        self.assertNotIn(begin, redacted)
+        self.assertNotIn(end, redacted)
+
+    def test_redaction_removes_inline_private_key_assignments(self):
+        key_type = _fixture_secret("PRIVATE", " ", "KEY")
+        begin = _private_key_delimiter("BEGIN", key_type)
+        body = _fixture_secret("line-one", "\\n", "line-two")
+        text = f'config private_key="{begin}\\n{body}" enabled=true'
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(
+            redacted,
+            'config private_key="[REDACTED_PRIVATE_KEY]" enabled=true',
+        )
+        self.assertNotIn(begin, redacted)
+        self.assertNotIn(body, redacted)
+
+    def test_redaction_preserves_benign_private_key_phrase(self):
+        text = "The private key rotation runbook is ready for the next maintenance window."
+
+        self.assertEqual(redact_sensitive_content(text), text)
 
     def test_redaction_removes_high_risk_secret_patterns(self):
         cases = [

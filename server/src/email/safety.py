@@ -105,6 +105,27 @@ _AWS_ACCESS_KEY_ID_RE = re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b")
 _SLACK_TOKEN_RE = re.compile(r"\b(?:xox[abprs]|xapp)-[A-Za-z0-9-]{10,}\b")
 _GITHUB_TOKEN_RE = re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{20,255}\b")
 _STRIPE_SECRET_KEY_RE = re.compile(r"\bsk_(?:live|test)_[A-Za-z0-9]{16,}\b")
+_PRIVATE_KEY_PLACEHOLDER = "[REDACTED_PRIVATE_KEY]"
+_PRIVATE_KEY_TYPE = (
+    r"(?:PRIVATE KEY|RSA PRIVATE KEY|EC PRIVATE KEY|DSA PRIVATE KEY|"
+    r"OPENSSH PRIVATE KEY)"
+)
+_PRIVATE_KEY_BEGIN = rf"-----BEGIN {_PRIVATE_KEY_TYPE}-----"
+_PRIVATE_KEY_BLOCK_RE = re.compile(
+    rf"-----BEGIN (?P<private_key_type>{_PRIVATE_KEY_TYPE})-----"
+    r".*?"
+    r"-----END (?P=private_key_type)-----",
+    re.DOTALL | re.IGNORECASE,
+)
+_PRIVATE_KEY_ASSIGNMENT_NAME = r"private[_-]?key"
+_PRIVATE_KEY_INLINE_ASSIGNMENT_RE = re.compile(
+    rf"(?P<prefix>(?:\"{_PRIVATE_KEY_ASSIGNMENT_NAME}\"|"
+    rf"'{_PRIVATE_KEY_ASSIGNMENT_NAME}'|"
+    rf"{_PRIVATE_KEY_ASSIGNMENT_NAME})\s*[:=]\s*)"
+    rf"(?P<quote>[\"'])(?P<value>[^\r\n\"']*{_PRIVATE_KEY_BEGIN}[^\r\n\"']*)"
+    rf"(?P=quote)",
+    re.IGNORECASE,
+)
 _OTP_CONTEXT = (
     r"(?:"
     r"verification\s+(?:code|passcode|pin)|"
@@ -3273,11 +3294,26 @@ def _redact_short_lived_login_credentials(text: str) -> str:
     return _OTP_CODE_BEFORE_CONTEXT_RE.sub(_redact_otp_code, redacted)
 
 
+def _redact_private_key_assignment(match: re.Match) -> str:
+    return (
+        f"{match.group('prefix')}{match.group('quote')}"
+        f"{_PRIVATE_KEY_PLACEHOLDER}{match.group('quote')}"
+    )
+
+
+def _redact_private_keys(text: str) -> str:
+    redacted = _PRIVATE_KEY_INLINE_ASSIGNMENT_RE.sub(
+        _redact_private_key_assignment, text
+    )
+    return _PRIVATE_KEY_BLOCK_RE.sub(_PRIVATE_KEY_PLACEHOLDER, redacted)
+
+
 def redact_sensitive_content(text: str) -> str:
     if not text:
         return ""
 
-    redacted = _GOOGLE_OAUTH_TOKEN_RE.sub("[REDACTED_GOOGLE_TOKEN]", text)
+    redacted = _redact_private_keys(text)
+    redacted = _GOOGLE_OAUTH_TOKEN_RE.sub("[REDACTED_GOOGLE_TOKEN]", redacted)
     redacted = _GOOGLE_REFRESH_TOKEN_RE.sub("[REDACTED_GOOGLE_REFRESH_TOKEN]", redacted)
     redacted = _JWT_RE.sub("[REDACTED_JWT]", redacted)
     redacted = _AWS_ACCESS_KEY_ID_RE.sub("[REDACTED_AWS_KEY]", redacted)
