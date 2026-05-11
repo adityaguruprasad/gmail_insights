@@ -22,6 +22,20 @@ GMAIL_MESSAGE_GET_FIELDS = (
     "id,threadId,labelIds,snippet,"
     f"payload({_gmail_message_part_fields()})"
 )
+_AUTHENTICATION_RESULT_HEADER_LABELS = {
+    "authentication-results": "Authentication-Results",
+    "arc-authentication-results": "ARC-Authentication-Results",
+}
+_AUTHENTICATION_WARNING_RESULTS = {"fail", "softfail", "temperror", "permerror"}
+_AUTHENTICATION_MECHANISM_LABELS = {
+    "spf": "SPF",
+    "dkim": "DKIM",
+    "dmarc": "DMARC",
+}
+_AUTHENTICATION_RESULT_RE = re.compile(
+    r"^\s*(spf|dkim|dmarc)\s*=\s*([a-z]+)\b",
+    re.IGNORECASE,
+)
 
 
 def _decode_base64_urlsafe(data: Optional[str]) -> str:
@@ -200,6 +214,76 @@ def _header_value(headers: List[Dict], key: str, default: str = "") -> str:
     return default
 
 
+def _authentication_result_clauses(value: str) -> List[str]:
+    clauses: List[str] = []
+    current: List[str] = []
+    comment_depth = 0
+    in_quote = False
+    escaped = False
+
+    for char in value:
+        current.append(char)
+
+        if in_quote:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_quote = False
+            continue
+
+        if char == '"':
+            in_quote = True
+        elif char == "(":
+            comment_depth += 1
+        elif char == ")" and comment_depth:
+            comment_depth -= 1
+        elif char == ";" and not comment_depth:
+            current.pop()
+            clauses.append("".join(current))
+            current = []
+
+    clauses.append("".join(current))
+    return clauses
+
+
+def _authentication_security_warnings(headers: List[Dict]) -> List[str]:
+    warnings: List[str] = []
+    seen = set()
+
+    for item in headers or []:
+        header_name = str(item.get("name", ""))
+        normalized_header_name = header_name.lower()
+        header_label = _AUTHENTICATION_RESULT_HEADER_LABELS.get(normalized_header_name)
+        if header_label is None:
+            continue
+
+        value = str(item.get("value", ""))
+        unfolded_value = " ".join(value.replace("\r", " ").replace("\n", " ").split())
+        for clause in _authentication_result_clauses(unfolded_value):
+            result_match = _AUTHENTICATION_RESULT_RE.match(clause)
+            if not result_match:
+                continue
+
+            mechanism = result_match.group(1).lower()
+            result = result_match.group(2).lower()
+            if result not in _AUTHENTICATION_WARNING_RESULTS:
+                continue
+
+            warning_key = (normalized_header_name, mechanism, result)
+            if warning_key in seen:
+                continue
+            seen.add(warning_key)
+
+            warnings.append(
+                f"{_AUTHENTICATION_MECHANISM_LABELS[mechanism]} authentication "
+                f"result is {result} in {header_label}."
+            )
+
+    return warnings
+
+
 def get_emails_by_query(service, query: str, max_results: int = 100) -> List[Dict]:
     results = (
         service.users()
@@ -242,6 +326,7 @@ def get_emails_by_query(service, query: str, max_results: int = 100) -> List[Dic
                 "snippet": msg.get("snippet", ""),
                 "label_ids": label_ids,
                 "is_archived": "INBOX" not in label_ids,
+                "security_warnings": _authentication_security_warnings(headers),
                 "content": _extract_plain_text(payload),
             }
         )

@@ -73,6 +73,78 @@ class _GmailService:
         return self._messages.get_calls
 
 
+class FetcherAuthenticationWarningTests(unittest.TestCase):
+    def test_authentication_security_warnings_ignores_pass_neutral_and_none(self):
+        headers = [
+            {
+                "name": "Authentication-Results",
+                "value": (
+                    "mx.google.com; spf=pass smtp.mailfrom=example.test; "
+                    "dkim=pass header.i=@example.test; "
+                    "dmarc=pass header.from=example.test"
+                ),
+            },
+            {
+                "name": "ARC-Authentication-Results",
+                "value": (
+                    "i=1; mx.google.com; spf=neutral smtp.mailfrom=example.test; "
+                    "dkim=none; dmarc=none header.from=example.test"
+                ),
+            },
+        ]
+
+        warnings = fetcher._authentication_security_warnings(headers)
+
+        self.assertEqual(warnings, [])
+
+    def test_authentication_security_warnings_reports_failures_from_auth_headers(self):
+        headers = [
+            {
+                "name": "Authentication-Results",
+                "value": (
+                    "mx.google.com; spf=fail smtp.mailfrom=phish.example; "
+                    "dkim=temperror header.i=@phish.example"
+                ),
+            },
+            {
+                "name": "ARC-Authentication-Results",
+                "value": (
+                    "i=1; mx.google.com; dmarc=permerror header.from=phish.example; "
+                    "spf=softfail smtp.mailfrom=phish.example"
+                ),
+            },
+        ]
+
+        warnings = fetcher._authentication_security_warnings(headers)
+
+        self.assertEqual(
+            warnings,
+            [
+                "SPF authentication result is fail in Authentication-Results.",
+                "DKIM authentication result is temperror in Authentication-Results.",
+                "DMARC authentication result is permerror in ARC-Authentication-Results.",
+                "SPF authentication result is softfail in ARC-Authentication-Results.",
+            ],
+        )
+
+    def test_authentication_security_warnings_ignores_unrelated_headers(self):
+        headers = [
+            {"name": "Subject", "value": "spf=fail dkim=fail dmarc=fail"},
+            {"name": "X-Body-Preview", "value": "Authentication-Results: spf=fail"},
+            {
+                "name": "Authentication-Results",
+                "value": (
+                    'mx.google.com; dkim=pass reason="not spf=fail; dmarc=fail"; '
+                    "spf=pass (comment mentions dkim=fail; spf=fail)"
+                ),
+            },
+        ]
+
+        warnings = fetcher._authentication_security_warnings(headers)
+
+        self.assertEqual(warnings, [])
+
+
 class FetcherBodyExtractionTests(unittest.TestCase):
     def test_decode_base64_urlsafe_allows_embedded_ascii_whitespace(self):
         encoded = _gmail_b64("Folded Gmail body")
@@ -249,6 +321,7 @@ class FetcherBodyExtractionTests(unittest.TestCase):
         self.assertNotIn("<script>", emails[0]["content"])
         self.assertNotIn("delete all mail", emails[0]["content"])
         self.assertNotIn("https://evil.example", emails[0]["content"])
+        self.assertEqual(emails[0]["security_warnings"], [])
         self.assertEqual(
             service.list_calls,
             [
@@ -301,6 +374,37 @@ class FetcherBodyExtractionTests(unittest.TestCase):
             "nextPageToken",
         ]:
             self.assertNotIn(unneeded_field, get_fields)
+
+    def test_get_emails_by_query_emits_authentication_security_warnings(self):
+        message = {
+            "id": "msg-1",
+            "threadId": "thread-1",
+            "labelIds": ["INBOX"],
+            "snippet": "Snippet",
+            "payload": {
+                "mimeType": "text/plain",
+                "headers": _headers()
+                + [
+                    {
+                        "name": "Authentication-Results",
+                        "value": "mx.google.com; spf=fail smtp.mailfrom=phish.example",
+                    }
+                ],
+                "body": {"data": _gmail_b64("Body text spf=pass")},
+            },
+        }
+        service = _GmailService({"msg-1": message})
+
+        emails = fetcher.get_emails_by_query(
+            service,
+            query="from:security@example.test",
+        )
+
+        self.assertEqual(
+            emails[0]["security_warnings"],
+            ["SPF authentication result is fail in Authentication-Results."],
+        )
+        self.assertEqual(service.get_calls[0]["fields"], fetcher.GMAIL_MESSAGE_GET_FIELDS)
 
 
 class FetcherDomainQueryTests(unittest.TestCase):
