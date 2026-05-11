@@ -1157,6 +1157,57 @@ class SafetyPolicyTests(unittest.TestCase):
                 self.assertIn("next=%2Fhome", redacted)
                 self.assertTrue(redacted.endswith("."))
 
+    def test_redaction_redacts_credential_fragment_parameters_in_standalone_urls(self):
+        access_token = _fixture_secret("fragment", "-", "access", "-", "secret123")
+        id_token = _fixture_secret("fragment", "-", "id", "-", "secret456")
+        text = (
+            "Review URL: https://accounts.example.test/oauth/callback"
+            f"#access_token={access_token}&id_token={id_token}&view=summary."
+        )
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(
+            redacted,
+            "Review URL: https://accounts.example.test/oauth/callback"
+            "#access_token=[REDACTED_CREDENTIAL_QUERY_VALUE]"
+            "&id_token=[REDACTED_CREDENTIAL_QUERY_VALUE]&view=summary.",
+        )
+        self.assertNotIn(access_token, redacted)
+        self.assertNotIn(id_token, redacted)
+
+    def test_redaction_redacts_mixed_query_and_fragment_credentials(self):
+        query_code = _fixture_secret("query", "-", "code", "-", "secret123")
+        fragment_token = _fixture_secret("fragment", "-", "access", "-", "secret456")
+        fragment_state = _fixture_secret("fragment", "-", "state", "-", "secret789")
+        text = (
+            "Review URL: https://accounts.example.test/oauth/callback"
+            f"?client_id=public-client&code={query_code}&next=%2Fhome"
+            f"#view=summary&access_token={fragment_token}&state={fragment_state}."
+        )
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(
+            redacted,
+            "Review URL: https://accounts.example.test/oauth/callback"
+            "?client_id=public-client&code=[REDACTED_CREDENTIAL_QUERY_VALUE]"
+            "&next=%2Fhome#view=summary"
+            "&access_token=[REDACTED_CREDENTIAL_QUERY_VALUE]"
+            "&state=[REDACTED_CREDENTIAL_QUERY_VALUE].",
+        )
+        self.assertNotIn(query_code, redacted)
+        self.assertNotIn(fragment_token, redacted)
+        self.assertNotIn(fragment_state, redacted)
+
+    def test_redaction_preserves_benign_fragments(self):
+        text = (
+            "Docs: https://help.example.test/reset-faq#section and "
+            "Dashboard: https://app.example.test/dashboard#view=summary&tab=security."
+        )
+
+        self.assertEqual(redact_sensitive_content(text), text)
+
     def test_redaction_redacts_token_query_values_after_token_pattern_redaction(self):
         token = _fixture_secret(
             "ya29.",

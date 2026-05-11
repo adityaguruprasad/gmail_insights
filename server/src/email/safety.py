@@ -3619,24 +3619,39 @@ def _redact_credential_query_params_in_url(match: re.Match) -> str:
         return match.group(0)
 
     query_start = url.find("?")
-    if query_start < 0:
-        return match.group(0)
-
-    fragment_start = url.find("#", query_start + 1)
-    if fragment_start < 0:
-        query = url[query_start + 1 :]
-        suffix = ""
+    if query_start >= 0:
+        fragment_start = url.find("#", query_start + 1)
+        if fragment_start < 0:
+            query = url[query_start + 1 :]
+            redacted_query, changed = _redact_credential_query_string(query)
+            redacted_url = url[: query_start + 1] + redacted_query
+        else:
+            query = url[query_start + 1 : fragment_start]
+            fragment = url[fragment_start + 1 :]
+            redacted_query, query_changed = _redact_credential_query_string(query)
+            redacted_fragment, fragment_changed = _redact_credential_query_string(
+                fragment
+            )
+            changed = query_changed or fragment_changed
+            redacted_url = (
+                url[: query_start + 1]
+                + redacted_query
+                + "#"
+                + redacted_fragment
+            )
     else:
-        query = url[query_start + 1 : fragment_start]
-        suffix = url[fragment_start:]
+        fragment_start = url.find("#")
+        if fragment_start < 0:
+            return match.group(0)
 
-    redacted_query, changed = _redact_credential_query_string(query)
+        fragment = url[fragment_start + 1 :]
+        redacted_fragment, changed = _redact_credential_query_string(fragment)
+        redacted_url = url[: fragment_start + 1] + redacted_fragment
+
     if not changed:
         return match.group(0)
 
-    redacted_url = (
-        url[: query_start + 1] + redacted_query + suffix + trailing_punctuation
-    )
+    redacted_url = redacted_url + trailing_punctuation
     return (
         match.string[match.start() : match.start("url")]
         + redacted_url
