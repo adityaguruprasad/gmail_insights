@@ -20,6 +20,9 @@ class QueryInsightsValidationTests(unittest.TestCase):
     def setUp(self):
         app_module.app.config["TESTING"] = True
         self.client = app_module.app.test_client()
+        self.scope_guard = patch("app._validate_gmail_token_scope", return_value=None)
+        self.scope_guard.start()
+        self.addCleanup(self.scope_guard.stop)
 
     def test_invalid_max_results_rejected(self):
         with patch("app._gmail_service_from_token") as mock_gmail:

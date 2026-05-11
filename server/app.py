@@ -13,7 +13,11 @@ from src.email.query_validator import (
     QueryInsightsValidationError,
     validate_query_insights_payload,
 )
-from src.config.settings import TARGET_DOMAINS, CHROME_EXTENSION_ID
+from src.auth.gmail_scope_guard import (
+    TokenScopeValidationError,
+    validate_gmail_readonly_token,
+)
+from src.config.settings import TARGET_DOMAINS, CHROME_EXTENSION_ID, GMAIL_CLIENT_ID
 
 app = Flask(__name__)
 # Form-submission requests often mean "summarize the form workflow"; keep serving
@@ -82,12 +86,28 @@ def _validation_error_response(exc):
     return jsonify({"error": exc.public_message}), 400
 
 
+def _token_scope_error_response():
+    return (
+        jsonify({"error": "Token is not authorized for read-only Gmail access."}),
+        403,
+    )
+
+
+def _validate_gmail_token_scope(token):
+    validate_gmail_readonly_token(token, expected_audience=GMAIL_CLIENT_ID)
+
+
 @app.route("/get_insights", methods=["POST"])
 def get_insights():
     payload = request.json or {}
     token = payload.get("token")
     if not token:
         return jsonify({"error": "No token provided"}), 400
+
+    try:
+        _validate_gmail_token_scope(token)
+    except TokenScopeValidationError:
+        return _token_scope_error_response()
 
     try:
         service = _gmail_service_from_token(token)
@@ -135,6 +155,11 @@ def query_insights():
             ),
             400,
         )
+
+    try:
+        _validate_gmail_token_scope(token)
+    except TokenScopeValidationError:
+        return _token_scope_error_response()
 
     try:
         service = _gmail_service_from_token(token)

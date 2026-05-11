@@ -27,6 +27,9 @@ class ApiErrorHandlingTests(unittest.TestCase):
     def setUp(self):
         app_module.app.config["TESTING"] = True
         self.client = app_module.app.test_client()
+        self.scope_guard = patch("app._validate_gmail_token_scope", return_value=None)
+        self.scope_guard.start()
+        self.addCleanup(self.scope_guard.stop)
 
     def assert_sensitive_text_absent(self, response_body):
         serialized = str(response_body)
