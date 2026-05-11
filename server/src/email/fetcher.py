@@ -101,6 +101,33 @@ _DANGEROUS_LINK_SCHEMES = {"javascript", "data", "file", "tel", "sms", "mailto"}
 _REMOTE_IMAGE_WARNING = (
     "HTML message contains remote images that may load tracking or remote content."
 )
+_EXECUTABLE_ATTACHMENT_EXTENSIONS = {
+    ".exe",
+    ".msi",
+    ".bat",
+    ".cmd",
+    ".com",
+    ".scr",
+    ".ps1",
+    ".vbs",
+    ".js",
+    ".jar",
+    ".apk",
+    ".dmg",
+    ".pkg",
+    ".sh",
+}
+_MACRO_ENABLED_ATTACHMENT_EXTENSIONS = {".docm", ".xlsm", ".pptm"}
+_ARCHIVE_ATTACHMENT_EXTENSIONS = {
+    ".zip",
+    ".rar",
+    ".7z",
+    ".gz",
+    ".tgz",
+    ".bz2",
+    ".xz",
+    ".iso",
+}
 _DISPLAY_URL_STRIP_CHARS = " \t\r\n\f\v<>()[]{}\"'`"
 _DISPLAY_URL_TRAILING_PUNCTUATION = ".,;:!?"
 
@@ -348,6 +375,99 @@ def _is_attachment_part(part: Dict) -> bool:
     disposition = _header_value(part.get("headers", []) or [], "Content-Disposition", "")
     disposition_type = disposition.split(";", 1)[0].strip().lower()
     return disposition_type == "attachment"
+
+
+def _dedupe_preserving_order(values: List[str]) -> List[str]:
+    deduped: List[str] = []
+    seen = set()
+
+    for value in values:
+        if value in seen:
+            continue
+
+        seen.add(value)
+        deduped.append(value)
+
+    return deduped
+
+
+def _header_parameter(headers: List[Dict], key: str, parameter: str) -> str:
+    value = _header_value(headers, key, "")
+    if not value:
+        return ""
+
+    unfolded_value = str(value).replace("\r", " ").replace("\n", " ")
+    try:
+        message = Parser(policy=policy.default).parsestr(
+            f"{key}: {unfolded_value}\n\n"
+        )
+        parsed_header = message[key]
+    except Exception:
+        return ""
+
+    if parsed_header is None:
+        return ""
+
+    params = getattr(parsed_header, "params", {}) or {}
+    return str(params.get(parameter, "") or "")
+
+
+def _attachment_filename(part: Dict) -> str:
+    headers = part.get("headers", []) or []
+    filename = (
+        str(part.get("filename") or "")
+        or _header_parameter(headers, "Content-Disposition", "filename")
+        or _header_parameter(headers, "Content-Type", "name")
+    )
+    return " ".join(filename.replace("\r", " ").replace("\n", " ").split())
+
+
+def _attachment_extension(filename: str) -> str:
+    normalized = filename.strip().lower().rstrip(" .")
+    basename = re.split(r"[\\/]", normalized)[-1]
+    if "." not in basename:
+        return ""
+
+    return f".{basename.rsplit('.', 1)[1]}"
+
+
+def _attachment_security_warning(filename: str) -> Optional[str]:
+    extension = _attachment_extension(filename)
+    if extension in _MACRO_ENABLED_ATTACHMENT_EXTENSIONS:
+        return (
+            f"Attachment {filename} is macro-enabled and may contain active content."
+        )
+
+    if extension in _EXECUTABLE_ATTACHMENT_EXTENSIONS:
+        return (
+            f"Attachment {filename} uses executable or script file extension "
+            f"{extension} and may contain active content."
+        )
+
+    if extension in _ARCHIVE_ATTACHMENT_EXTENSIONS:
+        return (
+            f"Attachment {filename} is an archive file and may conceal other files."
+        )
+
+    return None
+
+
+def _attachment_security_warnings(payload: Dict) -> List[str]:
+    if not payload:
+        return []
+
+    warnings: List[str] = []
+    if _is_attachment_part(payload):
+        filename = _attachment_filename(payload)
+        if filename:
+            warning = _attachment_security_warning(filename)
+            if warning:
+                warnings.append(warning)
+
+    for part in payload.get("parts", []) or []:
+        warnings.extend(_attachment_security_warnings(part))
+
+    return _dedupe_preserving_order(warnings)
 
 
 def _find_decoded_mime_part(payload: Dict, mime_type: str) -> Optional[str]:
@@ -619,9 +739,12 @@ def get_emails_by_query(service, query: str, max_results: int = 100) -> List[Dic
                 "snippet": msg.get("snippet", ""),
                 "label_ids": label_ids,
                 "is_archived": "INBOX" not in label_ids,
-                "security_warnings": _authentication_security_warnings(headers)
-                + _reply_to_security_warnings(headers)
-                + _html_security_warnings(payload),
+                "security_warnings": _dedupe_preserving_order(
+                    _authentication_security_warnings(headers)
+                    + _reply_to_security_warnings(headers)
+                    + _html_security_warnings(payload)
+                    + _attachment_security_warnings(payload)
+                ),
                 "content": _extract_plain_text(payload),
             }
         )

@@ -17,6 +17,20 @@ def _body_part(mime_type, text, *, filename="", headers=None):
     }
 
 
+def _attachment_part(filename, mime_type="application/octet-stream"):
+    return {
+        "mimeType": mime_type,
+        "filename": filename,
+        "headers": [
+            {
+                "name": "Content-Disposition",
+                "value": f'attachment; filename="{filename}"',
+            }
+        ],
+        "body": {},
+    }
+
+
 def _headers():
     return [
         {"name": "Subject", "value": "Security update"},
@@ -263,6 +277,103 @@ class FetcherReplyToSecurityWarningTests(unittest.TestCase):
                     }
                 ],
                 "body": {"data": _gmail_b64("Body text")},
+            }
+        )
+
+        self.assertEqual(email["security_warnings"], [])
+
+
+class FetcherAttachmentSecurityWarningTests(unittest.TestCase):
+    def test_get_emails_by_query_warns_for_macro_enabled_office_attachment(self):
+        email = _email_from_payload(
+            {
+                "mimeType": "multipart/mixed",
+                "headers": _headers(),
+                "parts": [
+                    _body_part("text/plain", "Please review the invoice."),
+                    _attachment_part(
+                        "invoice.docm",
+                        "application/vnd.ms-word.document.macroEnabled.12",
+                    ),
+                ],
+            }
+        )
+
+        self.assertEqual(
+            email["security_warnings"],
+            [
+                "Attachment invoice.docm is macro-enabled and may contain active content."
+            ],
+        )
+
+    def test_get_emails_by_query_warns_for_executable_or_script_attachment(self):
+        email = _email_from_payload(
+            {
+                "mimeType": "multipart/mixed",
+                "headers": _headers(),
+                "parts": [
+                    _body_part("text/plain", "System package attached."),
+                    _attachment_part("setup.ps1"),
+                ],
+            }
+        )
+
+        self.assertEqual(
+            email["security_warnings"],
+            [
+                "Attachment setup.ps1 uses executable or script file extension "
+                ".ps1 and may contain active content."
+            ],
+        )
+
+    def test_get_emails_by_query_warns_for_archive_attachment(self):
+        email = _email_from_payload(
+            {
+                "mimeType": "multipart/mixed",
+                "headers": _headers(),
+                "parts": [
+                    _body_part("text/plain", "Logs attached."),
+                    _attachment_part("logs.tgz"),
+                ],
+            }
+        )
+
+        self.assertEqual(
+            email["security_warnings"],
+            ["Attachment logs.tgz is an archive file and may conceal other files."],
+        )
+
+    def test_get_emails_by_query_dedupes_duplicate_attachment_warnings(self):
+        email = _email_from_payload(
+            {
+                "mimeType": "multipart/mixed",
+                "headers": _headers(),
+                "parts": [
+                    _attachment_part("invoice.docm"),
+                    _attachment_part("setup.exe"),
+                    _attachment_part("invoice.docm"),
+                ],
+            }
+        )
+
+        self.assertEqual(
+            email["security_warnings"],
+            [
+                "Attachment invoice.docm is macro-enabled and may contain active content.",
+                "Attachment setup.exe uses executable or script file extension "
+                ".exe and may contain active content.",
+            ],
+        )
+
+    def test_get_emails_by_query_does_not_warn_for_benign_pdf_attachment(self):
+        email = _email_from_payload(
+            {
+                "mimeType": "multipart/mixed",
+                "headers": _headers(),
+                "parts": [
+                    _body_part("text/plain", "Monthly statement attached."),
+                    _attachment_part("statement.pdf", "application/pdf"),
+                ],
             }
         )
 
