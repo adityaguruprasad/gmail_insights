@@ -160,6 +160,115 @@ class FetcherAuthenticationWarningTests(unittest.TestCase):
         self.assertEqual(warnings, [])
 
 
+class FetcherReplyToSecurityWarningTests(unittest.TestCase):
+    def test_get_emails_by_query_does_not_warn_for_matching_reply_to_domain(self):
+        email = _email_from_payload(
+            {
+                "mimeType": "text/plain",
+                "headers": [
+                    {"name": "Subject", "value": "Security update"},
+                    {
+                        "name": "From",
+                        "value": ' "Security Team" <security@www.Example.TEST> ',
+                    },
+                    {
+                        "name": "Reply-To",
+                        "value": '"Support Desk" (shared inbox) <reply@example.test>',
+                    },
+                    {"name": "Date", "value": "Sun, 10 May 2026 09:30:00 -0700"},
+                ],
+                "body": {"data": _gmail_b64("Body text")},
+            }
+        )
+
+        self.assertEqual(email["security_warnings"], [])
+
+    def test_get_emails_by_query_warns_for_mismatching_reply_to_domain_privately(self):
+        email = _email_from_payload(
+            {
+                "mimeType": "text/plain",
+                "headers": _headers()
+                + [
+                    {
+                        "name": "Reply-To",
+                        "value": (
+                            '"VIP Billing" (private note) '
+                            "<reply+case@reply.evil.test>"
+                        ),
+                    }
+                ],
+                "body": {"data": _gmail_b64("Body text")},
+            }
+        )
+
+        self.assertEqual(
+            email["security_warnings"],
+            [
+                "Reply-To domain reply.evil.test differs from "
+                "sender domain example.test."
+            ],
+        )
+        warnings_text = "\n".join(email["security_warnings"])
+        self.assertNotIn("security@", warnings_text)
+        self.assertNotIn("reply+case", warnings_text)
+        self.assertNotIn("VIP Billing", warnings_text)
+        self.assertNotIn("private note", warnings_text)
+        self.assertNotIn("<", warnings_text)
+        self.assertNotIn(">", warnings_text)
+
+    def test_get_emails_by_query_dedupes_multiple_reply_to_domains_in_order(self):
+        email = _email_from_payload(
+            {
+                "mimeType": "text/plain",
+                "headers": _headers()
+                + [
+                    {
+                        "name": "Reply-To",
+                        "value": (
+                            '"First" <one@evil.test>, two@EVIL.test, '
+                            "<three@other.test>, teammate@example.test, "
+                            "four@www.third.test"
+                        ),
+                    },
+                    {
+                        "name": "Reply-To",
+                        "value": '"Repeat" <repeat@third.test>',
+                    },
+                ],
+                "body": {"data": _gmail_b64("Body text")},
+            }
+        )
+
+        self.assertEqual(
+            email["security_warnings"],
+            [
+                "Reply-To domain evil.test differs from sender domain example.test.",
+                "Reply-To domain other.test differs from sender domain example.test.",
+                "Reply-To domain third.test differs from sender domain example.test.",
+            ],
+        )
+
+    def test_get_emails_by_query_ignores_malformed_reply_to(self):
+        email = _email_from_payload(
+            {
+                "mimeType": "text/plain",
+                "headers": _headers()
+                + [
+                    {
+                        "name": "Reply-To",
+                        "value": (
+                            '"Broken" <reply@reply.evil.test, just words, '
+                            "<@missing-local.test>"
+                        ),
+                    }
+                ],
+                "body": {"data": _gmail_b64("Body text")},
+            }
+        )
+
+        self.assertEqual(email["security_warnings"], [])
+
+
 class FetcherBodyExtractionTests(unittest.TestCase):
     def test_decode_base64_urlsafe_allows_embedded_ascii_whitespace(self):
         encoded = _gmail_b64("Folded Gmail body")

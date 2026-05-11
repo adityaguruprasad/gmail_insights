@@ -1,5 +1,7 @@
 import base64
 import re
+from email import policy
+from email.parser import Parser
 from html.parser import HTMLParser
 from typing import Dict, List, Optional
 from urllib.parse import urlsplit
@@ -424,6 +426,87 @@ def _header_value(headers: List[Dict], key: str, default: str = "") -> str:
     return default
 
 
+def _header_values(headers: List[Dict], key: str) -> List[str]:
+    return [
+        str(item.get("value", ""))
+        for item in headers or []
+        if str(item.get("name", "")).lower() == key.lower()
+    ]
+
+
+def _normalize_email_domain(domain: str) -> Optional[str]:
+    normalized = domain.strip().lower().rstrip(".")
+    if normalized.startswith("www."):
+        normalized = normalized[4:]
+
+    return _normalize_safe_domain(normalized)
+
+
+def _email_header_value_domains(header_name: str, value: str) -> List[str]:
+    unfolded_value = str(value).replace("\r", " ").replace("\n", " ")
+    if not unfolded_value.strip():
+        return []
+
+    try:
+        message = Parser(policy=policy.default).parsestr(
+            f"{header_name}: {unfolded_value}\n\n"
+        )
+        parsed_header = message[header_name]
+    except Exception:
+        return []
+
+    if parsed_header is None or getattr(parsed_header, "defects", ()):
+        return []
+
+    domains: List[str] = []
+    for address in getattr(parsed_header, "addresses", ()):
+        if not getattr(address, "username", "") or not getattr(address, "domain", ""):
+            continue
+
+        domain = _normalize_email_domain(str(address.domain))
+        if domain:
+            domains.append(domain)
+
+    return domains
+
+
+def _email_header_domains(headers: List[Dict], key: str) -> List[str]:
+    values = _header_values(headers, key)
+    if not values:
+        return []
+
+    domains: List[str] = []
+    seen = set()
+    for value in values:
+        for domain in _email_header_value_domains(key, value):
+            if domain in seen:
+                continue
+
+            seen.add(domain)
+            domains.append(domain)
+
+    return domains
+
+
+def _reply_to_security_warnings(headers: List[Dict]) -> List[str]:
+    from_domains = _email_header_domains(headers, "From")
+    if not from_domains:
+        return []
+
+    sender_domain = from_domains[0]
+    warnings: List[str] = []
+    for reply_to_domain in _email_header_domains(headers, "Reply-To"):
+        if reply_to_domain == sender_domain:
+            continue
+
+        warnings.append(
+            f"Reply-To domain {reply_to_domain} differs from "
+            f"sender domain {sender_domain}."
+        )
+
+    return warnings
+
+
 def _authentication_result_clauses(value: str) -> List[str]:
     clauses: List[str] = []
     current: List[str] = []
@@ -537,6 +620,7 @@ def get_emails_by_query(service, query: str, max_results: int = 100) -> List[Dic
                 "label_ids": label_ids,
                 "is_archived": "INBOX" not in label_ids,
                 "security_warnings": _authentication_security_warnings(headers)
+                + _reply_to_security_warnings(headers)
                 + _html_security_warnings(payload),
                 "content": _extract_plain_text(payload),
             }
