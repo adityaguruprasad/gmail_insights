@@ -101,6 +101,9 @@ _DANGEROUS_LINK_SCHEMES = {"javascript", "data", "file", "tel", "sms", "mailto"}
 _REMOTE_IMAGE_WARNING = (
     "HTML message contains remote images that may load tracking or remote content."
 )
+_EMBEDDED_FORM_WARNING = (
+    "HTML email contains an embedded form that may collect or submit sensitive data."
+)
 _EXECUTABLE_ATTACHMENT_EXTENSIONS = {
     ".exe",
     ".msi",
@@ -292,7 +295,7 @@ def _url_scheme(value: Optional[str]) -> str:
     return scheme
 
 
-class _HTMLLinkSafetyParser(HTMLParser):
+class _HTMLSafetyParser(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self._warnings: List[str] = []
@@ -314,6 +317,25 @@ class _HTMLLinkSafetyParser(HTMLParser):
             self._add_warning(
                 f"Link text host {display_host} points to different host {href_host}."
             )
+
+    def _check_form(self, action: str) -> None:
+        scheme = _url_scheme(action)
+        if scheme in _DANGEROUS_LINK_SCHEMES:
+            self._add_warning(
+                "HTML email contains an embedded form that uses potentially unsafe "
+                f"{scheme}: URL scheme and may collect or submit sensitive data."
+            )
+            return
+
+        action_host = _http_url_host(action, allow_www_shorthand=True)
+        if action_host:
+            self._add_warning(
+                "HTML email contains an embedded form that submits to "
+                f"{action_host} and may collect or submit sensitive data."
+            )
+            return
+
+        self._add_warning(_EMBEDDED_FORM_WARNING)
 
     def handle_starttag(self, tag, attrs):
         tag = tag.lower()
@@ -338,6 +360,8 @@ class _HTMLLinkSafetyParser(HTMLParser):
                     f"Link uses potentially unsafe {scheme}: URL scheme."
                 )
             self._anchor_stack.append({"href": href, "chunks": []})
+        elif tag == "form":
+            self._check_form(attrs_by_name.get("action", ""))
         elif tag == "img" and _http_url_host(attrs_by_name.get("src")):
             self._add_warning(_REMOTE_IMAGE_WARNING)
 
@@ -373,11 +397,11 @@ class _HTMLLinkSafetyParser(HTMLParser):
         return self._warnings
 
 
-def _html_link_security_warnings(content: str) -> List[str]:
+def _html_content_security_warnings(content: str) -> List[str]:
     if not content:
         return []
 
-    parser = _HTMLLinkSafetyParser()
+    parser = _HTMLSafetyParser()
     try:
         parser.feed(content)
         parser.close()
@@ -591,7 +615,7 @@ def _html_security_warnings(payload: Dict) -> List[str]:
     seen = set()
 
     for html_text in _find_decoded_mime_parts(payload, "text/html"):
-        for warning in _html_link_security_warnings(html_text):
+        for warning in _html_content_security_warnings(html_text):
             if warning in seen:
                 continue
 

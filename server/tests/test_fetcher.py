@@ -797,6 +797,109 @@ class FetcherHtmlSecurityWarningTests(unittest.TestCase):
         self.assertNotIn("token", warnings_text)
         self.assertNotIn("account", warnings_text)
 
+    def test_get_emails_by_query_warns_for_embedded_form_remote_action_hosts(self):
+        email = _email_from_payload(
+            {
+                "mimeType": "text/html",
+                "headers": _headers(),
+                "body": {
+                    "data": _gmail_b64(
+                        '<form action="HTTPS://www.Payments.Example./pay?token=secret">'
+                        '<input type="password" name="password">'
+                        "</form>"
+                        '<form action="//secure.example/submit?account=123"></form>'
+                        '<form action="www.billing.example/login"></form>'
+                        '<form action="https://payments.example/again"></form>'
+                    )
+                },
+            }
+        )
+
+        self.assertEqual(
+            email["security_warnings"],
+            [
+                "HTML email contains an embedded form that submits to "
+                "payments.example and may collect or submit sensitive data.",
+                "HTML email contains an embedded form that submits to "
+                "secure.example and may collect or submit sensitive data.",
+                "HTML email contains an embedded form that submits to "
+                "billing.example and may collect or submit sensitive data.",
+            ],
+        )
+        warnings_text = "\n".join(email["security_warnings"])
+        self.assertNotIn("https://", warnings_text)
+        self.assertNotIn("/pay", warnings_text)
+        self.assertNotIn("again", warnings_text)
+        self.assertNotIn("token", warnings_text)
+        self.assertNotIn("account", warnings_text)
+        self.assertNotIn("password", warnings_text)
+
+    def test_get_emails_by_query_warns_for_embedded_form_unsafe_action_scheme(self):
+        email = _email_from_payload(
+            {
+                "mimeType": "text/html",
+                "headers": _headers(),
+                "body": {
+                    "data": _gmail_b64(
+                        '<form action="javascript:alert(\'secret\')"></form>'
+                        '<form action="mailto:ops@example.test?subject=secret"></form>'
+                    )
+                },
+            }
+        )
+
+        self.assertEqual(
+            email["security_warnings"],
+            [
+                "HTML email contains an embedded form that uses potentially unsafe "
+                "javascript: URL scheme and may collect or submit sensitive data.",
+                "HTML email contains an embedded form that uses potentially unsafe "
+                "mailto: URL scheme and may collect or submit sensitive data.",
+            ],
+        )
+        warnings_text = "\n".join(email["security_warnings"])
+        self.assertNotIn("alert", warnings_text)
+        self.assertNotIn("ops@example.test", warnings_text)
+        self.assertNotIn("secret", warnings_text)
+
+    def test_get_emails_by_query_warns_for_embedded_form_without_action(self):
+        email = _email_from_payload(
+            {
+                "mimeType": "text/html",
+                "headers": _headers(),
+                "body": {
+                    "data": _gmail_b64(
+                        "<form><input name=\"password\"></form>"
+                        '<form action=""></form>'
+                    )
+                },
+            }
+        )
+
+        self.assertEqual(
+            email["security_warnings"],
+            [
+                "HTML email contains an embedded form that may collect or submit "
+                "sensitive data."
+            ],
+        )
+
+    def test_get_emails_by_query_does_not_warn_for_plain_text_form_words(self):
+        email = _email_from_payload(
+            {
+                "mimeType": "text/plain",
+                "headers": _headers(),
+                "body": {
+                    "data": _gmail_b64(
+                        'Docs mention <form action="https://evil.example/login"> '
+                        "as text only."
+                    )
+                },
+            }
+        )
+
+        self.assertEqual(email["security_warnings"], [])
+
     def test_get_emails_by_query_warns_for_nested_html_and_skips_attachments(self):
         email = _email_from_payload(
             {
