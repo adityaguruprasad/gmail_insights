@@ -73,6 +73,21 @@ class _GmailService:
         return self._messages.get_calls
 
 
+def _email_from_payload(payload):
+    message = {
+        "id": "msg-1",
+        "threadId": "thread-1",
+        "labelIds": ["INBOX"],
+        "snippet": "Snippet",
+        "payload": payload,
+    }
+    service = _GmailService({"msg-1": message})
+    return fetcher.get_emails_by_query(
+        service,
+        query="from:security@example.test",
+    )[0]
+
+
 class FetcherAuthenticationWarningTests(unittest.TestCase):
     def test_authentication_security_warnings_ignores_pass_neutral_and_none(self):
         headers = [
@@ -405,6 +420,148 @@ class FetcherBodyExtractionTests(unittest.TestCase):
             ["SPF authentication result is fail in Authentication-Results."],
         )
         self.assertEqual(service.get_calls[0]["fields"], fetcher.GMAIL_MESSAGE_GET_FIELDS)
+
+
+class FetcherHtmlSecurityWarningTests(unittest.TestCase):
+    def test_get_emails_by_query_warns_for_displayed_url_host_mismatch(self):
+        email = _email_from_payload(
+            {
+                "mimeType": "text/html",
+                "headers": _headers(),
+                "body": {
+                    "data": _gmail_b64(
+                        '<a href="https://evil.test/sign-in?token=secret">'
+                        "https://example.com/account"
+                        "</a>"
+                    )
+                },
+            }
+        )
+
+        self.assertEqual(
+            email["security_warnings"],
+            ["Link text host example.com points to different host evil.test."],
+        )
+        warnings_text = "\n".join(email["security_warnings"])
+        self.assertNotIn("https://", warnings_text)
+        self.assertNotIn("sign-in", warnings_text)
+        self.assertNotIn("token", warnings_text)
+        self.assertNotIn("secret", warnings_text)
+
+    def test_get_emails_by_query_warns_for_dangerous_link_schemes(self):
+        email = _email_from_payload(
+            {
+                "mimeType": "text/html",
+                "headers": _headers(),
+                "body": {
+                    "data": _gmail_b64(
+                        '<a href="javascript:alert(\'secret\')">Open</a>'
+                        '<a href="mailto:ops@example.test?subject=secret">Email</a>'
+                    )
+                },
+            }
+        )
+
+        self.assertEqual(
+            email["security_warnings"],
+            [
+                "Link uses potentially unsafe javascript: URL scheme.",
+                "Link uses potentially unsafe mailto: URL scheme.",
+            ],
+        )
+        warnings_text = "\n".join(email["security_warnings"])
+        self.assertNotIn("alert", warnings_text)
+        self.assertNotIn("ops@example.test", warnings_text)
+        self.assertNotIn("secret", warnings_text)
+
+    def test_get_emails_by_query_summarizes_remote_image_warning(self):
+        email = _email_from_payload(
+            {
+                "mimeType": "text/html",
+                "headers": _headers(),
+                "body": {
+                    "data": _gmail_b64(
+                        '<img src="https://tracker.example/open.png?token=secret">'
+                        '<img src="//cdn.example/pixel.gif?account=123">'
+                    )
+                },
+            }
+        )
+
+        self.assertEqual(
+            email["security_warnings"],
+            [
+                "HTML message contains remote images that may load tracking or remote content."
+            ],
+        )
+        warnings_text = "\n".join(email["security_warnings"])
+        self.assertNotIn("tracker.example", warnings_text)
+        self.assertNotIn("cdn.example", warnings_text)
+        self.assertNotIn("token", warnings_text)
+        self.assertNotIn("account", warnings_text)
+
+    def test_get_emails_by_query_warns_for_nested_html_and_skips_attachments(self):
+        email = _email_from_payload(
+            {
+                "mimeType": "multipart/mixed",
+                "headers": _headers(),
+                "parts": [
+                    _body_part(
+                        "text/html",
+                        '<a href="javascript:alert(\'attachment-secret\')">Open</a>',
+                        filename="attachment.html",
+                        headers=[
+                            {
+                                "name": "Content-Disposition",
+                                "value": 'attachment; filename="attachment.html"',
+                            }
+                        ],
+                    ),
+                    {
+                        "mimeType": "multipart/alternative",
+                        "parts": [
+                            _body_part(
+                                "text/plain",
+                                "Plain body",
+                            ),
+                            _body_part(
+                                "text/html",
+                                '<a href="https://evil.test/login?token=nested">'
+                                "www.example.com/login"
+                                "</a>",
+                            ),
+                        ],
+                    },
+                ],
+            }
+        )
+
+        self.assertEqual(
+            email["security_warnings"],
+            ["Link text host example.com points to different host evil.test."],
+        )
+        warnings_text = "\n".join(email["security_warnings"])
+        self.assertNotIn("javascript", warnings_text)
+        self.assertNotIn("attachment-secret", warnings_text)
+        self.assertNotIn("token", warnings_text)
+
+    def test_get_emails_by_query_does_not_warn_for_matching_display_and_href_host(self):
+        email = _email_from_payload(
+            {
+                "mimeType": "text/html",
+                "headers": _headers(),
+                "body": {
+                    "data": _gmail_b64(
+                        '<a href="https://example.com/login?token=secret">'
+                        "https://www.example.com/login"
+                        "</a>"
+                        '<img src="cid:logo">'
+                    )
+                },
+            }
+        )
+
+        self.assertEqual(email["security_warnings"], [])
 
 
 class FetcherDomainQueryTests(unittest.TestCase):

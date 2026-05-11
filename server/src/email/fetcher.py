@@ -2,6 +2,7 @@ import base64
 import re
 from html.parser import HTMLParser
 from typing import Dict, List, Optional
+from urllib.parse import urlsplit
 
 GMAIL_MESSAGE_LIST_FIELDS = "messages(id)"
 GMAIL_MESSAGE_PART_FIELDS_MAX_DEPTH = 12
@@ -94,6 +95,12 @@ _HTML_BLOCK_TAGS = {
     "tr",
     "ul",
 }
+_DANGEROUS_LINK_SCHEMES = {"javascript", "data", "file", "tel", "sms", "mailto"}
+_REMOTE_IMAGE_WARNING = (
+    "HTML message contains remote images that may load tracking or remote content."
+)
+_DISPLAY_URL_STRIP_CHARS = " \t\r\n\f\v<>()[]{}\"'`"
+_DISPLAY_URL_TRAILING_PUNCTUATION = ".,;:!?"
 
 
 class _HTMLToPlainTextParser(HTMLParser):
@@ -158,6 +165,176 @@ def _html_to_plain_text(content: str) -> str:
     return parser.get_text()
 
 
+def _normalized_hostname(hostname: Optional[str]) -> Optional[str]:
+    if not hostname:
+        return None
+
+    normalized = hostname.strip().lower().rstrip(".")
+    if normalized.startswith("www."):
+        normalized = normalized[4:]
+
+    return normalized or None
+
+
+def _http_url_host(
+    value: Optional[str],
+    *,
+    allow_www_shorthand: bool = False,
+) -> Optional[str]:
+    if not value:
+        return None
+
+    candidate = value.strip()
+    if candidate.startswith("//"):
+        candidate = f"https:{candidate}"
+    elif allow_www_shorthand and candidate.lower().startswith("www."):
+        candidate = f"https://{candidate}"
+
+    try:
+        parsed = urlsplit(candidate)
+    except ValueError:
+        return None
+
+    if parsed.scheme.lower() not in {"http", "https"}:
+        return None
+
+    return _normalized_hostname(parsed.hostname)
+
+
+def _display_url_host(text: str) -> Optional[str]:
+    candidate = " ".join((text or "").split())
+    candidate = candidate.strip(_DISPLAY_URL_STRIP_CHARS).rstrip(
+        _DISPLAY_URL_TRAILING_PUNCTUATION
+    )
+    if not candidate or any(char.isspace() for char in candidate):
+        return None
+
+    lower_candidate = candidate.lower()
+    if not (
+        lower_candidate.startswith("http://")
+        or lower_candidate.startswith("https://")
+        or lower_candidate.startswith("www.")
+    ):
+        return None
+
+    return _http_url_host(candidate, allow_www_shorthand=True)
+
+
+def _url_scheme(value: Optional[str]) -> str:
+    if not value:
+        return ""
+
+    candidate = value.strip()
+    colon_index = candidate.find(":")
+    if colon_index <= 0:
+        return ""
+
+    scheme = candidate[:colon_index].lower()
+    if not scheme:
+        return ""
+
+    for char in scheme:
+        if not (char.isalnum() or char in {"+", "-", "."}):
+            return ""
+
+    return scheme
+
+
+class _HTMLLinkSafetyParser(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self._warnings: List[str] = []
+        self._seen_warnings = set()
+        self._drop_depth = 0
+        self._anchor_stack: List[Dict] = []
+
+    def _add_warning(self, warning: str) -> None:
+        if warning in self._seen_warnings:
+            return
+
+        self._seen_warnings.add(warning)
+        self._warnings.append(warning)
+
+    def _check_anchor(self, anchor: Dict) -> None:
+        display_host = _display_url_host("".join(anchor["chunks"]))
+        href_host = _http_url_host(anchor.get("href"))
+        if display_host and href_host and display_host != href_host:
+            self._add_warning(
+                f"Link text host {display_host} points to different host {href_host}."
+            )
+
+    def handle_starttag(self, tag, attrs):
+        tag = tag.lower()
+        if tag in _HTML_CONTENT_TAGS_TO_DROP:
+            self._drop_depth += 1
+            return
+
+        if self._drop_depth:
+            return
+
+        attrs_by_name = {
+            str(name).lower(): (value or "")
+            for name, value in attrs
+            if name is not None
+        }
+
+        if tag == "a":
+            href = attrs_by_name.get("href", "")
+            scheme = _url_scheme(href)
+            if scheme in _DANGEROUS_LINK_SCHEMES:
+                self._add_warning(
+                    f"Link uses potentially unsafe {scheme}: URL scheme."
+                )
+            self._anchor_stack.append({"href": href, "chunks": []})
+        elif tag == "img" and _http_url_host(attrs_by_name.get("src")):
+            self._add_warning(_REMOTE_IMAGE_WARNING)
+
+    def handle_endtag(self, tag):
+        tag = tag.lower()
+        if tag in _HTML_CONTENT_TAGS_TO_DROP:
+            if self._drop_depth:
+                self._drop_depth -= 1
+            return
+
+        if self._drop_depth:
+            return
+
+        if tag != "a" or not self._anchor_stack:
+            return
+
+        self._check_anchor(self._anchor_stack.pop())
+
+    def handle_data(self, data):
+        if self._drop_depth:
+            return
+
+        for anchor in self._anchor_stack:
+            anchor["chunks"].append(data)
+
+    def handle_comment(self, data):
+        return
+
+    def get_warnings(self) -> List[str]:
+        while self._anchor_stack:
+            self._check_anchor(self._anchor_stack.pop())
+
+        return self._warnings
+
+
+def _html_link_security_warnings(content: str) -> List[str]:
+    if not content:
+        return []
+
+    parser = _HTMLLinkSafetyParser()
+    try:
+        parser.feed(content)
+        parser.close()
+    except Exception:
+        return []
+
+    return parser.get_warnings()
+
+
 def _base_mime_type(mime_type: str) -> str:
     return mime_type.split(";", 1)[0].strip().lower()
 
@@ -192,6 +369,24 @@ def _find_decoded_mime_part(payload: Dict, mime_type: str) -> Optional[str]:
     return None
 
 
+def _find_decoded_mime_parts(payload: Dict, mime_type: str) -> List[str]:
+    if not payload or _is_attachment_part(payload):
+        return []
+
+    decoded_parts: List[str] = []
+    if _base_mime_type(payload.get("mimeType", "")) == mime_type:
+        data = payload.get("body", {}).get("data")
+        if data is not None:
+            decoded = _decode_base64_urlsafe(data)
+            if decoded:
+                decoded_parts.append(decoded)
+
+    for part in payload.get("parts", []) or []:
+        decoded_parts.extend(_find_decoded_mime_parts(part, mime_type))
+
+    return decoded_parts
+
+
 def _extract_plain_text(payload: Dict) -> str:
     if not payload:
         return ""
@@ -205,6 +400,21 @@ def _extract_plain_text(payload: Dict) -> str:
         return _html_to_plain_text(html_text)
 
     return ""
+
+
+def _html_security_warnings(payload: Dict) -> List[str]:
+    warnings: List[str] = []
+    seen = set()
+
+    for html_text in _find_decoded_mime_parts(payload, "text/html"):
+        for warning in _html_link_security_warnings(html_text):
+            if warning in seen:
+                continue
+
+            seen.add(warning)
+            warnings.append(warning)
+
+    return warnings
 
 
 def _header_value(headers: List[Dict], key: str, default: str = "") -> str:
@@ -326,7 +536,8 @@ def get_emails_by_query(service, query: str, max_results: int = 100) -> List[Dic
                 "snippet": msg.get("snippet", ""),
                 "label_ids": label_ids,
                 "is_archived": "INBOX" not in label_ids,
-                "security_warnings": _authentication_security_warnings(headers),
+                "security_warnings": _authentication_security_warnings(headers)
+                + _html_security_warnings(payload),
                 "content": _extract_plain_text(payload),
             }
         )
