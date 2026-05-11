@@ -209,6 +209,29 @@ _INSTRUCTION_PHRASE_RE = re.compile(
 _INSTRUCTION_XML_TAG_RE = re.compile(
     r"(?i)</?\s*(system|assistant|user|instruction|instructions|prompt|directive|policy)\b[^>]*>"
 )
+_SAFETY_METADATA_SUPPRESSION_PHRASE = (
+    r"(?:"
+    r"(?:hide|suppress|omit|remove|exclude|drop)\s+"
+    r"(?:(?:any|all|the)\s+)?(?:security\s+|safety\s+)?"
+    r"(?:warnings?|alerts?|signals?|metadata)"
+    r"|(?:do\s+not|don't|never)\s+"
+    r"(?:mention|show|include|surface|report|flag)\s+"
+    r"(?:that\s+)?(?:this\s+)?(?:is\s+)?"
+    r"(?:suspicious|risky|unsafe|a\s+warning|any\s+warnings?|"
+    r"security\s+warnings?|safety\s+metadata)"
+    r"|(?:tell|assure)\s+(?:the\s+)?user\s+(?:that\s+)?"
+    r"(?:this|it|the\s+(?:message|email|link|url|attachment|file|content))\s+"
+    r"is\s+(?:safe|verified|trusted|legitimate)"
+    r"|mark\s+(?:(?:this|it|the\s+"
+    r"(?:message|email|link|url|attachment|file|content))\s+)?"
+    r"(?:as\s+)?(?:safe|verified|trusted|legitimate)"
+    r"|bypass\s+(?:(?:any|all|the)\s+)?(?:security|safety|phishing)\s+checks?"
+    r")"
+)
+_SAFETY_METADATA_DIRECTIVE_RE = re.compile(
+    rf"\b({_SAFETY_METADATA_SUPPRESSION_PHRASE})\b",
+    re.IGNORECASE,
+)
 _DIRECTIVE_START = rf"(?i)^\s*(?:[-*]|\d+[.)])?\s*{_ACTION_ROLE_PREFIX}(?:please\s+)?"
 _RECOMMENDATION_KEYWORD = (
     r"(?:you\s+should|you\s+must|next\s+step(?:s)?|action\s+item(?:s)?|"
@@ -336,6 +359,39 @@ _ACTION_SUGGESTION_START = (
 _MIDLINE_ACTION_SUGGESTION_START = (
     rf"(?i)\b{_RECOMMENDATION_KEYWORD}\b\s*:?\s*"
     r"(?:(?:please|first|then|next|just|now|also)\s+){0,4}"
+)
+_INSIGHT_SECTION_PREFIX = (
+    r"(?:(?:summary|action\s+items?|draft\s+assistance|archive\s+suggestion|"
+    r"security\s+warnings?)\s*:?\s*)?"
+)
+_SAFETY_METADATA_DIRECTIVE_LINE_RE = re.compile(
+    rf"^\s*(?:[-*]|\d+[.)])?\s*"
+    rf"{_ACTION_ROLE_PREFIX}"
+    rf"(?:(?:{_RECOMMENDATION_KEYWORD})\s*:?\s*)?"
+    rf"{_INSIGHT_SECTION_PREFIX}"
+    r"(?:(?:please|first|then|next|just|now|also)\s+){0,4}"
+    rf"{_SAFETY_METADATA_SUPPRESSION_PHRASE}\b",
+    re.IGNORECASE,
+)
+_SECURITY_WARNING_ABSENCE_CLAIM_RE = re.compile(
+    r"\b(?:no|none|zero|not\s+any|without)\s+"
+    r"(?:security\s+|safety\s+)?warnings?\b"
+    r"|\b(?:there\s+are\s+no|there\s+aren't\s+any|"
+    r"does(?:\s+not|n't)\s+(?:have|include|contain))\s+"
+    r"(?:security\s+|safety\s+)?warnings?\b"
+    r"|\b(?:security\s+|safety\s+)?warnings?\s*"
+    r"(?::|-|are|is)?\s*(?:none|no|zero)\b",
+    re.IGNORECASE,
+)
+_RISKY_CONTENT_SAFE_CLAIM_RE = re.compile(
+    r"\b(?:the\s+|this\s+)?"
+    r"(?:message|email|sender|link|url|attachment|file|content|request)\s+"
+    r"(?:is|looks|appears|seems)\s+"
+    r"(?:completely\s+|totally\s+|fully\s+)?"
+    r"(?:safe|verified|trusted|legitimate|not\s+suspicious|not\s+risky|not\s+unsafe)\b"
+    r"|\b(?:safe|verified|trusted|legitimate)\s+"
+    r"(?:message|email|sender|link|url|attachment|file|content|request)\b",
+    re.IGNORECASE,
 )
 _SEQUENCED_ACTION_SUGGESTION_START = (
     r"(?i)(?:[.!?,:;]\s*)?\b(?:then|next|also)\s+"
@@ -3201,8 +3257,46 @@ def sanitize_untrusted_email_text(text: str) -> str:
     sanitized = text.replace("\r\n", "\n").replace("\r", "\n")
     sanitized = _ROLE_TAG_RE.sub(r"\1[quoted-role \2] ", sanitized)
     sanitized = _INSTRUCTION_PHRASE_RE.sub(r"[quoted-instruction: \1]", sanitized)
+    sanitized = _SAFETY_METADATA_DIRECTIVE_RE.sub(
+        lambda match: f"[quoted-safety-directive: {match.group(1)}]",
+        sanitized,
+    )
     sanitized = _INSTRUCTION_XML_TAG_RE.sub("[quoted-xml-tag]", sanitized)
     return sanitized
+
+
+def neutralize_safety_metadata_misrepresentation(
+    text: str,
+    has_security_warnings: bool = False,
+) -> Tuple[str, List[str]]:
+    """Remove output lines that hide or contradict security-warning metadata."""
+    if not text:
+        return "", []
+
+    findings = set()
+    guarded_lines = []
+
+    for line in text.splitlines():
+        block_line = False
+
+        if _SAFETY_METADATA_DIRECTIVE_LINE_RE.search(line):
+            findings.add("security_warning_suppression")
+            block_line = True
+
+        if has_security_warnings and not block_line:
+            if _SECURITY_WARNING_ABSENCE_CLAIM_RE.search(line):
+                findings.add("security_warning_misrepresentation")
+                block_line = True
+            elif _RISKY_CONTENT_SAFE_CLAIM_RE.search(line):
+                findings.add("security_warning_misrepresentation")
+                block_line = True
+
+        if block_line:
+            guarded_lines.append("[Security warning manipulation removed]")
+        else:
+            guarded_lines.append(line)
+
+    return "\n".join(guarded_lines), sorted(findings)
 
 
 def _directive_actions(line: str) -> List[str]:
