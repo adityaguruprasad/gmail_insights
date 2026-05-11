@@ -2537,6 +2537,9 @@ class SafetyPolicyTests(unittest.TestCase):
             "Grant access to the third-party app.",
             "Allow the OAuth client to access Gmail.",
             "Connect your Google account to the service.",
+            "Connect Gmail to Zapier.",
+            "Recommended action: connect this mailbox to the AI assistant.",
+            "Authorize the Slack bot for mailbox access.",
             "Install the browser extension.",
             "Enable the integration now.",
             "Recommended action: approve the OAuth consent request.",
@@ -2554,6 +2557,9 @@ class SafetyPolicyTests(unittest.TestCase):
             "Authorize the OAuth app\nfor Gmail access.",
             "Grant access\nto the third-party app.",
             "Connect your Google account\nto the service.",
+            "Connect Gmail\nto Zapier.",
+            "Recommended action: connect this mailbox\nto the AI assistant.",
+            "Authorize the Slack bot\nfor mailbox access.",
             "Recommended action: approve the OAuth\nconsent request.",
         ]
 
@@ -2573,7 +2579,10 @@ class SafetyPolicyTests(unittest.TestCase):
             "do not authorize it\n"
             "App authorization instructions are included in the message\n"
             "The integration is already enabled by policy\n"
-            "Browser extension details are present for analysis"
+            "Browser extension details are present for analysis\n"
+            "The email mentions Zapier, Make, and IFTTT integrations.\n"
+            "The Slack bot request is described for manual review.\n"
+            "Do not connect Gmail to Zapier."
         )
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)
@@ -2592,6 +2601,7 @@ class SafetyPolicyTests(unittest.TestCase):
             "Delegate inbox access to accounting@example.com",
             "Recommended action: add the sender as a Gmail delegate",
             "Set up the vendor as a delegate.",
+            "Set up an automation workflow with this inbox.",
         ]
 
         for text in cases:
@@ -2605,6 +2615,7 @@ class SafetyPolicyTests(unittest.TestCase):
             "Add the sender\nas a delegate",
             "Grant mailbox access\nto the assistant",
             "Allow accounting@example.com\nto access this inbox.",
+            "Set up an automation\nworkflow with this inbox.",
         ]
 
         for text in cases:
@@ -2622,6 +2633,8 @@ class SafetyPolicyTests(unittest.TestCase):
             "Mailbox delegation is disabled by policy.\n"
             "The sender asks how delegate access works.\n"
             "Access metrics are summarized in the report.\n"
+            "Automation workflows are disabled by policy for this inbox.\n"
+            "The email mentions an automation workflow but requests no setup.\n"
             "Do not add the sender as a delegate.\n"
             "Provide the assistant with account access.\n"
             "The OAuth client requests account access for manual review."

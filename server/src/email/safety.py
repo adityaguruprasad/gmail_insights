@@ -1309,10 +1309,24 @@ _PASSWORD_MANAGER_PROTECTION_TARGET = (
     rf"(?:(?:{_BROWSER_PASSWORD_APP})\s+)?password\s+protection\b"
     rf"(?:\s+(?:in|within|for|on)\s+{_PASSWORD_MANAGER_LOCATION})?)"
 )
+_AUTOMATION_CONNECTOR_NOUN = (
+    r"(?:zapier|make(?:\.com)?|ifttt|slack|"
+    r"(?:slack\s+)?bots?|"
+    r"ai\s+(?:assistants?|agents?|bots?)|"
+    r"automation\s+(?:connectors?|workflows?|bots?|agents?|assistants?|"
+    r"integrations?|services?|platforms?|tools?)|"
+    r"workflow\s+(?:automations?|connectors?|integrations?|bots?|agents?|"
+    r"assistants?|services?|platforms?|tools?))"
+)
+_AUTOMATION_CONNECTOR_TARGET = (
+    rf"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){{0,2}}"
+    rf"{_AUTOMATION_CONNECTOR_NOUN}\b"
+)
 _AUTHZ_OBJECT_NOUN = (
-    r"(?:apps?|applications?|integrations?|browser\s+extensions?|extensions?|"
-    r"oauth\s+(?:apps?|applications?|clients?)|"
-    r"third[-\s]?party\s+(?:apps?|applications?|services?))"
+    rf"(?:apps?|applications?|integrations?|browser\s+extensions?|extensions?|"
+    rf"oauth\s+(?:apps?|applications?|clients?)|"
+    rf"third[-\s]?party\s+(?:apps?|applications?|services?)|"
+    rf"{_AUTOMATION_CONNECTOR_NOUN})"
 )
 _LESS_SECURE_APP_ACCESS_CORE = (
     r"(?:(?:the|this|that|an?|my|your|our)\s+)?less\s+secure\s+apps?(?:\s+access)?"
@@ -1344,7 +1358,7 @@ _AUTHZ_ACCESS_GRANT_TARGET = (
     r"email\s+access|permissions?|permission\s+grant)\b"
 )
 _AUTHZ_ACCOUNT_TARGET = (
-    r"(?:(?:your|the)\s+)?"
+    r"(?:(?:your|the|this|that|my|our)\s+)?"
     r"(?:google\s+account|gmail|mailbox|email\s+account|account)\b"
 )
 _SECURITY_AUTH_FACTOR_TARGET = (
@@ -3036,6 +3050,12 @@ _DIRECTIVE_PATTERNS = {
         re.compile(
             rf"{_ACTION_SUGGESTION_START}(?:grant|give)\s+"
             rf"{_MAILBOX_ACCESS_GRANTEE_TARGET}\s+access\s+to\s+"
+            rf"{_MAILBOX_ACCESS_RESOURCE}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:set\s+up|create|configure|enable)\s+"
+            rf"{_AUTOMATION_CONNECTOR_TARGET}\s+"
+            rf"(?:with|for|to|on|in|using)\s+"
             rf"{_MAILBOX_ACCESS_RESOURCE}{_TARGET_END}"
         ),
     ],
