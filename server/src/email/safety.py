@@ -1457,10 +1457,16 @@ _INSTALL_PROFILE_ACTION_SUFFIX = (
     rf"{_INSTALL_PROFILE_LOCATION}){{0,2}}{_TARGET_END}"
 )
 _ACCOUNT_CONTACT_CHANNEL_NOUN = r"(?:email(?:\s+address)?|phone(?:\s+number)?)"
+_ACCOUNT_CONTACT_CHANNEL_QUALIFIER = (
+    r"(?:primary|secondary|2fa|mfa|(?:two|multi)[-\s]?factor|"
+    r"login|sign[-\s]?in|verification)"
+)
 _ACCOUNT_CONTACT_FIELD_TARGET = (
     r"(?:(?:the|this|that|your|my|our|an?)\s+)?"
     r"(?:"
-    rf"(?:recovery|backup|alternate|notification)\s+{_ACCOUNT_CONTACT_CHANNEL_NOUN}\b|"
+    rf"(?:recovery|backup|alternate|notification|"
+    rf"{_ACCOUNT_CONTACT_CHANNEL_QUALIFIER})\s+"
+    rf"{_ACCOUNT_CONTACT_CHANNEL_NOUN}\b|"
     rf"account\s+{_ACCOUNT_CONTACT_CHANNEL_NOUN}\b|"
     rf"{_ACCOUNT_CONTACT_CHANNEL_NOUN}\s+"
     r"(?:on|for|in)\s+(?:(?:your|the|this|that|my|our)\s+)?account\b"
@@ -3417,6 +3423,44 @@ def _suppress_crypto_wallet_payment_overlap(
             direct_actions_by_index[line_index].discard("make_payment")
 
 
+def _suppress_split_line_account_contact_overlaps(
+    lines: List[str],
+    index: int,
+    direct_actions_by_index: List[Set[str]],
+    combined: str,
+) -> None:
+    line_boundary = len(lines[index]) + 1
+    account_contact_spans = [
+        span
+        for span in _directive_match_spans(combined, "update_account_contact")
+        if span[0] < line_boundary < span[1]
+    ]
+    if not account_contact_spans:
+        return
+
+    line_offsets = (
+        (index, 0),
+        (index + 1, line_boundary),
+    )
+    for line_index, offset in line_offsets:
+        if "change_mfa_settings" not in direct_actions_by_index[line_index]:
+            continue
+
+        mfa_spans = [
+            (start + offset, end + offset)
+            for start, end in _directive_match_spans(
+                lines[line_index],
+                "change_mfa_settings",
+            )
+        ]
+        if any(
+            _spans_overlap(mfa_span, account_contact_span)
+            for mfa_span in mfa_spans
+            for account_contact_span in account_contact_spans
+        ):
+            direct_actions_by_index[line_index].discard("change_mfa_settings")
+
+
 def neutralize_unsafe_action_suggestions(text: str) -> Tuple[str, List[str]]:
     """Remove unsafe action-suggestion lines from model output."""
     if not text:
@@ -3441,6 +3485,10 @@ def neutralize_unsafe_action_suggestions(text: str) -> Tuple[str, List[str]]:
 
         if "crypto_wallet_action" in actions:
             _suppress_crypto_wallet_payment_overlap(
+                lines, index, direct_actions_by_index, combined
+            )
+        if "update_account_contact" in actions:
+            _suppress_split_line_account_contact_overlaps(
                 lines, index, direct_actions_by_index, combined
             )
         blocked_found.update(actions)

@@ -2926,6 +2926,38 @@ class SafetyPolicyTests(unittest.TestCase):
             ),
             ("Set your notification email to jane@example.com", ["update_account_contact"]),
             (
+                "Update your 2FA phone number to +1 415-555-1212.",
+                ["update_account_contact"],
+            ),
+            (
+                "Set the sign-in email to backup@example.com.",
+                ["update_account_contact"],
+            ),
+            (
+                "Change the secondary email address now.",
+                ["update_account_contact"],
+            ),
+            (
+                "Add a verification phone number to the account.",
+                ["update_account_contact"],
+            ),
+            (
+                "Replace the login phone with +1 415-555-1212.",
+                ["update_account_contact"],
+            ),
+            (
+                "Remove the MFA email from your account.",
+                ["update_account_contact"],
+            ),
+            (
+                "Set your primary email address to backup@example.com.",
+                ["update_account_contact"],
+            ),
+            (
+                "Update your two-factor phone number.",
+                ["update_account_contact"],
+            ),
+            (
                 "Replace the account phone number with +1 415-555-1212",
                 ["update_account_contact"],
             ),
@@ -2957,6 +2989,8 @@ class SafetyPolicyTests(unittest.TestCase):
         cases = [
             ("Update your recovery\nemail", ["change_recovery_email"]),
             ("Replace the account\nphone number", ["update_account_contact"]),
+            ("Update your 2FA\nphone number.", ["update_account_contact"]),
+            ("Replace the sign-in\nemail address.", ["update_account_contact"]),
             (
                 "Set your notification email\nto jane@example.com",
                 ["update_account_contact"],
@@ -2979,11 +3013,15 @@ class SafetyPolicyTests(unittest.TestCase):
     def test_neutralize_unsafe_action_suggestions_preserves_account_contact_descriptions(self):
         text = (
             "The email mentions a recovery email for manual review\n"
+            "The email mentions a 2FA phone number for manual review.\n"
             "Account contact settings are discussed in the policy update\n"
+            "Sign-in email settings are discussed in the policy update.\n"
             "The recovery phone number was changed yesterday\n"
+            "The secondary email was changed yesterday.\n"
             "Notification email metrics are summarized\n"
             "The recovery email was removed yesterday for manual review\n"
             "Do not update your recovery email from this message\n"
+            "Do not update your MFA email from this message.\n"
             "The email asks the user to change the recovery email manually"
         )
 
