@@ -1142,6 +1142,100 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertNotIn(ssn, redacted)
         self.assertIn("2026-05-10", redacted)
 
+    def test_redaction_removes_bank_routing_number_after_context(self):
+        routing = "021-000-021"
+        text = f'ABA routing number = "{routing}" for wire settlement.'
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(
+            redacted,
+            'ABA routing number = "[REDACTED_ROUTING_NUMBER]" for wire settlement.',
+        )
+        self.assertNotIn(routing, redacted)
+
+    def test_redaction_removes_bank_routing_number_before_context(self):
+        routing = "011 000 015"
+        text = f"{routing} is the bank routing number for ACH."
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(
+            redacted,
+            "[REDACTED_ROUTING_NUMBER] is the bank routing number for ACH.",
+        )
+        self.assertNotIn(routing, redacted)
+
+    def test_redaction_removes_bank_account_number_after_context(self):
+        account = "000123456789"
+        text = f"Checking account: '{account}' is listed on the invoice."
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(
+            redacted,
+            "Checking account: '[REDACTED_BANK_ACCOUNT]' is listed on the invoice.",
+        )
+        self.assertNotIn(account, redacted)
+
+    def test_redaction_removes_bank_account_number_before_context(self):
+        account = "9876-5432-10"
+        text = f'"{account}" is your ACH account for payroll.'
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(
+            redacted,
+            '"[REDACTED_BANK_ACCOUNT]" is your ACH account for payroll.',
+        )
+        self.assertNotIn(account, redacted)
+
+    def test_redaction_removes_multiline_wire_and_ach_bank_credentials(self):
+        routing = "021 000 021"
+        account = "000123456789012"
+        text = (
+            "Wire instructions:\n"
+            f"ACH routing: {routing}\n"
+            f'Wire account = "{account}"\n'
+            "Memo: invoice 123456."
+        )
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(
+            redacted,
+            "Wire instructions:\n"
+            "ACH routing: [REDACTED_ROUTING_NUMBER]\n"
+            'Wire account = "[REDACTED_BANK_ACCOUNT]"\n'
+            "Memo: invoice 123456.",
+        )
+        self.assertNotIn(routing, redacted)
+        self.assertNotIn(account, redacted)
+
+    def test_redaction_preserves_non_bank_numeric_text(self):
+        text = (
+            "Invoice 123456789 is due on 2026-05-10 for $49.99. "
+            "Order number 987654321 and confirmation number 111222333 stay visible. "
+            "Release code ABCD1234 is a build label."
+        )
+
+        self.assertEqual(redact_sensitive_content(text), text)
+
+    def test_bank_redaction_keeps_existing_payment_card_and_ssn_behavior(self):
+        account = "1234567890"
+        card = "4111 1111 1111 1111"
+        ssn = "123-45-6789"
+        text = f"Bank account {account}; payment card {card}; SSN {ssn}."
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertIn("[REDACTED_BANK_ACCOUNT]", redacted)
+        self.assertIn("[REDACTED_PAYMENT_CARD]", redacted)
+        self.assertIn("[REDACTED_SSN]", redacted)
+        self.assertNotIn(account, redacted)
+        self.assertNotIn(card, redacted)
+        self.assertNotIn(ssn, redacted)
+
     def test_build_prompt_redacts_financial_and_government_identifiers(self):
         processor = _processor_module()
         card = "4111 1111 1111 1111"

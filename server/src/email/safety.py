@@ -156,6 +156,81 @@ _WALLET_SEED_BEFORE_CONTEXT_RE = re.compile(
     rf"(?P<context>{_WALLET_SEED_CONTEXT})\b",
     re.IGNORECASE,
 )
+_BANK_ROUTING_PLACEHOLDER = "[REDACTED_ROUTING_NUMBER]"
+_BANK_ACCOUNT_PLACEHOLDER = "[REDACTED_BANK_ACCOUNT]"
+_BANK_CONTEXT_BOUNDARY = r"(?![A-Za-z0-9_])"
+_BANK_VALUE_AFTER_CONTEXT_SEPARATOR = r"\s*(?:(?:is|are)\s+)?(?:[:,=#-]\s*)?"
+_BANK_VALUE_BEFORE_CONTEXT_SEPARATOR = (
+    r"(?:\s+|\s*[-:=,]\s*|\s*\(\s*)"
+    r"(?:(?:is|are|as|for)\s+)?"
+    r"(?:(?:your|my|our|the|this|that|a|an)\s+)?"
+)
+_BANK_ROUTING_CONTEXT = (
+    r"(?:"
+    r"aba\s+routing(?:\s+(?:numbers?|nos?\.?|#))?|"
+    r"routing\s+(?:numbers?|nos?\.?|#)|"
+    r"bank\s+routing(?:\s+(?:numbers?|nos?\.?|#))?|"
+    r"ach\s+routing(?:\s+(?:numbers?|nos?\.?|#))?|"
+    r"wire\s+routing(?:\s+(?:numbers?|nos?\.?|#))?"
+    r")"
+)
+_BANK_ACCOUNT_CONTEXT = (
+    r"(?:"
+    r"account\s+(?:numbers?|nos?\.?|#)|"
+    r"acct\.?\s*(?:numbers?|nos?\.?|#)|"
+    r"bank\s+account(?:\s+(?:numbers?|nos?\.?|#))?|"
+    r"checking\s+account(?:\s+(?:numbers?|nos?\.?|#))?|"
+    r"savings\s+account(?:\s+(?:numbers?|nos?\.?|#))?|"
+    r"ach\s+account(?:\s+(?:numbers?|nos?\.?|#))?|"
+    r"wire\s+account(?:\s+(?:numbers?|nos?\.?|#))?"
+    r")"
+)
+_BANK_ROUTING_VALUE = (
+    r"(?<![A-Za-z0-9])(?<!\d[ -])"
+    r"\d(?:[ -]?\d){8}"
+    r"(?![ -]?\d)(?![A-Za-z0-9])"
+)
+_BANK_ACCOUNT_VALUE = (
+    r"(?<![A-Za-z0-9])(?<!\d[ -])"
+    r"\d(?:[ -]?\d){3,16}"
+    r"(?![ -]?\d)(?![A-Za-z0-9])"
+)
+_BANK_ROUTING_AFTER_CONTEXT_RE = re.compile(
+    rf"(?<![A-Za-z0-9_])(?P<context>{_BANK_ROUTING_CONTEXT})"
+    rf"{_BANK_CONTEXT_BOUNDARY}"
+    rf"(?P<between>{_BANK_VALUE_AFTER_CONTEXT_SEPARATOR})"
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<routing_number>{_BANK_ROUTING_VALUE})"
+    rf"(?(quote)(?P=quote))",
+    re.IGNORECASE,
+)
+_BANK_ROUTING_BEFORE_CONTEXT_RE = re.compile(
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<routing_number>{_BANK_ROUTING_VALUE})"
+    rf"(?(quote)(?P=quote))"
+    rf"(?P<between>{_BANK_VALUE_BEFORE_CONTEXT_SEPARATOR})"
+    rf"(?P<context>{_BANK_ROUTING_CONTEXT})"
+    rf"{_BANK_CONTEXT_BOUNDARY}",
+    re.IGNORECASE,
+)
+_BANK_ACCOUNT_AFTER_CONTEXT_RE = re.compile(
+    rf"(?<![A-Za-z0-9_])(?P<context>{_BANK_ACCOUNT_CONTEXT})"
+    rf"{_BANK_CONTEXT_BOUNDARY}"
+    rf"(?P<between>{_BANK_VALUE_AFTER_CONTEXT_SEPARATOR})"
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<account_number>{_BANK_ACCOUNT_VALUE})"
+    rf"(?(quote)(?P=quote))",
+    re.IGNORECASE,
+)
+_BANK_ACCOUNT_BEFORE_CONTEXT_RE = re.compile(
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<account_number>{_BANK_ACCOUNT_VALUE})"
+    rf"(?(quote)(?P=quote))"
+    rf"(?P<between>{_BANK_VALUE_BEFORE_CONTEXT_SEPARATOR})"
+    rf"(?P<context>{_BANK_ACCOUNT_CONTEXT})"
+    rf"{_BANK_CONTEXT_BOUNDARY}",
+    re.IGNORECASE,
+)
 _GOOGLE_OAUTH_TOKEN_RE = re.compile(r"\bya29\.[A-Za-z0-9._-]+\b")
 _GOOGLE_REFRESH_TOKEN_RE = re.compile(r"\b1//[A-Za-z0-9._-]+\b")
 _JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b")
@@ -3499,6 +3574,38 @@ def _redact_wallet_seed_phrases(text: str) -> str:
     return _WALLET_SEED_BEFORE_CONTEXT_RE.sub(_redact_wallet_seed_phrase, redacted)
 
 
+def _redact_bank_routing_number(match: re.Match) -> str:
+    return _replace_match_group(
+        match,
+        "routing_number",
+        _BANK_ROUTING_PLACEHOLDER,
+    )
+
+
+def _redact_bank_account_number(match: re.Match) -> str:
+    return _replace_match_group(
+        match,
+        "account_number",
+        _BANK_ACCOUNT_PLACEHOLDER,
+    )
+
+
+def _redact_bank_credentials(text: str) -> str:
+    redacted = _BANK_ROUTING_AFTER_CONTEXT_RE.sub(_redact_bank_routing_number, text)
+    redacted = _BANK_ROUTING_BEFORE_CONTEXT_RE.sub(
+        _redact_bank_routing_number,
+        redacted,
+    )
+    redacted = _BANK_ACCOUNT_AFTER_CONTEXT_RE.sub(
+        _redact_bank_account_number,
+        redacted,
+    )
+    return _BANK_ACCOUNT_BEFORE_CONTEXT_RE.sub(
+        _redact_bank_account_number,
+        redacted,
+    )
+
+
 def _redact_private_key_assignment(match: re.Match) -> str:
     return (
         f"{match.group('prefix')}{match.group('quote')}"
@@ -3554,6 +3661,7 @@ def redact_sensitive_content(text: str) -> str:
     redacted = _redact_short_lived_login_credentials(redacted)
     redacted = _redact_app_passwords(redacted)
     redacted = _redact_wallet_seed_phrases(redacted)
+    redacted = _redact_bank_credentials(redacted)
     redacted = _PAYMENT_CARD_RE.sub(_redact_payment_card, redacted)
     redacted = _US_SSN_RE.sub("[REDACTED_SSN]", redacted)
     redacted = _EMAIL_RE.sub("[REDACTED_EMAIL]", redacted)
