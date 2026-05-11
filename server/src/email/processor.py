@@ -21,6 +21,7 @@ PROMPT_FIELD_MAX_SECURITY_WARNINGS = 800
 PROMPT_FIELD_MAX_CONTENT = 4000
 SUMMARY_MAX_RETURNED_LENGTH = 4000
 SECURITY_WARNING_MAX_RETURNED_LENGTH = 500
+SECURITY_WARNINGS_MAX_PER_EMAIL = 10
 
 _QUOTED_INSTRUCTION_DETAIL_RE = re.compile(
     r"\[quoted-instruction:[^\]]+\]",
@@ -67,6 +68,11 @@ def _clip_returned_security_warning(
     return warning[: max_length - len(marker)] + marker
 
 
+def _security_warning_count_truncation_marker(count: int) -> str:
+    noun = "warning" if count == 1 else "warnings"
+    return f"[TRUNCATED {count} additional security {noun}]"
+
+
 def _prepare_untrusted_email_field(value, max_length: int, redact_sensitive: bool = True) -> str:
     text = str(value) if value is not None else ""
     if redact_sensitive:
@@ -99,9 +105,11 @@ def _prepare_security_warning_list(
     email,
     redact_sensitive: bool = True,
     max_length: int = SECURITY_WARNING_MAX_RETURNED_LENGTH,
+    max_warnings: int = SECURITY_WARNINGS_MAX_PER_EMAIL,
 ) -> list:
     raw_warnings = email.get("security_warnings") or []
     sanitized_warnings = []
+    omitted_warning_count = 0
     seen = set()
 
     for warning in _iter_security_warning_values(raw_warnings):
@@ -123,8 +131,17 @@ def _prepare_security_warning_list(
         if not text or text in seen:
             continue
 
-        sanitized_warnings.append(text)
         seen.add(text)
+        if max_warnings is not None and len(sanitized_warnings) >= max_warnings:
+            omitted_warning_count += 1
+            continue
+
+        sanitized_warnings.append(text)
+
+    if omitted_warning_count:
+        sanitized_warnings.append(
+            _security_warning_count_truncation_marker(omitted_warning_count)
+        )
 
     return sanitized_warnings
 
@@ -134,6 +151,7 @@ def _prepare_security_warnings(email, redact_sensitive: bool = True) -> str:
         email,
         redact_sensitive=redact_sensitive,
         max_length=None,
+        max_warnings=SECURITY_WARNINGS_MAX_PER_EMAIL,
     )
 
     if not security_warnings:
@@ -236,6 +254,7 @@ def extract_insights(email, redact_sensitive: bool = True):
         "security_warnings": _prepare_security_warning_list(
             email,
             redact_sensitive=redact_sensitive,
+            max_warnings=SECURITY_WARNINGS_MAX_PER_EMAIL,
         ),
         "summary": guarded_summary,
     }
