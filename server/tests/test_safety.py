@@ -42,6 +42,37 @@ def _private_key_delimiter(label, key_type):
     return _fixture_secret("--", "---", label, " ", key_type, "--", "---")
 
 
+def _wallet_seed_phrase_12():
+    return (
+        "abandon ability able about above absent absorb abstract "
+        "absurd abuse access accident"
+    )
+
+
+def _wallet_seed_phrase_prefix(word_count):
+    return " ".join(_wallet_seed_phrase_24().split()[:word_count])
+
+
+def _wallet_seed_phrase_15():
+    return _wallet_seed_phrase_prefix(15)
+
+
+def _wallet_seed_phrase_18():
+    return _wallet_seed_phrase_prefix(18)
+
+
+def _wallet_seed_phrase_21():
+    return _wallet_seed_phrase_prefix(21)
+
+
+def _wallet_seed_phrase_24():
+    return (
+        "account accuse achieve acid acoustic acquire across act action actor "
+        "actress actual adapt add addict address adjust admit adult advance "
+        "advice aerobic affair afford"
+    )
+
+
 def _processor_module():
     if "src.email.processor" in sys.modules:
         return sys.modules["src.email.processor"]
@@ -931,6 +962,107 @@ class SafetyPolicyTests(unittest.TestCase):
                 redacted = redact_sensitive_content(text)
                 self.assertNotIn(app_password, redacted)
                 self.assertIn("[REDACTED_APP_PASSWORD]", redacted)
+
+    def test_redaction_removes_12_word_wallet_seed_after_seed_phrase_context(self):
+        seed_phrase = _wallet_seed_phrase_12()
+        text = f"Seed phrase is {seed_phrase}. Store it offline."
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(
+            redacted,
+            "Seed phrase is [REDACTED_WALLET_SEED_PHRASE]. Store it offline.",
+        )
+        self.assertNotIn(seed_phrase, redacted)
+
+    def test_redaction_removes_intermediate_wallet_seed_word_counts(self):
+        cases = [
+            (15, _wallet_seed_phrase_15()),
+            (18, _wallet_seed_phrase_18()),
+            (21, _wallet_seed_phrase_21()),
+        ]
+
+        for word_count, seed_phrase in cases:
+            with self.subTest(word_count=word_count):
+                text = f"Seed words: {seed_phrase}."
+
+                redacted = redact_sensitive_content(text)
+
+                self.assertEqual(
+                    redacted,
+                    "Seed words: [REDACTED_WALLET_SEED_PHRASE].",
+                )
+                self.assertNotIn(seed_phrase, redacted)
+
+    def test_redaction_removes_wallet_seed_after_mnemonic_context(self):
+        seed_phrase = _wallet_seed_phrase_12()
+        text = f"Mnemonic: {seed_phrase}."
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(redacted, "Mnemonic: [REDACTED_WALLET_SEED_PHRASE].")
+        self.assertNotIn(seed_phrase, redacted)
+
+    def test_redaction_removes_24_word_wallet_seed_after_wallet_context(self):
+        seed_phrase = _wallet_seed_phrase_24()
+        cases = [
+            (
+                f"Secret recovery phrase: {seed_phrase}.",
+                "Secret recovery phrase: [REDACTED_WALLET_SEED_PHRASE].",
+            ),
+            (
+                f"Wallet mnemonic {seed_phrase}",
+                "Wallet mnemonic [REDACTED_WALLET_SEED_PHRASE]",
+            ),
+        ]
+
+        for text, expected in cases:
+            with self.subTest(text=text):
+                redacted = redact_sensitive_content(text)
+                self.assertEqual(redacted, expected)
+                self.assertNotIn(seed_phrase, redacted)
+
+    def test_redaction_removes_wallet_seed_before_recovery_phrase_context(self):
+        seed_phrase = _wallet_seed_phrase_12()
+        text = f"{seed_phrase} is your recovery phrase. Do not share it."
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(
+            redacted,
+            "[REDACTED_WALLET_SEED_PHRASE] is your recovery phrase. Do not share it.",
+        )
+        self.assertNotIn(seed_phrase, redacted)
+
+    def test_redaction_removes_wallet_seed_before_are_my_recovery_words_context(self):
+        seed_phrase = _wallet_seed_phrase_18()
+        text = f"{seed_phrase} are my recovery words. Do not share them."
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(
+            redacted,
+            "[REDACTED_WALLET_SEED_PHRASE] are my recovery words. Do not share them.",
+        )
+        self.assertNotIn(seed_phrase, redacted)
+
+    def test_redaction_preserves_non_wallet_word_lists(self):
+        word_list = _wallet_seed_phrase_12()
+        text = f"Vocabulary review list: {word_list}. This is ordinary prose."
+
+        self.assertEqual(redact_sensitive_content(text), text)
+
+    def test_wallet_seed_redaction_keeps_existing_login_and_payment_redaction(self):
+        otp = "123456"
+        card = "4111 1111 1111 1111"
+        text = f"Your verification code is {otp}. Use payment card {card}."
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertIn("[REDACTED_OTP]", redacted)
+        self.assertIn("[REDACTED_PAYMENT_CARD]", redacted)
+        self.assertNotIn(otp, redacted)
+        self.assertNotIn(card, redacted)
 
     def test_redaction_removes_short_lived_login_codes(self):
         cases = [

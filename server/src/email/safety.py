@@ -122,6 +122,40 @@ _APP_PASSWORD_BEFORE_CONTEXT_RE = re.compile(
     rf"(?P<context>{_APP_PASSWORD_CONTEXT})\b",
     re.IGNORECASE,
 )
+_WALLET_SEED_PHRASE_PLACEHOLDER = "[REDACTED_WALLET_SEED_PHRASE]"
+_WALLET_SEED_CONTEXT = (
+    r"(?:"
+    r"(?:wallet\s+)?seed\s+(?:phrases?|words?)|"
+    r"(?:wallet\s+)?(?:secret\s+)?recovery\s+(?:phrases?|words?)|"
+    r"(?:wallet\s+)?backup\s+(?:phrases?|words?)|"
+    r"(?:wallet\s+)?mnemonics?(?:\s+phrases?)?"
+    r")"
+)
+_WALLET_SEED_WORD = r"[A-Za-z]{3,8}"
+_WALLET_SEED_WORD_COUNTS = (24, 21, 18, 15, 12)
+_WALLET_SEED_WORD_COUNT_PATTERNS = "|".join(
+    rf"(?:{_WALLET_SEED_WORD}\s+){{{word_count - 1}}}{_WALLET_SEED_WORD}"
+    for word_count in _WALLET_SEED_WORD_COUNTS
+)
+_WALLET_SEED_PHRASE_VALUE = (
+    rf"(?<![A-Za-z])(?:{_WALLET_SEED_WORD_COUNT_PATTERNS})(?![A-Za-z])"
+)
+_WALLET_SEED_AFTER_CONTEXT_RE = re.compile(
+    rf"\b(?P<context>{_WALLET_SEED_CONTEXT})\b"
+    rf"(?P<between>\s*(?:is|are|:|=|-)?\s*)"
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<seed_phrase>{_WALLET_SEED_PHRASE_VALUE})"
+    rf"(?(quote)(?P=quote))",
+    re.IGNORECASE,
+)
+_WALLET_SEED_BEFORE_CONTEXT_RE = re.compile(
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<seed_phrase>{_WALLET_SEED_PHRASE_VALUE})"
+    rf"(?(quote)(?P=quote))"
+    rf"(?P<between>\s+(?:is|are|as|for)\s+(?:your|my|the|this|a|an)?\s*)"
+    rf"(?P<context>{_WALLET_SEED_CONTEXT})\b",
+    re.IGNORECASE,
+)
 _GOOGLE_OAUTH_TOKEN_RE = re.compile(r"\bya29\.[A-Za-z0-9._-]+\b")
 _GOOGLE_REFRESH_TOKEN_RE = re.compile(r"\b1//[A-Za-z0-9._-]+\b")
 _JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b")
@@ -3452,6 +3486,19 @@ def _redact_app_passwords(text: str) -> str:
     return _APP_PASSWORD_BEFORE_CONTEXT_RE.sub(_redact_app_password, redacted)
 
 
+def _redact_wallet_seed_phrase(match: re.Match) -> str:
+    return _replace_match_group(
+        match,
+        "seed_phrase",
+        _WALLET_SEED_PHRASE_PLACEHOLDER,
+    )
+
+
+def _redact_wallet_seed_phrases(text: str) -> str:
+    redacted = _WALLET_SEED_AFTER_CONTEXT_RE.sub(_redact_wallet_seed_phrase, text)
+    return _WALLET_SEED_BEFORE_CONTEXT_RE.sub(_redact_wallet_seed_phrase, redacted)
+
+
 def _redact_private_key_assignment(match: re.Match) -> str:
     return (
         f"{match.group('prefix')}{match.group('quote')}"
@@ -3506,6 +3553,7 @@ def redact_sensitive_content(text: str) -> str:
     redacted = _API_TOKEN_RE.sub(r"\1\2[REDACTED_TOKEN]\2", redacted)
     redacted = _redact_short_lived_login_credentials(redacted)
     redacted = _redact_app_passwords(redacted)
+    redacted = _redact_wallet_seed_phrases(redacted)
     redacted = _PAYMENT_CARD_RE.sub(_redact_payment_card, redacted)
     redacted = _US_SSN_RE.sub("[REDACTED_SSN]", redacted)
     redacted = _EMAIL_RE.sub("[REDACTED_EMAIL]", redacted)
