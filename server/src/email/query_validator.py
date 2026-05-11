@@ -20,8 +20,11 @@ BLOCKED_QUERY_SCOPE_VALUES = {
     "label": {"draft", "drafts", "sent", "spam", "trash"},
 }
 _QUERY_SCOPE_OPERATOR_RE = "|".join(re.escape(operator) for operator in BLOCKED_QUERY_SCOPE_VALUES)
+# The optional negation prefix is deliberate for read-oriented insights: broad or
+# sensitive scopes are rejected whether positive or negated, including "- in:trash".
+# Only BLOCKED_QUERY_SCOPE_VALUES are blocked, so safe negations like from/category remain allowed.
 _QUERY_SCOPE_RE = re.compile(
-    rf"(?i)(?<![\w.:\-@])(?P<operator>{_QUERY_SCOPE_OPERATOR_RE})\s*:\s*"
+    rf"(?i)(?<![\w.:\-@])(?:-\s*)?(?P<operator>{_QUERY_SCOPE_OPERATOR_RE})\s*:\s*"
     r"(?P<value>\"(?:\\.|[^\"])*\"|'(?:\\.|[^'])*'|\([^)]*\)|\{[^}]*\}|[^\s(){}]+)"
 )
 _QUERY_SCOPE_VALUE_SPLIT_RE = re.compile(r"[\s,|]+")
