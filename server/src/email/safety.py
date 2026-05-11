@@ -77,6 +77,7 @@ BLOCKED_ACTIONS = {
     "grant_mailbox_access",
     "change_security_settings",
     "change_trusted_devices",
+    "change_session_settings",
     "change_security_key_settings",
     "change_mfa_settings",
     "disable_account_protection",
@@ -1439,6 +1440,32 @@ _TRUSTED_DEVICE_ACTION_SUFFIX = (
     rf"(?:\s+(?:from|for|in|on|within)\s+{_SECURITY_ACCOUNT_SETTING_TARGET})?"
     rf"{_TARGET_END}"
 )
+_SESSION_SETTING_SESSION_MODIFIER = (
+    r"(?:all|other|active|suspicious|unknown|unrecognized|current|account|"
+    r"login|log[-\s]?in|sign[-\s]?in)"
+)
+_SESSION_SETTING_SESSION_TARGET = (
+    r"(?:(?:the|this|that|your|my|our)\s+)?"
+    rf"(?:{_SESSION_SETTING_SESSION_MODIFIER}\s+){{0,4}}sessions?\b"
+)
+_SESSION_SETTING_DEVICE_TARGET = (
+    r"(?:(?:all|other|active|suspicious|unknown|unrecognized)\s+)?"
+    r"(?:devices?|browsers?|computers?|phones?)\b"
+)
+_SESSION_SETTING_ACCOUNT_TARGET = (
+    r"(?:(?:the|this|that|your|my|our)\s+)?"
+    r"(?:gmail|google\s+account|email\s+account|account)\b"
+)
+_SESSION_SETTING_SIGN_OUT_TARGET = (
+    rf"(?:{_SESSION_SETTING_SESSION_TARGET}|{_SESSION_SETTING_DEVICE_TARGET}|"
+    rf"{_SESSION_SETTING_ACCOUNT_TARGET})"
+)
+_SESSION_SETTING_ACCOUNT_SUFFIX = (
+    rf"(?:\s+(?:from|for|in|on|within)\s+{_SECURITY_ACCOUNT_SETTING_TARGET})?"
+)
+_SESSION_SETTING_ACTION_SUFFIX = (
+    rf"{_SESSION_SETTING_ACCOUNT_SUFFIX}{_TARGET_END}"
+)
 _SECURITY_KEY_SETTING_TARGET = (
     rf"(?:{_SECURITY_KEY_TARGET}|{_SECURITY_PASSKEY_TARGET}|"
     r"(?:(?:the|this|that|your|my|our)\s+)?"
@@ -1791,6 +1818,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "grant_mailbox_access",
     "change_security_settings",
     "change_trusted_devices",
+    "change_session_settings",
     "change_security_key_settings",
     "change_mfa_settings",
     "disable_account_protection",
@@ -1820,6 +1848,7 @@ _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "grant_mailbox_access",
     "change_security_settings",
     "change_trusted_devices",
+    "change_session_settings",
     "change_security_key_settings",
     "change_mfa_settings",
     "disable_account_protection",
@@ -3023,6 +3052,26 @@ _DIRECTIVE_PATTERNS = {
             rf"{_MIDLINE_ACTION_SUGGESTION_START}"
             rf"(?:change|update|configure|manage)\s+"
             rf"{_TRUSTED_DEVICE_SETTING_TARGET}{_TRUSTED_DEVICE_ACTION_SUFFIX}"
+        ),
+    ],
+    "change_session_settings": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:sign|log)\s+out\s+"
+            rf"(?:(?:of|from)\s+)?{_SESSION_SETTING_SIGN_OUT_TARGET}"
+            rf"{_SESSION_SETTING_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}(?:sign|log)\s+out\s+"
+            rf"(?:(?:of|from)\s+)?{_SESSION_SETTING_SIGN_OUT_TARGET}"
+            rf"{_SESSION_SETTING_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:revoke|terminate|end)\s+"
+            rf"{_SESSION_SETTING_SESSION_TARGET}{_SESSION_SETTING_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}(?:revoke|terminate|end)\s+"
+            rf"{_SESSION_SETTING_SESSION_TARGET}{_SESSION_SETTING_ACTION_SUFFIX}"
         ),
     ],
     "change_security_key_settings": [

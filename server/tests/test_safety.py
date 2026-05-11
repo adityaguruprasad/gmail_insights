@@ -609,9 +609,26 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(safety["effective_actions"], ["read", "summarize"])
         self.assertEqual(safety["blocked_actions"], ["change_security_settings"])
 
+    def test_session_settings_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(
+            ["read", "change_session_settings"]
+        )
+
+        self.assertEqual(effective, ["read"])
+        self.assertEqual(blocked, ["change_session_settings"])
+        self.assertNotIn("change_session_settings", effective)
+
+        safety = safety_metadata("change_session_settings")
+        self.assertEqual(safety["mode"], "read_only")
+        self.assertEqual(safety["effective_actions"], ["read", "summarize"])
+        self.assertEqual(safety["blocked_actions"], ["change_session_settings"])
+        self.assertIn("change_session_settings", safety_module.BLOCKED_ACTIONS)
+        self.assertNotIn("change_session_settings", safety_module.ALLOWED_ACTIONS)
+
     def test_account_security_specific_actions_are_supported_but_blocked(self):
         actions = [
             "change_trusted_devices",
+            "change_session_settings",
             "change_security_key_settings",
             "change_mfa_settings",
             "disable_account_protection",
@@ -2742,6 +2759,52 @@ class SafetyPolicyTests(unittest.TestCase):
                 self.assertEqual(guarded, "[Unsafe action suggestion removed]")
                 self.assertEqual(blocked, expected_blocked)
 
+    def test_neutralize_unsafe_action_suggestions_blocks_session_setting_directives(self):
+        cases = [
+            "Sign out of all devices.",
+            "Log out other sessions now.",
+            "Revoke active sessions from this account.",
+            "Terminate suspicious login sessions.",
+            "End all account sessions.",
+            "Recommended action: sign out other devices.",
+            "Action item: revoke all sessions.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["change_session_settings"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_session_setting_directives(self):
+        cases = [
+            "Sign out\nof all devices.",
+            "Revoke active\nsessions from this account.",
+            "Action item: end all account\nsessions.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["change_session_settings"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_session_setting_descriptions(self):
+        text = (
+            "The email mentions signing out of other devices for manual review.\n"
+            "Account session details are present for analysis.\n"
+            "Do not sign out from this email.\n"
+            "The user signed out yesterday.\n"
+            "Session metrics are summarized."
+        )
+
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
     def test_neutralize_unsafe_action_suggestions_blocks_account_protection_directives(self):
         cases = [
             "Turn off advanced protection",
@@ -2884,6 +2947,7 @@ class SafetyPolicyTests(unittest.TestCase):
             "change_recovery_email",
             "change_recovery_phone",
             "change_trusted_devices",
+            "change_session_settings",
             "change_security_key_settings",
             "change_mfa_settings",
             "disable_account_protection",
