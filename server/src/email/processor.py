@@ -1,4 +1,5 @@
 import logging
+import re
 
 from anthropic import Anthropic, HUMAN_PROMPT, AI_PROMPT
 from src.config.settings import ANTHROPIC_API_KEY
@@ -19,6 +20,16 @@ PROMPT_FIELD_MAX_SNIPPET = 600
 PROMPT_FIELD_MAX_SECURITY_WARNINGS = 800
 PROMPT_FIELD_MAX_CONTENT = 4000
 SUMMARY_MAX_RETURNED_LENGTH = 4000
+SECURITY_WARNING_MAX_RETURNED_LENGTH = 500
+
+_QUOTED_INSTRUCTION_DETAIL_RE = re.compile(
+    r"\[quoted-instruction:[^\]]+\]",
+    re.IGNORECASE,
+)
+_INLINE_ROLE_TAG_RE = re.compile(
+    r"\b(system|assistant|user|developer|tool)\s*:\s*",
+    re.IGNORECASE,
+)
 
 
 def _truncate_for_prompt(value, max_length: int) -> str:
@@ -41,6 +52,21 @@ def _clip_generated_summary(text, max_length: int = SUMMARY_MAX_RETURNED_LENGTH)
     return summary[: max_length - len(marker)] + marker
 
 
+def _clip_returned_security_warning(
+    text,
+    max_length: int = SECURITY_WARNING_MAX_RETURNED_LENGTH,
+) -> str:
+    warning = str(text) if text is not None else ""
+    if len(warning) <= max_length:
+        return warning
+
+    marker = PROMPT_TRUNCATION_MARKER
+    if max_length <= len(marker):
+        return marker[:max_length]
+
+    return warning[: max_length - len(marker)] + marker
+
+
 def _prepare_untrusted_email_field(value, max_length: int, redact_sensitive: bool = True) -> str:
     text = str(value) if value is not None else ""
     if redact_sensitive:
@@ -49,20 +75,73 @@ def _prepare_untrusted_email_field(value, max_length: int, redact_sensitive: boo
     return sanitize_untrusted_email_text(text)
 
 
-def _prepare_security_warnings(email, redact_sensitive: bool = True) -> str:
-    raw_warnings = email.get("security_warnings") or []
-    if isinstance(raw_warnings, str):
-        warnings_text = raw_warnings
-    else:
-        warnings_text = "\n".join(str(warning) for warning in raw_warnings)
+def _iter_security_warning_values(raw_warnings):
+    if not raw_warnings:
+        return []
 
-    if not warnings_text.strip():
+    if isinstance(raw_warnings, str):
+        warning_values = [raw_warnings]
+    elif isinstance(raw_warnings, (list, tuple, set)):
+        warning_values = raw_warnings
+    else:
+        warning_values = [raw_warnings]
+
+    values = []
+    for warning in warning_values:
+        if warning is None:
+            continue
+        values.extend(str(warning).splitlines())
+
+    return values
+
+
+def _prepare_security_warning_list(
+    email,
+    redact_sensitive: bool = True,
+    max_length: int = SECURITY_WARNING_MAX_RETURNED_LENGTH,
+) -> list:
+    raw_warnings = email.get("security_warnings") or []
+    sanitized_warnings = []
+    seen = set()
+
+    for warning in _iter_security_warning_values(raw_warnings):
+        text = warning.strip()
+        if not text:
+            continue
+
+        if redact_sensitive:
+            text = redact_sensitive_content(text)
+        text = sanitize_untrusted_email_text(text)
+        text = _INLINE_ROLE_TAG_RE.sub(
+            lambda match: f"[quoted-role {match.group(1).lower()}] ",
+            text,
+        )
+        text = _QUOTED_INSTRUCTION_DETAIL_RE.sub("[quoted-instruction]", text)
+        text = " ".join(text.split())
+        if max_length is not None:
+            text = _clip_returned_security_warning(text, max_length=max_length)
+        if not text or text in seen:
+            continue
+
+        sanitized_warnings.append(text)
+        seen.add(text)
+
+    return sanitized_warnings
+
+
+def _prepare_security_warnings(email, redact_sensitive: bool = True) -> str:
+    security_warnings = _prepare_security_warning_list(
+        email,
+        redact_sensitive=redact_sensitive,
+        max_length=None,
+    )
+
+    if not security_warnings:
         return "none"
 
-    return _prepare_untrusted_email_field(
-        warnings_text,
+    return _truncate_for_prompt(
+        "\n".join(security_warnings),
         PROMPT_FIELD_MAX_SECURITY_WARNINGS,
-        redact_sensitive=redact_sensitive,
     )
 
 
@@ -154,5 +233,9 @@ def extract_insights(email, redact_sensitive: bool = True):
         "subject": email.get("subject"),
         "sender": email.get("sender"),
         "is_archived": email.get("is_archived", False),
+        "security_warnings": _prepare_security_warning_list(
+            email,
+            redact_sensitive=redact_sensitive,
+        ),
         "summary": guarded_summary,
     }
