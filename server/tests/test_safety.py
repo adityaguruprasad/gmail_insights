@@ -918,6 +918,20 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(redacted, "Authorization: Bearer [REDACTED_TOKEN]")
         self.assertNotIn("abcdefghijklmnopqrstuvwxyz123456", redacted)
 
+    def test_redaction_removes_contextual_app_passwords(self):
+        app_password = _fixture_secret("abcd", " ", "efgh", " ", "ijkl", " ", "mnop")
+        cases = [
+            f"Gmail app password: {app_password}",
+            f"{app_password} is your Google app password.",
+            f"Application-specific password = {app_password}",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                redacted = redact_sensitive_content(text)
+                self.assertNotIn(app_password, redacted)
+                self.assertIn("[REDACTED_APP_PASSWORD]", redacted)
+
     def test_redaction_removes_short_lived_login_codes(self):
         cases = [
             ("Your verification code is 123456.", "123456"),
