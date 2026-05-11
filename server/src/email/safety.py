@@ -77,6 +77,7 @@ BLOCKED_ACTIONS = {
     "change_network_settings",
     "install_profile",
     "update_email_signature",
+    "change_send_as_settings",
     "submit_form",
 }
 
@@ -628,6 +629,35 @@ _EMAIL_SIGNATURE_DETAIL_SUFFIX = (
 )
 _EMAIL_SIGNATURE_ACTION_TARGET = (
     rf"{_EMAIL_SIGNATURE_TARGET}{_EMAIL_SIGNATURE_DETAIL_SUFFIX}{_TARGET_END}"
+)
+_SEND_AS_VALUE_NOUN = (
+    r"(?:vendor|supplier|accounting|accountant|bookkeeper|billing|sender|"
+    r"contact|recipient|person|team|address|email\s+address)"
+)
+_SEND_AS_VALUE_TARGET = (
+    rf"(?:{_EMAIL_TARGET}|(?:(?:the|this|that|an?|my|your|our)\s+)?"
+    rf"(?:[\w-]+\s+){{0,3}}{_SEND_AS_VALUE_NOUN}\b)"
+)
+_SEND_AS_OBJECT_TARGET = (
+    r"(?:(?:an?|the|this|that|my|your|our)\s+)?"
+    r"(?:(?:old|new)\s+)?"
+    r"(?:(?:gmail|google|email|mail|sender)\s+)?"
+    r"send[-\s]?as\s+(?:alias(?:es)?|address(?:es)?|settings?)\b"
+)
+_DEFAULT_FROM_TARGET = (
+    r"(?:(?:the|this|that|my|your|our)\s+)?"
+    r"default\s+(?:from\s+address|sender(?:\s+address)?)\b"
+)
+_REPLY_TO_TARGET = (
+    r"(?:(?:the|this|that|my|your|our)\s+)?"
+    r"reply[-\s]?to\s+address\b"
+)
+_SEND_AS_SETTING_ACTION_SUFFIX = (
+    rf"(?:\s+(?:to|as|with|using)\s+{_SEND_AS_VALUE_TARGET})?"
+    rf"{_TARGET_END}"
+)
+_SEND_AS_IDENTITY_SETTING_TARGET = (
+    rf"(?:{_SEND_AS_OBJECT_TARGET}|{_DEFAULT_FROM_TARGET}|{_REPLY_TO_TARGET})"
 )
 # Exclude ambiguous software/client/account-only nouns here so OAuth/app-access
 # directives stay classified under authorize_app unless the phrasing is mailbox-specific.
@@ -1499,6 +1529,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "change_network_settings",
     "install_profile",
     "update_email_signature",
+    "change_send_as_settings",
     "submit_form",
     "create_forwarding_rule",
     "set_auto_reply",
@@ -1525,6 +1556,7 @@ _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "update_account_contact",
     "approve_login_prompt",
     "update_email_signature",
+    "change_send_as_settings",
     "create_task",
     "provide_sensitive_info",
     "crypto_wallet_action",
@@ -1856,6 +1888,70 @@ _DIRECTIVE_PATTERNS = {
             rf"(?:set|update|change|add|create|remove|delete|enable|disable|"
             rf"modify|configure|replace|edit|reset|append\s+to)\s+"
             rf"{_EMAIL_SIGNATURE_ACTION_TARGET}"
+        ),
+    ],
+    "change_send_as_settings": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}add\s+{_SEND_AS_VALUE_TARGET}\s+"
+            rf"as\s+(?:an?\s+)?send[-\s]?as\s+(?:alias(?:es)?|address(?:es)?)"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}add\s+{_SEND_AS_VALUE_TARGET}\s+"
+            rf"as\s+(?:an?\s+)?send[-\s]?as\s+(?:alias(?:es)?|address(?:es)?)"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}set\s+{_SEND_AS_VALUE_TARGET}\s+"
+            rf"as\s+{_DEFAULT_FROM_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}set\s+{_SEND_AS_VALUE_TARGET}\s+"
+            rf"as\s+{_DEFAULT_FROM_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}make\s+{_SEND_AS_VALUE_TARGET}\s+"
+            rf"(?:as\s+)?{_DEFAULT_FROM_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}make\s+{_SEND_AS_VALUE_TARGET}\s+"
+            rf"(?:as\s+)?{_DEFAULT_FROM_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}use\s+{_SEND_AS_VALUE_TARGET}\s+"
+            rf"as\s+{_REPLY_TO_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}use\s+{_SEND_AS_VALUE_TARGET}\s+"
+            rf"as\s+{_REPLY_TO_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:set|change|update)\s+"
+            rf"{_REPLY_TO_TARGET}\s+to\s+{_SEND_AS_VALUE_TARGET}"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}(?:set|change|update)\s+"
+            rf"{_REPLY_TO_TARGET}\s+to\s+{_SEND_AS_VALUE_TARGET}"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:set|change|update|configure)\s+"
+            rf"{_SEND_AS_IDENTITY_SETTING_TARGET}"
+            rf"{_SEND_AS_SETTING_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}(?:set|change|update|configure)\s+"
+            rf"{_SEND_AS_IDENTITY_SETTING_TARGET}"
+            rf"{_SEND_AS_SETTING_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:remove|delete)\s+"
+            rf"{_SEND_AS_OBJECT_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}(?:remove|delete)\s+"
+            rf"{_SEND_AS_OBJECT_TARGET}{_TARGET_END}"
         ),
     ],
     "unsubscribe": [
