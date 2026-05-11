@@ -57,6 +57,7 @@ BLOCKED_ACTIONS = {
     "update_account_contact",
     "use_verification_code",
     "approve_login_prompt",
+    "manage_backup_codes",
     "accept_invite",
     "decline_invite",
     "tentative_invite",
@@ -1259,7 +1260,29 @@ _SECURITY_ENROLLMENT_SUFFIX = (
     rf"\s+(?:using|via|through)\s+{_SECURITY_ENROLLMENT_METHOD_TARGET})?"
 )
 _SECURITY_BACKUP_CODES_TARGET = (
-    r"(?:(?:the|this|that|your|my|our)\s+)?backup\s+codes?\b"
+    r"(?:(?:the|this|that|your|my|our|an?|all)\s+)?"
+    r"(?:"
+    r"(?:(?:2fa\s*/\s*mfa|mfa\s*/\s*2fa|2fa|mfa|"
+    r"two[-\s]?factor|multi[-\s]?factor)"
+    r"(?:\s+authentication)?\s+)?backup\s+codes?|"
+    r"(?:account\s+)?recovery\s+codes?"
+    r")\b"
+)
+_SECURITY_BACKUP_CODES_LOCATION = (
+    r"(?:(?:the|this|that|your|my|our|an?)\s+)?"
+    r"(?:account|gmail|google\s+account|email\s+account|"
+    r"security\s+settings?|account\s+settings?|settings|"
+    r"page|portal|app|application|browser|device|"
+    r"file|document|pdf|csv|spreadsheet|text\s+file|notes?|folder|"
+    r"password\s+manager|authenticator(?:\s+app)?|2fa\s+app|mfa\s+app|"
+    r"link|url|website|webpage|site|cloud|drive|"
+    r"safe\s+place|secure\s+place|offline\s+copy|records?|safekeeping)\b"
+)
+_SECURITY_BACKUP_CODES_SUFFIX = (
+    rf"(?:\s+(?:from|for|in|on|within|to|into|onto|as|using|via|through)\s+"
+    rf"{_SECURITY_BACKUP_CODES_LOCATION}|"
+    rf"\s+(?:somewhere\s+(?:safe|secure)|securely))?"
+    rf"{_TARGET_END}"
 )
 _SECURITY_QUESTION_TARGET = (
     r"(?:(?:the|this|that|your|my|our|an?)\s+)?"
@@ -1509,6 +1532,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "update_account_contact",
     "use_verification_code",
     "approve_login_prompt",
+    "manage_backup_codes",
     "accept_invite",
     "decline_invite",
     "tentative_invite",
@@ -1555,6 +1579,7 @@ _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "install_profile",
     "update_account_contact",
     "approve_login_prompt",
+    "manage_backup_codes",
     "update_email_signature",
     "change_send_as_settings",
     "create_task",
@@ -2291,6 +2316,20 @@ _DIRECTIVE_PATTERNS = {
             rf"(?:on|in|within)\s+{_LOGIN_APPROVAL_RESPONSE_TARGET}{_TARGET_END}"
         ),
     ],
+    "manage_backup_codes": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:generate|create|get|view|show|reveal|download|export|"
+            rf"save|copy|print|regenerate|reset|replace)\s+"
+            rf"{_SECURITY_BACKUP_CODES_TARGET}{_SECURITY_BACKUP_CODES_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:generate|create|get|view|show|reveal|download|export|"
+            rf"save|copy|print|regenerate|reset|replace)\s+"
+            rf"{_SECURITY_BACKUP_CODES_TARGET}{_SECURITY_BACKUP_CODES_SUFFIX}"
+        ),
+    ],
     "accept_invite": [
         re.compile(rf"{_ACTION_SUGGESTION_START}accept\s+{_INVITE_TARGET}"),
         re.compile(rf"{_ACTION_SUGGESTION_START}rsvp\s+yes\s+to\s+{_INVITE_TARGET}"),
@@ -2626,10 +2665,6 @@ _DIRECTIVE_PATTERNS = {
             rf"{_ACTION_SUGGESTION_START}remove\s+"
             rf"{_SECURITY_KEY_TARGET}{_SECURITY_ACCOUNT_SETTING_SUFFIX}"
             rf"{_TARGET_END}"
-        ),
-        re.compile(
-            rf"{_ACTION_SUGGESTION_START}(?:reset|regenerate|replace)\s+"
-            rf"{_SECURITY_BACKUP_CODES_TARGET}{_TARGET_END}"
         ),
         re.compile(
             rf"{_ACTION_SUGGESTION_START}"
