@@ -1555,9 +1555,10 @@ _ACCOUNT_RECOVERY_PHONE_ACTION_SUFFIX = (
     rf"(?:\s+(?:to|for|on|in|from)\s+{_ACCOUNT_CONTACT_ACCOUNT_CONTEXT})?"
     rf"{_TARGET_END}"
 )
+_FORM_DOCUMENT_NOUN = r"(?:forms?|surveys?|questionnaires?|applications?)"
 _FORM_OBJECT = (
     r"(?:(?:the|this|that|an?|your)\s+)?"
-    r"(?:(?:[\w-]+\s+){0,3})?forms?\b"
+    rf"(?:(?:[\w-]+\s+){{0,3}})?{_FORM_DOCUMENT_NOUN}\b"
 )
 _FORM_DETAIL_NOUN = r"(?:details|information|info|credentials?)"
 _FORM_DETAIL_SOURCE = (
@@ -1565,7 +1566,44 @@ _FORM_DETAIL_SOURCE = (
     rf"{_FORM_DETAIL_NOUN}\b"
 )
 _FORM_DETAILS_SUFFIX = rf"(?:\s+with\s+{_FORM_DETAIL_SOURCE})?"
-_FORM_SUBMISSION_TARGET = rf"{_FORM_OBJECT}{_FORM_DETAILS_SUFFIX}{_TARGET_END}"
+_FORM_SUBMISSION_LOCATION_NOUN = (
+    r"(?:links?|urls?|websites?|sites?|webpages?|pages?|portals?|"
+    r"forms?|surveys?|questionnaires?|applications?)"
+)
+_FORM_SUBMISSION_LOCATION = (
+    r"(?:(?:the|this|that|an?|your)\s+)?"
+    rf"(?:(?:[\w-]+\s+){{0,3}})?{_FORM_SUBMISSION_LOCATION_NOUN}\b"
+)
+_FORM_SUBMISSION_DESTINATION = (
+    rf"(?:{_EXTERNAL_URL_TARGET}|{_FORM_SUBMISSION_LOCATION})"
+)
+_FORM_SUBMISSION_LOCATION_SUFFIX = (
+    rf"(?:\s+(?:via|through|using|on|at|in|into)\s+"
+    rf"{_FORM_SUBMISSION_DESTINATION})?"
+)
+_FORM_SUBMISSION_FOLLOWUP_SUFFIX = (
+    rf"(?:\s+and\s+(?:submit|send)\s+(?:it|them)"
+    rf"(?:\s+(?:via|through|using|on|at|in|into)\s+"
+    rf"{_FORM_SUBMISSION_DESTINATION})?)?"
+)
+_FORM_SUBMISSION_TARGET = (
+    rf"{_FORM_OBJECT}{_FORM_DETAILS_SUFFIX}{_FORM_SUBMISSION_LOCATION_SUFFIX}"
+    rf"{_FORM_SUBMISSION_FOLLOWUP_SUFFIX}{_TARGET_END}"
+)
+_FORM_SUBMISSION_CHANNEL_TARGET = (
+    rf"(?:via|through|using|on|at|in|into)\s+"
+    rf"{_FORM_SUBMISSION_DESTINATION}{_TARGET_END}"
+)
+_FORM_SUBMISSION_VERB = (
+    r"(?:submit|fill[-\s]+(?:out|in)|complete|send|sign(?:\s+and\s+submit)?)"
+)
+_FORM_ACTION_SUGGESTION_START = (
+    rf"(?i)^\s*(?:[-*]|\d+[.)])?\s*"
+    rf"{_ACTION_ROLE_PREFIX}"
+    rf"(?:(?:{_RECOMMENDATION_KEYWORD})\s*:?\s*)?"
+    rf"{_INSIGHT_SECTION_PREFIX}"
+    r"(?:(?:please|first|then|next|just|now|also)\s+){0,4}"
+)
 _SENSITIVE_INFO_PAYMENT_METHOD_NOUN = (
     r"(?:bank\s+account(?:\s+(?:numbers?|details|information|info))?|"
     r"routing\s+numbers?|"
@@ -1781,6 +1819,7 @@ _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "change_filter_settings",
     "change_blocked_senders",
     "change_thread_mute_state",
+    "submit_form",
 }
 _DIRECTIVE_PATTERNS = {
     "provide_sensitive_info": [
@@ -3126,19 +3165,23 @@ _DIRECTIVE_PATTERNS = {
     ],
     "submit_form": [
         re.compile(
-            rf"{_ACTION_SUGGESTION_START}submit\s+"
+            rf"{_FORM_ACTION_SUGGESTION_START}{_FORM_SUBMISSION_VERB}\s+"
             rf"{_FORM_SUBMISSION_TARGET}"
         ),
         re.compile(
-            rf"{_ACTION_SUGGESTION_START}fill\s+out\s+"
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}{_FORM_SUBMISSION_VERB}\s+"
             rf"{_FORM_SUBMISSION_TARGET}"
         ),
         re.compile(
-            rf"{_ACTION_SUGGESTION_START}complete\s+"
-            rf"{_FORM_SUBMISSION_TARGET}"
+            rf"{_FORM_ACTION_SUGGESTION_START}submit\s+"
+            rf"{_FORM_SUBMISSION_CHANNEL_TARGET}"
         ),
         re.compile(
-            rf"{_ACTION_SUGGESTION_START}(?:enter|provide)\s+"
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}submit\s+"
+            rf"{_FORM_SUBMISSION_CHANNEL_TARGET}"
+        ),
+        re.compile(
+            rf"{_FORM_ACTION_SUGGESTION_START}(?:enter|provide)\s+"
             rf"{_FORM_DETAIL_SOURCE}\s+(?:in|into|on|through|via)\s+"
             rf"{_FORM_OBJECT}{_TARGET_END}"
         ),
@@ -3309,6 +3352,7 @@ def _directive_actions(line: str) -> List[str]:
     actions = _suppress_overlapping_gift_card_payment_actions(line, actions)
     actions = _suppress_overlapping_password_manager_secret_actions(line, actions)
     actions = _suppress_overlapping_account_security_actions(line, actions)
+    actions = _suppress_overlapping_form_send_actions(line, actions)
     return _suppress_overlapping_install_software_actions(line, actions)
 
 
@@ -3380,6 +3424,22 @@ def _suppress_overlapping_account_security_actions(
         return actions
 
     return [action for action in actions if action not in suppressed]
+
+
+def _suppress_overlapping_form_send_actions(line: str, actions: List[str]) -> List[str]:
+    if not {"send", "submit_form"}.issubset(actions):
+        return actions
+
+    submit_form_spans = _directive_match_spans(line, "submit_form")
+    send_spans = _directive_match_spans(line, "send")
+    if any(
+        _spans_overlap(send_span, submit_form_span)
+        for send_span in send_spans
+        for submit_form_span in submit_form_spans
+    ):
+        return [action for action in actions if action != "send"]
+
+    return actions
 
 
 def _suppress_overlapping_crypto_wallet_payment_actions(
@@ -3555,6 +3615,37 @@ def _suppress_split_line_account_contact_overlaps(
             direct_actions_by_index[line_index].discard("change_mfa_settings")
 
 
+def _suppress_split_line_form_send_overlaps(
+    lines: List[str],
+    index: int,
+    direct_actions_by_index: List[Set[str]],
+    combined: str,
+) -> None:
+    submit_form_spans = _directive_match_spans(combined, "submit_form")
+    if not submit_form_spans:
+        return
+
+    line_boundary = len(lines[index]) + 1
+    line_offsets = (
+        (index, 0),
+        (index + 1, line_boundary),
+    )
+    for line_index, offset in line_offsets:
+        if "send" not in direct_actions_by_index[line_index]:
+            continue
+
+        send_spans = [
+            (start + offset, end + offset)
+            for start, end in _directive_match_spans(lines[line_index], "send")
+        ]
+        if any(
+            _spans_overlap(send_span, submit_form_span)
+            for send_span in send_spans
+            for submit_form_span in submit_form_spans
+        ):
+            direct_actions_by_index[line_index].discard("send")
+
+
 def neutralize_unsafe_action_suggestions(text: str) -> Tuple[str, List[str]]:
     """Remove unsafe action-suggestion lines from model output."""
     if not text:
@@ -3583,6 +3674,10 @@ def neutralize_unsafe_action_suggestions(text: str) -> Tuple[str, List[str]]:
             )
         if "update_account_contact" in actions:
             _suppress_split_line_account_contact_overlaps(
+                lines, index, direct_actions_by_index, combined
+            )
+        if "submit_form" in actions:
+            _suppress_split_line_form_send_overlaps(
                 lines, index, direct_actions_by_index, combined
             )
         blocked_found.update(actions)

@@ -673,6 +673,15 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(safety["mode"], "read_only")
         self.assertEqual(safety["effective_actions"], ["read", "summarize"])
         self.assertEqual(safety["blocked_actions"], ["submit_form"])
+        self.assertIn(
+            "submit_form",
+            safety_module._DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS,
+        )
+        self.assertIn(
+            "submit_form",
+            safety_module._DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS,
+        )
+        self.assertNotIn("submit_form", safety_module._ACTION_WORD_PATTERNS)
 
     def test_sign_in_action_is_supported_but_blocked(self):
         effective, blocked = evaluate_requested_actions(["read", "sign_in"])
@@ -3108,12 +3117,34 @@ class SafetyPolicyTests(unittest.TestCase):
         cases = [
             "Submit the form.",
             "Submit this web form.",
+            "Submit the survey.",
+            "Submit the questionnaire.",
+            "Submit the application through the portal.",
+            "Summary: submit the application through the portal.",
+            "Submit via the portal.",
             "Fill out the form.",
+            "Fill in the questionnaire.",
             "Complete the form with your details.",
+            "Complete your application.",
+            "Sign the application.",
+            "Send the completed application.",
             "Enter your information in the form.",
             "Provide your details in the form.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["submit_form"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_submit_form_recommendations(self):
+        cases = [
             "Action item: submit the registration form.",
             "Recommended action: fill out the survey form.",
+            "You should complete the questionnaire.",
+            "Recommended action: sign and submit the application.",
+            "Action item: send the completed survey.",
         ]
 
         for text in cases:
@@ -3126,6 +3157,10 @@ class SafetyPolicyTests(unittest.TestCase):
         cases = [
             "Submit the\nform.",
             "Fill out the\nsurvey form.",
+            "Fill in the\nquestionnaire.",
+            "Sign and submit\nthe application.",
+            "Send the completed\napplication.",
+            "Submit the form\nthrough the portal.",
         ]
 
         for text in cases:
@@ -3143,7 +3178,11 @@ class SafetyPolicyTests(unittest.TestCase):
             "Form submission instructions are included.\n"
             "The form was submitted yesterday.\n"
             "Survey form details are present for analysis.\n"
-            "Do not submit the form."
+            "The questionnaire was completed yesterday.\n"
+            "The application form is ready for manual review.\n"
+            "Summary: The application form is ready for manual review.\n"
+            "Do not submit the form.\n"
+            "Do not submit the application through the portal."
         )
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)
