@@ -1115,6 +1115,81 @@ class SafetyPolicyTests(unittest.TestCase):
             "Password reset link: [REDACTED_SENSITIVE_LINK].",
         )
 
+    def test_redaction_redacts_credential_query_parameters_in_standalone_urls(self):
+        sensitive_param_names = [
+            "token",
+            "code",
+            "state",
+            "auth",
+            "access_token",
+            "refresh_token",
+            "id_token",
+            "session",
+            "ticket",
+            "key",
+            "signature",
+            "sig",
+            "jwt",
+        ]
+
+        for param_name in sensitive_param_names:
+            secret = _fixture_secret(
+                "credential", "-", param_name, "-", "value", "123"
+            )
+            url = (
+                "https://accounts.example.test/oauth/callback"
+                f"?client_id=public-client&{param_name}={secret}&next=%2Fhome"
+            )
+
+            with self.subTest(param_name=param_name):
+                redacted = redact_sensitive_content(f"Review URL: {url}.")
+
+                self.assertNotIn(secret, redacted)
+                self.assertIn(
+                    "https://accounts.example.test/oauth/callback",
+                    redacted,
+                )
+                self.assertIn("client_id=public-client", redacted)
+                self.assertIn(
+                    f"{param_name}=[REDACTED_CREDENTIAL_QUERY_VALUE]",
+                    redacted,
+                )
+                self.assertIn("next=%2Fhome", redacted)
+                self.assertTrue(redacted.endswith("."))
+
+    def test_redaction_redacts_token_query_values_after_token_pattern_redaction(self):
+        token = _fixture_secret(
+            "ya29.",
+            "a0AfH6SM",
+            "abcdefghijklmnopqrstuvwxyz",
+            "_0123456789",
+        )
+        text = (
+            "Review URL: https://accounts.example.test/oauth/callback"
+            f"?token={token}."
+        )
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(
+            redacted,
+            "Review URL: https://accounts.example.test/oauth/callback"
+            "?token=[REDACTED_CREDENTIAL_QUERY_VALUE].",
+        )
+        self.assertNotIn(token, redacted)
+        self.assertNotIn("[REDACTED_CREDENTIAL_QUERY_VALUE]].", redacted)
+
+    def test_redaction_preserves_standalone_urls_without_sensitive_query_parameters(self):
+        text = (
+            "Docs: https://help.example.test/reset-faq"
+            "?topic=tokenization&code_sample=true#overview and "
+            "OAuth docs: https://auth.example.test/oauth/authorize"
+            "?client_id=public-client&redirect_uri=https%3A%2F%2Fapp.example.test%2Fcb"
+            "&scope=openid."
+        )
+
+        self.assertEqual(redact_sensitive_content(text), text)
+
     def test_redaction_removes_valid_payment_card_numbers_with_separators(self):
         card = "4111-1111-1111-1111"
         text = f"Use payment card {card} for the billing test."

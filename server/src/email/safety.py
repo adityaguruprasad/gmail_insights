@@ -1,5 +1,6 @@
 import re
 from typing import Iterable, List, Set, Tuple
+from urllib.parse import unquote_plus, urlsplit
 
 ALLOWED_ACTIONS = {
     "read",
@@ -321,6 +322,28 @@ _OTP_CODE_AFTER_ACTION_RE = re.compile(
 _SENSITIVE_LINK_URL_TARGET = (
     r"(?:https?://[^\s<>\]\"']{1,2048}|www\.[^\s<>\]\"']{1,2048})"
 )
+_CREDENTIAL_QUERY_VALUE_PLACEHOLDER = "[REDACTED_CREDENTIAL_QUERY_VALUE]"
+_CREDENTIAL_QUERY_PARAM_NAMES = {
+    "token",
+    "code",
+    "state",
+    "auth",
+    "access_token",
+    "refresh_token",
+    "id_token",
+    "session",
+    "ticket",
+    "key",
+    "signature",
+    "sig",
+    "jwt",
+}
+_CREDENTIAL_QUERY_URL_RE = re.compile(
+    r"(?P<url>(?:https?://|www\.)[^\s<>\"']{1,2048})",
+    re.IGNORECASE,
+)
+_QUERY_PARAM_SEPARATOR_RE = re.compile(r"([&;])")
+_REDACTION_PLACEHOLDER_SUFFIX_RE = re.compile(r"\[REDACTED_[A-Z0-9_]+\]$")
 _SENSITIVE_LINK_CONTEXT = (
     r"(?:"
     r"password\s+reset|"
@@ -3529,12 +3552,19 @@ def _redact_otp_code(match: re.Match) -> str:
     return _replace_match_group(match, "code", "[REDACTED_OTP]")
 
 
-def _redact_sensitive_link(match: re.Match) -> str:
-    url = match.group("url")
+def _split_url_trailing_punctuation(url: str) -> Tuple[str, str]:
     trailing_punctuation = ""
     while url and url[-1] in _SENSITIVE_URL_TRAILING_PUNCTUATION:
+        if url[-1] == "]" and _REDACTION_PLACEHOLDER_SUFFIX_RE.search(url):
+            break
         trailing_punctuation = url[-1] + trailing_punctuation
         url = url[:-1]
+
+    return url, trailing_punctuation
+
+
+def _redact_sensitive_link(match: re.Match) -> str:
+    _, trailing_punctuation = _split_url_trailing_punctuation(match.group("url"))
 
     return (
         match.string[match.start() : match.start("url")]
@@ -3542,6 +3572,80 @@ def _redact_sensitive_link(match: re.Match) -> str:
         + trailing_punctuation
         + match.string[match.end("url") : match.end()]
     )
+
+
+def _normalized_query_param_name(name: str) -> str:
+    return unquote_plus(name).lower().replace("-", "_")
+
+
+def _redact_credential_query_string(query: str) -> Tuple[str, bool]:
+    changed = False
+    redacted_parts = []
+
+    for part in _QUERY_PARAM_SEPARATOR_RE.split(query):
+        if part in {"&", ";"}:
+            redacted_parts.append(part)
+            continue
+
+        name, separator, value = part.partition("=")
+        if (
+            separator
+            and value
+            and _normalized_query_param_name(name) in _CREDENTIAL_QUERY_PARAM_NAMES
+        ):
+            redacted_parts.append(
+                f"{name}{separator}{_CREDENTIAL_QUERY_VALUE_PLACEHOLDER}"
+            )
+            changed = True
+        else:
+            redacted_parts.append(part)
+
+    return "".join(redacted_parts), changed
+
+
+def _redact_credential_query_params_in_url(match: re.Match) -> str:
+    url, trailing_punctuation = _split_url_trailing_punctuation(match.group("url"))
+
+    candidate = url
+    if candidate.lower().startswith("www."):
+        candidate = f"https://{candidate}"
+
+    try:
+        parsed = urlsplit(candidate)
+    except ValueError:
+        return match.group(0)
+
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        return match.group(0)
+
+    query_start = url.find("?")
+    if query_start < 0:
+        return match.group(0)
+
+    fragment_start = url.find("#", query_start + 1)
+    if fragment_start < 0:
+        query = url[query_start + 1 :]
+        suffix = ""
+    else:
+        query = url[query_start + 1 : fragment_start]
+        suffix = url[fragment_start:]
+
+    redacted_query, changed = _redact_credential_query_string(query)
+    if not changed:
+        return match.group(0)
+
+    redacted_url = (
+        url[: query_start + 1] + redacted_query + suffix + trailing_punctuation
+    )
+    return (
+        match.string[match.start() : match.start("url")]
+        + redacted_url
+        + match.string[match.end("url") : match.end()]
+    )
+
+
+def _redact_credential_query_params(text: str) -> str:
+    return _CREDENTIAL_QUERY_URL_RE.sub(_redact_credential_query_params_in_url, text)
 
 
 def _redact_short_lived_login_credentials(text: str) -> str:
@@ -3657,8 +3761,9 @@ def redact_sensitive_content(text: str) -> str:
     redacted = _GITHUB_TOKEN_RE.sub("[REDACTED_GITHUB_TOKEN]", redacted)
     redacted = _STRIPE_SECRET_KEY_RE.sub("[REDACTED_STRIPE_KEY]", redacted)
     redacted = _BEARER_TOKEN_RE.sub(r"\1[REDACTED_TOKEN]", redacted)
-    redacted = _API_TOKEN_RE.sub(r"\1\2[REDACTED_TOKEN]\2", redacted)
     redacted = _redact_short_lived_login_credentials(redacted)
+    redacted = _redact_credential_query_params(redacted)
+    redacted = _API_TOKEN_RE.sub(r"\1\2[REDACTED_TOKEN]\2", redacted)
     redacted = _redact_app_passwords(redacted)
     redacted = _redact_wallet_seed_phrases(redacted)
     redacted = _redact_bank_credentials(redacted)
