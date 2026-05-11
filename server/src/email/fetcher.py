@@ -3,7 +3,7 @@ import re
 from email import policy
 from email.parser import Parser
 from html.parser import HTMLParser
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlsplit
 
 GMAIL_MESSAGE_LIST_FIELDS = "messages(id)"
@@ -127,6 +127,29 @@ _ARCHIVE_ATTACHMENT_EXTENSIONS = {
     ".bz2",
     ".xz",
     ".iso",
+}
+_BENIGN_DOCUMENT_MEDIA_ATTACHMENT_EXTENSIONS = {
+    ".csv",
+    ".doc",
+    ".docx",
+    ".gif",
+    ".jpeg",
+    ".jpg",
+    ".mov",
+    ".mp3",
+    ".mp4",
+    ".odp",
+    ".ods",
+    ".odt",
+    ".pdf",
+    ".png",
+    ".ppt",
+    ".pptx",
+    ".rtf",
+    ".txt",
+    ".wav",
+    ".xls",
+    ".xlsx",
 }
 _DISPLAY_URL_STRIP_CHARS = " \t\r\n\f\v<>()[]{}\"'`"
 _DISPLAY_URL_TRAILING_PUNCTUATION = ".,;:!?"
@@ -422,16 +445,55 @@ def _attachment_filename(part: Dict) -> str:
     return " ".join(filename.replace("\r", " ").replace("\n", " ").split())
 
 
-def _attachment_extension(filename: str) -> str:
+def _attachment_extensions(filename: str) -> List[str]:
     normalized = filename.strip().lower().rstrip(" .")
     basename = re.split(r"[\\/]", normalized)[-1]
     if "." not in basename:
+        return []
+
+    return [f".{extension}" for extension in basename.split(".")[1:] if extension]
+
+
+def _attachment_extension(filename: str) -> str:
+    extensions = _attachment_extensions(filename)
+    if not extensions:
         return ""
 
-    return f".{basename.rsplit('.', 1)[1]}"
+    return extensions[-1]
+
+
+def _deceptive_double_attachment_extensions(
+    filename: str,
+) -> Optional[Tuple[str, str]]:
+    extensions = _attachment_extensions(filename)
+    if len(extensions) < 2:
+        return None
+
+    previous_extension, extension = extensions[-2], extensions[-1]
+    if (
+        extension not in _EXECUTABLE_ATTACHMENT_EXTENSIONS
+        and extension not in _MACRO_ENABLED_ATTACHMENT_EXTENSIONS
+    ):
+        return None
+
+    if (
+        previous_extension not in _BENIGN_DOCUMENT_MEDIA_ATTACHMENT_EXTENSIONS
+        and previous_extension not in _ARCHIVE_ATTACHMENT_EXTENSIONS
+    ):
+        return None
+
+    return previous_extension, extension
 
 
 def _attachment_security_warning(filename: str) -> Optional[str]:
+    double_extensions = _deceptive_double_attachment_extensions(filename)
+    if double_extensions:
+        previous_extension, extension = double_extensions
+        return (
+            f"Attachment {filename} uses a deceptive double extension "
+            f"({previous_extension}{extension}) and may contain active content."
+        )
+
     extension = _attachment_extension(filename)
     if extension in _MACRO_ENABLED_ATTACHMENT_EXTENSIONS:
         return (
