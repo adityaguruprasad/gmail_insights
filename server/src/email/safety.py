@@ -48,6 +48,7 @@ BLOCKED_ACTIONS = {
     "upload_file",
     "load_remote_content",
     "enable_browser_notifications",
+    "change_browser_sync_settings",
     "scan_qr_code",
     "start_remote_access",
     "call_phone",
@@ -1016,6 +1017,34 @@ _BROWSER_NOTIFICATION_PERMISSION_TARGET = (
     rf"{_BROWSER_NOTIFICATION_CONTEXT}"
     rf")"
 )
+_BROWSER_SYNC_APP = r"(?:chrome|edge|firefox|safari|brave|browser|web\s+browser)"
+_BROWSER_SYNC_SCOPE = rf"(?:{_BROWSER_SYNC_APP}|cloud)"
+_BROWSER_SYNC_SETTING_TARGET = (
+    rf"(?:"
+    rf"(?:{_BROWSER_SYNC_APP}|cloud)\s+sync(?:ing)?|"
+    rf"{_BROWSER_SYNC_SCOPE}\s+profile\s+sync(?:ing)?|"
+    rf"profile\s+sync(?:ing)?\s+(?:in|within|on|for)\s+"
+    rf"(?:(?:the|your)\s+)?{_BROWSER_SYNC_APP}"
+    rf")"
+)
+_BROWSER_SYNC_DESTINATION = (
+    r"(?:(?:the|this|that|your|my|our|an?)\s+)?"
+    r"(?:accounts?|cloud|browsers?|devices?|profiles?|settings)\b"
+)
+_BROWSER_SYNC_PROFILE_TARGET = (
+    r"(?:(?:your|the|this|that|my|our)\s+)?"
+    rf"{_BROWSER_SYNC_SCOPE}\s+profiles?\b"
+    rf"(?:\s+(?:with|to|into|in|on|within|for)\s+"
+    rf"{_BROWSER_SYNC_DESTINATION})?"
+)
+_BROWSER_SYNC_SIGN_IN_TARGET = (
+    r"(?:(?:your|the|this|that)\s+)?"
+    rf"(?:{_BROWSER_SYNC_APP}\s+sync|"
+    rf"{_BROWSER_SYNC_SCOPE}\s+profiles?|"
+    rf"{_BROWSER_SYNC_APP}\s+to\s+sync(?:\s+"
+    r"(?:passwords?|bookmarks?|sessions?|settings?|profiles?|"
+    r"browser\s+profiles?|browser\s+data|data))?)"
+)
 _REMOTE_ACCESS_SESSION_NOUN = (
     r"(?:(?:remote\s+(?:desktop|support|assistance)|screen[-\s]+sharing|support)"
     r"\s+sessions?)"
@@ -1789,6 +1818,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "upload_file",
     "load_remote_content",
     "enable_browser_notifications",
+    "change_browser_sync_settings",
     "scan_qr_code",
     "start_remote_access",
     "call_phone",
@@ -1872,6 +1902,7 @@ _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "set_auto_reply",
     "start_remote_access",
     "enable_browser_notifications",
+    "change_browser_sync_settings",
     "change_filter_settings",
     "change_blocked_senders",
     "change_thread_mute_state",
@@ -2479,6 +2510,27 @@ _DIRECTIVE_PATTERNS = {
             rf"{_BROWSER_NOTIFICATION_CONTEXT}\s+to\s+"
             rf"(?:send(?:\s+you)?|push|deliver)\s+"
             rf"{_BROWSER_NOTIFICATION_SEND_NOUN}{_TARGET_END}"
+        ),
+    ],
+    "change_browser_sync_settings": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:enable|activate|turn\s+on|switch\s+on)\s+"
+            rf"{_BROWSER_SYNC_SETTING_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:sync|synchronize)\s+"
+            rf"{_BROWSER_SYNC_PROFILE_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:sign\s+in|log\s+in|login|authenticate)\b\s+"
+            rf"(?:to|into|on|with)\s+"
+            rf"{_BROWSER_SYNC_SIGN_IN_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:sign\s+into|log\s+into)\s+"
+            rf"{_BROWSER_SYNC_SIGN_IN_TARGET}{_TARGET_END}"
         ),
     ],
     "start_remote_access": [

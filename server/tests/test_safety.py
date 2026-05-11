@@ -349,6 +349,40 @@ class SafetyPolicyTests(unittest.TestCase):
             safety_module.BLOCKED_ACTIONS,
         )
 
+    def test_browser_sync_settings_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(
+            ["read", "change_browser_sync_settings"]
+        )
+
+        self.assertEqual(effective, ["read"])
+        self.assertEqual(blocked, ["change_browser_sync_settings"])
+        self.assertNotIn("change_browser_sync_settings", effective)
+
+        safety = safety_metadata(["read", "change_browser_sync_settings"])
+        self.assertEqual(safety["mode"], "read_only")
+        self.assertEqual(safety["effective_actions"], ["read"])
+        self.assertEqual(safety["blocked_actions"], ["change_browser_sync_settings"])
+        self.assertIn(
+            "change_browser_sync_settings",
+            safety_module.BLOCKED_ACTIONS,
+        )
+        self.assertNotIn(
+            "change_browser_sync_settings",
+            safety_module.ALLOWED_ACTIONS,
+        )
+        self.assertIn(
+            "change_browser_sync_settings",
+            safety_module._DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS,
+        )
+        self.assertIn(
+            "change_browser_sync_settings",
+            safety_module._DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS,
+        )
+        self.assertNotIn(
+            "change_browser_sync_settings",
+            safety_module._ACTION_WORD_PATTERNS,
+        )
+
     def test_remote_access_action_is_supported_but_blocked(self):
         effective, blocked = evaluate_requested_actions(["read", "start_remote_access"])
 
@@ -1927,6 +1961,59 @@ class SafetyPolicyTests(unittest.TestCase):
             "enable_browser_notifications",
             safety_module._ACTION_WORD_PATTERNS,
         )
+
+    def test_neutralize_unsafe_action_suggestions_blocks_browser_sync_directives(self):
+        cases = [
+            "Enable browser sync.",
+            "Turn on Chrome sync.",
+            "Sign in to Chrome to sync passwords.",
+            "Sync your browser profile with the account.",
+            "Enable profile syncing in the browser.",
+            "Action item: turn on browser sync.",
+            "Recommended action: sign into Edge sync now.",
+            "Sign into your Chrome profile.",
+            "Enable cloud profile sync.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["change_browser_sync_settings"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_browser_sync_directives(
+        self,
+    ):
+        cases = [
+            "Enable Chrome\nsync.",
+            "Sign in to Chrome\nto sync passwords.",
+            "Enable profile syncing\nin the browser.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["change_browser_sync_settings"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_browser_sync_descriptions(
+        self,
+    ):
+        text = (
+            "The email mentions browser sync settings for manual review.\n"
+            "Chrome sync is disabled by policy.\n"
+            "Browser profile sync metrics are summarized.\n"
+            "Do not enable browser sync from this email.\n"
+            "The browser profile was synced yesterday."
+        )
+
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
 
     def test_neutralize_unsafe_action_suggestions_blocks_remote_access_directives(self):
         cases = [
