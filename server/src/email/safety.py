@@ -1284,6 +1284,30 @@ _SECURITY_BACKUP_CODES_SUFFIX = (
     rf"\s+(?:somewhere\s+(?:safe|secure)|securely))?"
     rf"{_TARGET_END}"
 )
+_SECURITY_BACKUP_CODE_DISCLOSURE_TARGET = (
+    r"(?:(?:the|this|that|your|my|our|an?|all)\s+)?"
+    r"(?:(?:2fa\s*/\s*mfa|mfa\s*/\s*2fa|2fa|mfa|"
+    r"two[-\s]?factor|multi[-\s]?factor)"
+    r"(?:\s+authentication)?\s+)?backup\s+codes?\b"
+)
+_SECURITY_BACKUP_CODES_DISCLOSURE_DESTINATION = (
+    r"(?:(?:the|this|that|your|their|an?)\s+)?"
+    r"(?:[\w-]+\s+){0,3}"
+    r"(?:portal|form|site|website|webpage|page|link|url|sender|recipient|"
+    r"support|team|agent|representative|person|company|service|app|"
+    r"application)\b|"
+    r"[\w@./:+%#&=?-]+(?:\s+[\w@./:+%#&=?-]+){0,4}"
+)
+_SECURITY_BACKUP_CODES_DISCLOSURE_SUFFIX = (
+    rf"(?:\s+(?:to|with|into|in|on|through|via|using|at)\s+"
+    rf"{_SECURITY_BACKUP_CODES_DISCLOSURE_DESTINATION})?"
+    rf"(?:\s+(?:to|for)\s+[\w-]+(?:\s+[\w-]+){{0,8}})?"
+    rf"{_TARGET_END}"
+)
+_SECURITY_BACKUP_CODES_DISCLOSURE_TARGET = (
+    rf"{_SECURITY_BACKUP_CODE_DISCLOSURE_TARGET}"
+    rf"{_SECURITY_BACKUP_CODES_DISCLOSURE_SUFFIX}"
+)
 _SECURITY_QUESTION_TARGET = (
     r"(?:(?:the|this|that|your|my|our|an?)\s+)?"
     r"(?:(?:account\s+)?security|(?:account\s+)?recovery)\s+questions?\b"
@@ -1491,6 +1515,35 @@ _SENSITIVE_INFO_PAYMENT_OVERLAP_ACTION_TARGET = (
     rf"{_SENSITIVE_INFO_PAYMENT_METHOD_TARGET}"
     rf"{_SENSITIVE_INFO_PAYMENT_METHOD_DESTINATION_SUFFIX}){_TARGET_END}"
 )
+_AUTH_SECRET_NOUN = (
+    r"(?:passwords?|credentials?|passphrases?|"
+    r"api[-_\s]?keys?|api[-_\s]?tokens?|access[-_\s]?keys?|access[-_\s]?tokens?|"
+    r"auth(?:entication)?[-_\s]?tokens?|oauth(?:\s+2(?:\.0)?)?\s+tokens?|"
+    r"refresh[-_\s]?tokens?|bearer[-_\s]?tokens?|"
+    r"(?:personal\s+access\s+)?tokens?|pats?|"
+    r"session\s+cookies?|cookies?|jwt(?:s|\s+tokens?)?|"
+    r"client\s+secrets?|app\s+secrets?|api\s+secrets?|"
+    r"signing\s+secrets?|webhook\s+secrets?|"
+    r"recovery\s+keys?|"
+    r"(?:login|authentication|auth|account|security|session)\s+secrets?)"
+)
+_AUTH_SECRET_TARGET = (
+    r"(?:(?:your|the|this|that|my|our|their|user's|the\s+user's|all)\s+)?"
+    rf"(?:[\w'-]+\s+){{0,4}}{_AUTH_SECRET_NOUN}\b"
+)
+_AUTH_SECRET_DESTINATION = (
+    rf"(?:{_SENSITIVE_INFO_DESTINATION}|"
+    r"[\w@./:+%#&=?-]+(?:\s+[\w@./:+%#&=?-]+){0,4})"
+)
+_AUTH_SECRET_DISCLOSURE_SUFFIX = (
+    rf"(?:\s+(?:to|with|into|in|on|through|via|using|at)\s+"
+    rf"{_AUTH_SECRET_DESTINATION})?"
+    rf"(?:\s+(?:to|for)\s+[\w-]+(?:\s+[\w-]+){{0,8}})?"
+    rf"{_TARGET_END}"
+)
+_AUTH_SECRET_DISCLOSURE_TARGET = (
+    rf"{_AUTH_SECRET_TARGET}{_AUTH_SECRET_DISCLOSURE_SUFFIX}"
+)
 _TASK_ITEM_NOUN = r"(?:tasks?|to[-\s]?dos?|to[-\s]?do\s+items?|reminders?)"
 _TASK_ITEM_TARGET = (
     rf"(?:(?:an?|the|this|that|my|your)\s+)?(?:[\w-]+\s+){{0,3}}"
@@ -1599,6 +1652,24 @@ _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
 _DIRECTIVE_PATTERNS = {
     "provide_sensitive_info": [
         re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:enter|input|paste|provide|reveal|share|send|submit|"
+            rf"type|upload|disclose)\s+{_AUTH_SECRET_DISCLOSURE_TARGET}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:enter|input|paste|provide|reveal|share|send|submit|"
+            rf"type|upload|disclose)\s+{_AUTH_SECRET_DISCLOSURE_TARGET}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:reply|respond)\s+with\s+"
+            rf"{_AUTH_SECRET_DISCLOSURE_TARGET}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}(?:reply|respond)\s+with\s+"
+            rf"{_AUTH_SECRET_DISCLOSURE_TARGET}"
+        ),
+        re.compile(
             rf"{_ACTION_SUGGESTION_START}(?:provide|enter|submit)\s+"
             rf"{_SENSITIVE_INFO_PAYMENT_OVERLAP_ACTION_TARGET}"
         ),
@@ -1650,13 +1721,13 @@ _DIRECTIVE_PATTERNS = {
         ),
         re.compile(
             rf"{_ACTION_SUGGESTION_START}"
-            rf"(?:import|enter|input|type|paste|submit|provide|reveal|share|send|disclose)\s+"
+            rf"(?:import|enter|input|type|paste|submit|provide|reveal|share|send|upload|disclose)\s+"
             rf"{_CRYPTO_WALLET_SECRET_TARGET}{_CRYPTO_SECRET_DESTINATION_SUFFIX}"
             rf"{_TARGET_END}"
         ),
         re.compile(
             rf"{_MIDLINE_ACTION_SUGGESTION_START}"
-            rf"(?:import|enter|input|type|paste|submit|provide|reveal|share|send|disclose)\s+"
+            rf"(?:import|enter|input|type|paste|submit|provide|reveal|share|send|upload|disclose)\s+"
             rf"{_CRYPTO_WALLET_SECRET_TARGET}{_CRYPTO_SECRET_DESTINATION_SUFFIX}"
             rf"{_TARGET_END}"
         ),
@@ -2319,6 +2390,16 @@ _DIRECTIVE_PATTERNS = {
     "manage_backup_codes": [
         re.compile(
             rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:share|send|provide|enter|paste|upload|submit|reveal|disclose)\s+"
+            rf"{_SECURITY_BACKUP_CODES_DISCLOSURE_TARGET}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:share|send|provide|enter|paste|upload|submit|reveal|disclose)\s+"
+            rf"{_SECURITY_BACKUP_CODES_DISCLOSURE_TARGET}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
             rf"(?:generate|create|get|view|show|reveal|download|export|"
             rf"save|copy|print|regenerate|reset|replace)\s+"
             rf"{_SECURITY_BACKUP_CODES_TARGET}{_SECURITY_BACKUP_CODES_SUFFIX}"
@@ -2869,6 +2950,7 @@ def _directive_actions(line: str) -> List[str]:
     ]
     actions = _suppress_overlapping_crypto_wallet_payment_actions(line, actions)
     actions = _suppress_overlapping_gift_card_payment_actions(line, actions)
+    actions = _suppress_overlapping_password_manager_secret_actions(line, actions)
     return _suppress_overlapping_install_software_actions(line, actions)
 
 
@@ -2936,6 +3018,25 @@ def _suppress_overlapping_gift_card_payment_actions(
         return actions
 
     return [action for action in actions if action not in suppressed]
+
+
+def _suppress_overlapping_password_manager_secret_actions(
+    line: str, actions: List[str]
+) -> List[str]:
+    action_set = set(actions)
+    if not {"password_manager_action", "provide_sensitive_info"}.issubset(action_set):
+        return actions
+
+    password_manager_spans = _directive_match_spans(line, "password_manager_action")
+    sensitive_info_spans = _directive_match_spans(line, "provide_sensitive_info")
+    if any(
+        _spans_overlap(sensitive_info_span, password_manager_span)
+        for sensitive_info_span in sensitive_info_spans
+        for password_manager_span in password_manager_spans
+    ):
+        return [action for action in actions if action != "provide_sensitive_info"]
+
+    return actions
 
 
 def _suppress_overlapping_install_software_actions(

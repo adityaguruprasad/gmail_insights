@@ -2393,6 +2393,68 @@ class SafetyPolicyTests(unittest.TestCase):
         )
         self.assertNotIn("manage_backup_codes", safety_module._ACTION_WORD_PATTERNS)
 
+    def test_neutralize_unsafe_action_suggestions_blocks_auth_secret_disclosures(self):
+        cases = [
+            ("Paste your password into the form.", ["provide_sensitive_info"]),
+            ("Reveal the session cookie to the agent.", ["provide_sensitive_info"]),
+            ("Provide your OAuth token to the site.", ["provide_sensitive_info"]),
+            ("Send your API token to support.", ["provide_sensitive_info"]),
+            ("Send your private key to support.", ["crypto_wallet_action"]),
+            ("Upload your seed phrase to the portal.", ["crypto_wallet_action"]),
+            ("Share your backup codes with support.", ["manage_backup_codes"]),
+        ]
+
+        for text, expected_blocked in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, expected_blocked)
+
+    def test_neutralize_unsafe_action_suggestions_blocks_midline_auth_secret_disclosures(
+        self,
+    ):
+        cases = [
+            (
+                "Review notes: recommended action: paste your API key into the form.",
+                ["provide_sensitive_info"],
+            ),
+            (
+                "Summary: recommended action: provide your OAuth token to the site.",
+                ["provide_sensitive_info"],
+            ),
+            (
+                "Result: recommended action: send your private key to support.",
+                ["crypto_wallet_action"],
+            ),
+            (
+                "Result: recommended action: upload your recovery phrase to the portal.",
+                ["crypto_wallet_action"],
+            ),
+            (
+                "Notes: recommended action: share your backup codes with support.",
+                ["manage_backup_codes"],
+            ),
+        ]
+
+        for text, expected_blocked in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, expected_blocked)
+
+    def test_neutralize_unsafe_action_suggestions_preserves_auth_secret_descriptions(self):
+        text = (
+            "The email mentions a password reset for manual review.\n"
+            "API key rotation guidance is included for review.\n"
+            "The sender warns not to share the seed phrase.\n"
+            "Backup code risk is summarized.\n"
+            "Session cookie policy is discussed."
+        )
+
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
     def test_neutralize_unsafe_action_suggestions_blocks_trusted_device_and_passkey_directives(self):
         cases = [
             "Trust this device",
