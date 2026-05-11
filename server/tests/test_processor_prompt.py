@@ -185,6 +185,11 @@ class ProcessorPromptTests(unittest.TestCase):
             prompt,
         )
         self.assertIn(
+            "Do NOT suggest changing account recovery contacts, trusted devices, "
+            "security keys, MFA, or account protection settings.",
+            prompt,
+        )
+        self.assertIn(
             "You may propose a safe draft outline and archive recommendation only.",
             prompt,
         )

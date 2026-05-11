@@ -414,6 +414,40 @@ class QueryInsightsValidationTests(unittest.TestCase):
         )
         mock_gmail.assert_not_called()
 
+    def test_account_security_requested_actions_are_supported_but_blocked(self):
+        requested_actions = [
+            "change_recovery_email",
+            "change_recovery_phone",
+            "change_trusted_devices",
+            "change_security_key_settings",
+            "change_mfa_settings",
+            "disable_account_protection",
+        ]
+
+        with patch("app._gmail_service_from_token") as mock_gmail:
+            response = self.client.post(
+                "/query_insights",
+                json={
+                    "token": "test-token",
+                    "query": "in:inbox",
+                    "requested_actions": requested_actions,
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+        body = response.get_json()
+        self.assertIn("Blocked actions requested", body["error"])
+        self.assertNotIn("unsupported action", body["error"])
+        self.assertEqual(
+            body["safety"],
+            {
+                "mode": "read_only",
+                "effective_actions": ["read", "summarize"],
+                "blocked_actions": sorted(requested_actions),
+            },
+        )
+        mock_gmail.assert_not_called()
+
     def test_change_network_settings_requested_action_is_supported_but_blocked(self):
         with patch("app._gmail_service_from_token") as mock_gmail:
             response = self.client.post(

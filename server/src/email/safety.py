@@ -55,6 +55,8 @@ BLOCKED_ACTIONS = {
     "create_contact",
     "update_contact",
     "update_account_contact",
+    "change_recovery_email",
+    "change_recovery_phone",
     "use_verification_code",
     "approve_login_prompt",
     "manage_backup_codes",
@@ -74,6 +76,10 @@ BLOCKED_ACTIONS = {
     "authorize_app",
     "grant_mailbox_access",
     "change_security_settings",
+    "change_trusted_devices",
+    "change_security_key_settings",
+    "change_mfa_settings",
+    "disable_account_protection",
     "change_mail_access_settings",
     "change_network_settings",
     "install_profile",
@@ -1346,6 +1352,41 @@ _SECURITY_ACCOUNT_SETTING_SUFFIX = (
     r"(?:\s+(?:from|for|in|on|within)\s+"
     rf"{_SECURITY_ACCOUNT_SETTING_TARGET})?"
 )
+_TRUSTED_DEVICE_ACTION_SUFFIX = (
+    rf"(?:\s+(?:from|for|in|on|within)\s+{_SECURITY_ACCOUNT_SETTING_TARGET})?"
+    rf"{_TARGET_END}"
+)
+_SECURITY_KEY_SETTING_TARGET = (
+    rf"(?:{_SECURITY_KEY_TARGET}|{_SECURITY_PASSKEY_TARGET}|"
+    r"(?:(?:the|this|that|your|my|our)\s+)?"
+    r"(?:security\s+key|passkey)\s+settings?\b)"
+)
+_SECURITY_KEY_ACTION_SUFFIX = (
+    rf"(?:{_SECURITY_ENROLLMENT_SUFFIX}|{_SECURITY_ACCOUNT_SETTING_SUFFIX})"
+    rf"{_TARGET_END}"
+)
+_SECURITY_MFA_SETTING_TARGET = (
+    r"(?:(?:the|this|that|your|my|our)\s+)?"
+    rf"(?:{_SECURITY_AUTH_FACTOR_TARGET}|"
+    r"(?:two|2)[-\s]?step\s+verification|"
+    r"login\s+verification|sign[-\s]?in\s+verification)"
+    r"(?:\s+(?:settings?|methods?|factors?|devices?))?\b"
+)
+_SECURITY_MFA_ACTION_SUFFIX = (
+    rf"(?:\s+(?:for|from|in|on|within)\s+{_SECURITY_ACCOUNT_SETTING_TARGET})?"
+    rf"{_TARGET_END}"
+)
+_ACCOUNT_PROTECTION_TARGET = (
+    r"(?:(?:the|this|that|your|my|our)\s+)?"
+    r"(?:(?:google|gmail|account)\s+)?"
+    r"(?:advanced\s+protection(?:\s+program)?|"
+    r"account\s+(?:security\s+)?protection|"
+    r"login\s+protection|sign[-\s]?in\s+protection)\b"
+)
+_ACCOUNT_PROTECTION_ACTION_SUFFIX = (
+    rf"(?:\s+(?:for|from|in|on|within)\s+{_SECURITY_ACCOUNT_SETTING_TARGET})?"
+    rf"{_TARGET_END}"
+)
 _MAIL_ACCESS_ACCOUNT_CONTEXT = (
     r"(?:(?:this|that|the|my|your|our)\s+)?"
     r"(?:account|gmail|google\s+account|email\s+account)\b"
@@ -1431,6 +1472,24 @@ _ACCOUNT_CONTACT_ACCOUNT_CONTEXT = (
 )
 _ACCOUNT_CONTACT_ACTION_SUFFIX = (
     rf"(?:\s+(?:to|with)\s+{_ACCOUNT_CONTACT_VALUE_TARGET})?"
+    rf"(?:\s+(?:to|for|on|in|from)\s+{_ACCOUNT_CONTACT_ACCOUNT_CONTEXT})?"
+    rf"{_TARGET_END}"
+)
+_ACCOUNT_RECOVERY_EMAIL_TARGET = (
+    r"(?:(?:the|this|that|your|my|our|an?)\s+)?"
+    r"(?:recovery|backup|alternate)\s+email(?:\s+address)?\b"
+)
+_ACCOUNT_RECOVERY_PHONE_TARGET = (
+    r"(?:(?:the|this|that|your|my|our|an?)\s+)?"
+    r"(?:recovery|backup|alternate)\s+phone(?:\s+number)?\b"
+)
+_ACCOUNT_RECOVERY_EMAIL_ACTION_SUFFIX = (
+    rf"(?:\s+(?:to|with)\s+{_EMAIL_TARGET})?"
+    rf"(?:\s+(?:to|for|on|in|from)\s+{_ACCOUNT_CONTACT_ACCOUNT_CONTEXT})?"
+    rf"{_TARGET_END}"
+)
+_ACCOUNT_RECOVERY_PHONE_ACTION_SUFFIX = (
+    rf"(?:\s+(?:to|with)\s+{_PHONE_NUMBER_TARGET})?"
     rf"(?:\s+(?:to|for|on|in|from)\s+{_ACCOUNT_CONTACT_ACCOUNT_CONTEXT})?"
     rf"{_TARGET_END}"
 )
@@ -1583,6 +1642,8 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "create_contact",
     "update_contact",
     "update_account_contact",
+    "change_recovery_email",
+    "change_recovery_phone",
     "use_verification_code",
     "approve_login_prompt",
     "manage_backup_codes",
@@ -1602,6 +1663,10 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "authorize_app",
     "grant_mailbox_access",
     "change_security_settings",
+    "change_trusted_devices",
+    "change_security_key_settings",
+    "change_mfa_settings",
+    "disable_account_protection",
     "change_mail_access_settings",
     "change_network_settings",
     "install_profile",
@@ -1627,10 +1692,16 @@ _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "authorize_app",
     "grant_mailbox_access",
     "change_security_settings",
+    "change_trusted_devices",
+    "change_security_key_settings",
+    "change_mfa_settings",
+    "disable_account_protection",
     "change_mail_access_settings",
     "change_network_settings",
     "install_profile",
     "update_account_contact",
+    "change_recovery_email",
+    "change_recovery_phone",
     "approve_login_prompt",
     "manage_backup_codes",
     "update_email_signature",
@@ -2353,6 +2424,54 @@ _DIRECTIVE_PATTERNS = {
             rf"{_ACCOUNT_CONTACT_FIELD_TARGET}{_ACCOUNT_CONTACT_ACTION_SUFFIX}"
         ),
     ],
+    "change_recovery_email": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:update|change|add|set|replace|remove|delete)\s+"
+            rf"{_ACCOUNT_RECOVERY_EMAIL_TARGET}"
+            rf"{_ACCOUNT_RECOVERY_EMAIL_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:update|change|add|set|replace|remove|delete)\s+"
+            rf"{_ACCOUNT_RECOVERY_EMAIL_TARGET}"
+            rf"{_ACCOUNT_RECOVERY_EMAIL_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:set|use|add)\s+"
+            rf"{_EMAIL_TARGET}\s+as\s+{_ACCOUNT_RECOVERY_EMAIL_TARGET}"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}(?:set|use|add)\s+"
+            rf"{_EMAIL_TARGET}\s+as\s+{_ACCOUNT_RECOVERY_EMAIL_TARGET}"
+            rf"{_TARGET_END}"
+        ),
+    ],
+    "change_recovery_phone": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:update|change|add|set|replace|remove|delete)\s+"
+            rf"{_ACCOUNT_RECOVERY_PHONE_TARGET}"
+            rf"{_ACCOUNT_RECOVERY_PHONE_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:update|change|add|set|replace|remove|delete)\s+"
+            rf"{_ACCOUNT_RECOVERY_PHONE_TARGET}"
+            rf"{_ACCOUNT_RECOVERY_PHONE_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:set|use|add)\s+"
+            rf"{_PHONE_NUMBER_TARGET}\s+as\s+{_ACCOUNT_RECOVERY_PHONE_TARGET}"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}(?:set|use|add)\s+"
+            rf"{_PHONE_NUMBER_TARGET}\s+as\s+{_ACCOUNT_RECOVERY_PHONE_TARGET}"
+            rf"{_TARGET_END}"
+        ),
+    ],
     "use_verification_code": [
         re.compile(
             rf"{_ACTION_SUGGESTION_START}(?:use|enter|submit|copy|paste|provide|share|send)\s+"
@@ -2711,6 +2830,144 @@ _DIRECTIVE_PATTERNS = {
             rf"{_MAILBOX_ACCESS_RESOURCE}{_TARGET_END}"
         ),
     ],
+    "change_trusted_devices": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:trust|remember)\s+"
+            rf"{_TRUSTED_DEVICE_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}(?:trust|remember)\s+"
+            rf"{_TRUSTED_DEVICE_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}add\s+{_TRUSTED_DEVICE_TARGET}\s+"
+            rf"as\s+{_TRUSTED_DEVICE_SETTING_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}add\s+"
+            rf"{_TRUSTED_DEVICE_TARGET}\s+as\s+"
+            rf"{_TRUSTED_DEVICE_SETTING_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}mark\s+{_TRUSTED_DEVICE_TARGET}\s+"
+            rf"as\s+trusted{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}mark\s+"
+            rf"{_TRUSTED_DEVICE_TARGET}\s+as\s+trusted{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:add|register|enroll|set\s+up|create)\s+"
+            rf"{_TRUSTED_DEVICE_SETTING_TARGET}{_TRUSTED_DEVICE_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:add|register|enroll|set\s+up|create)\s+"
+            rf"{_TRUSTED_DEVICE_SETTING_TARGET}{_TRUSTED_DEVICE_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:remove|delete|revoke|untrust|forget)\s+"
+            rf"{_TRUSTED_DEVICE_SETTING_TARGET}{_TRUSTED_DEVICE_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:remove|delete|revoke|untrust|forget)\s+"
+            rf"{_TRUSTED_DEVICE_SETTING_TARGET}{_TRUSTED_DEVICE_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:remove|delete|revoke|untrust|forget)\s+"
+            rf"{_TRUSTED_DEVICE_TARGET}\s+from\s+"
+            rf"{_TRUSTED_DEVICE_SETTING_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:remove|delete|revoke|untrust|forget)\s+"
+            rf"{_TRUSTED_DEVICE_TARGET}\s+from\s+"
+            rf"{_TRUSTED_DEVICE_SETTING_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:change|update|configure|manage)\s+"
+            rf"{_TRUSTED_DEVICE_SETTING_TARGET}{_TRUSTED_DEVICE_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:change|update|configure|manage)\s+"
+            rf"{_TRUSTED_DEVICE_SETTING_TARGET}{_TRUSTED_DEVICE_ACTION_SUFFIX}"
+        ),
+    ],
+    "change_security_key_settings": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:add|register|enroll|create|set\s+up|enable)\s+"
+            rf"{_SECURITY_KEY_SETTING_TARGET}{_SECURITY_KEY_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:add|register|enroll|create|set\s+up|enable)\s+"
+            rf"{_SECURITY_KEY_SETTING_TARGET}{_SECURITY_KEY_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}enroll\s+{_TRUSTED_DEVICE_TARGET}\s+"
+            rf"for\s+{_SECURITY_PASSKEY_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}enroll\s+"
+            rf"{_TRUSTED_DEVICE_TARGET}\s+for\s+"
+            rf"{_SECURITY_PASSKEY_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:remove|delete|revoke|disable|deactivate|turn\s+off)\s+"
+            rf"{_SECURITY_KEY_SETTING_TARGET}{_SECURITY_KEY_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:remove|delete|revoke|disable|deactivate|turn\s+off)\s+"
+            rf"{_SECURITY_KEY_SETTING_TARGET}{_SECURITY_KEY_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:change|update|configure|manage|replace|reset)\s+"
+            rf"{_SECURITY_KEY_SETTING_TARGET}{_SECURITY_KEY_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:change|update|configure|manage|replace|reset)\s+"
+            rf"{_SECURITY_KEY_SETTING_TARGET}{_SECURITY_KEY_ACTION_SUFFIX}"
+        ),
+    ],
+    "change_mfa_settings": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:enable|disable|deactivate|turn\s+on|turn\s+off|"
+            rf"switch\s+on|switch\s+off|add|remove|delete|change|update|"
+            rf"configure|set(?:\s+up)?|reset|replace|enroll)\s+"
+            rf"{_SECURITY_MFA_SETTING_TARGET}{_SECURITY_MFA_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:enable|disable|deactivate|turn\s+on|turn\s+off|"
+            rf"switch\s+on|switch\s+off|add|remove|delete|change|update|"
+            rf"configure|set(?:\s+up)?|reset|replace|enroll)\s+"
+            rf"{_SECURITY_MFA_SETTING_TARGET}{_SECURITY_MFA_ACTION_SUFFIX}"
+        ),
+    ],
+    "disable_account_protection": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:disable|deactivate|turn\s+off|switch\s+off|remove|"
+            rf"lower|reduce|weaken)\s+"
+            rf"{_ACCOUNT_PROTECTION_TARGET}{_ACCOUNT_PROTECTION_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:disable|deactivate|turn\s+off|switch\s+off|remove|"
+            rf"lower|reduce|weaken)\s+"
+            rf"{_ACCOUNT_PROTECTION_TARGET}{_ACCOUNT_PROTECTION_ACTION_SUFFIX}"
+        ),
+    ],
     "change_security_settings": [
         re.compile(
             rf"{_ACTION_SUGGESTION_START}(?:trust|remember)\s+"
@@ -2951,6 +3208,7 @@ def _directive_actions(line: str) -> List[str]:
     actions = _suppress_overlapping_crypto_wallet_payment_actions(line, actions)
     actions = _suppress_overlapping_gift_card_payment_actions(line, actions)
     actions = _suppress_overlapping_password_manager_secret_actions(line, actions)
+    actions = _suppress_overlapping_account_security_actions(line, actions)
     return _suppress_overlapping_install_software_actions(line, actions)
 
 
@@ -2965,6 +3223,63 @@ def _directive_match_spans(line: str, action: str) -> List[Tuple[int, int]]:
 
 def _spans_overlap(first: Tuple[int, int], second: Tuple[int, int]) -> bool:
     return first[0] < second[1] and second[0] < first[1]
+
+
+def _all_spans_overlap_any(
+    spans: List[Tuple[int, int]], candidates: List[Tuple[int, int]]
+) -> bool:
+    return bool(spans) and all(
+        any(_spans_overlap(span, candidate) for candidate in candidates)
+        for span in spans
+    )
+
+
+def _suppress_overlapping_account_security_actions(
+    line: str, actions: List[str]
+) -> List[str]:
+    suppressed = set()
+
+    recovery_actions = {"change_recovery_email", "change_recovery_phone"}
+    recovery_specific_spans = [
+        span
+        for action in recovery_actions.intersection(actions)
+        for span in _directive_match_spans(line, action)
+    ]
+    if (
+        "update_account_contact" in actions
+        and recovery_specific_spans
+        and _all_spans_overlap_any(
+            _directive_match_spans(line, "update_account_contact"),
+            recovery_specific_spans,
+        )
+    ):
+        suppressed.add("update_account_contact")
+
+    account_security_actions = {
+        "change_trusted_devices",
+        "change_security_key_settings",
+        "change_mfa_settings",
+        "disable_account_protection",
+    }
+    account_security_specific_spans = [
+        span
+        for action in account_security_actions.intersection(actions)
+        for span in _directive_match_spans(line, action)
+    ]
+    if (
+        "change_security_settings" in actions
+        and account_security_specific_spans
+        and _all_spans_overlap_any(
+            _directive_match_spans(line, "change_security_settings"),
+            account_security_specific_spans,
+        )
+    ):
+        suppressed.add("change_security_settings")
+
+    if not suppressed:
+        return actions
+
+    return [action for action in actions if action not in suppressed]
 
 
 def _suppress_overlapping_crypto_wallet_payment_actions(
