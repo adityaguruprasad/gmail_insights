@@ -113,6 +113,7 @@ def extract_insights(email, redact_sensitive: bool = True):
     guarded_summary, blocked_suggestions = neutralize_unsafe_action_suggestions(
         response.completion.strip()
     )
+    guarded_summary = redact_sensitive_content(guarded_summary)
     guarded_summary = _clip_generated_summary(guarded_summary)
 
     if blocked_suggestions:

@@ -49,6 +49,15 @@ def _fixture_access_token():
     return _fixture_secret("access", "token", "value", "1234567890")
 
 
+def _fixture_google_oauth_token():
+    return _fixture_secret(
+        "ya29.",
+        "a0AfH6SM",
+        "abcdefghijklmnopqrstuvwxyz",
+        "_0123456789",
+    )
+
+
 def _fixture_phone():
     return _fixture_secret("415", "-", "555", "-", "0199")
 
@@ -370,6 +379,42 @@ class ProcessorPromptTests(unittest.TestCase):
         self.assertIn("[Unsafe action suggestion removed]", result["summary"])
         self.assertNotIn("Reply to confirm receipt", result["summary"])
         self.assertTrue(result["summary"].endswith(processor.PROMPT_TRUNCATION_MARKER))
+
+    def test_extract_insights_redacts_sensitive_model_output_even_when_prompt_redaction_disabled(self):
+        otp_code = "482913"
+        google_token = _fixture_google_oauth_token()
+        reset_link = "https://accounts.example.test/reset?token=secret123"
+        magic_link = "https://auth.example.test/magic?code=A1B2C3"
+        email = {
+            "id": "email-1",
+            "subject": "Security updates",
+            "sender": "security@example.com",
+            "is_archived": False,
+        }
+        completion = (
+            f"Summary: Login code {otp_code} was included.\n"
+            f"Action items: Google token {google_token} appeared in the message.\n"
+            f"Draft assistance: Password reset link: {reset_link}\n"
+            f"Archive suggestion: Magic login link: {magic_link}"
+        )
+
+        with patch.object(
+            processor.anthropic.completions,
+            "create",
+            return_value=types.SimpleNamespace(completion=completion),
+        ):
+            result = processor.extract_insights(email, redact_sensitive=False)
+
+        summary = result["summary"]
+        for sensitive_value in (otp_code, google_token, reset_link, magic_link):
+            with self.subTest(sensitive_value=sensitive_value):
+                self.assertNotIn(sensitive_value, summary)
+
+        self.assertIn("Login code [REDACTED_OTP]", summary)
+        self.assertIn("[REDACTED_GOOGLE_TOKEN]", summary)
+        self.assertIn("Password reset link: [REDACTED_SENSITIVE_LINK]", summary)
+        self.assertIn("Magic login link: [REDACTED_SENSITIVE_LINK]", summary)
+        self.assertLessEqual(len(summary), processor.SUMMARY_MAX_RETURNED_LENGTH)
 
     def test_extract_insights_leaves_short_completion_unchanged(self):
         email = {
