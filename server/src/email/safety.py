@@ -422,60 +422,102 @@ _PASSKEY_CREDENTIAL_ID_PLACEHOLDER = "[REDACTED_PASSKEY_CREDENTIAL_ID]"
 _PASSKEY_CHALLENGE_ID_PLACEHOLDER = "[REDACTED_PASSKEY_CHALLENGE_ID]"
 _PASSKEY_REGISTRATION_URL_PLACEHOLDER = "[REDACTED_PASSKEY_REGISTRATION_URL]"
 _PASSKEY_ASSERTION_URL_PLACEHOLDER = "[REDACTED_PASSKEY_ASSERTION_URL]"
-_CREDENTIAL_QUERY_PARAM_NAMES = {
-    "token",
-    "state",
-    "auth",
-    "secret",
-    "totp_secret",
-    "otp_secret",
-    "mfa_secret",
-    "access_token",
-    "refresh_token",
-    "id_token",
-    "session",
-    "ticket",
-    "key",
-    "signature",
-    "sig",
-    "jwt",
-}
-_OAUTH_AUTHORIZATION_CODE_PARAM_NAMES = {
-    "code",
-    "auth_code",
-    "authorization_code",
-    "oauth_code",
-}
-_OAUTH_AUTHORIZATION_CODE_QUERY_CONTEXT_PARAM_NAMES = {
-    "client_id",
-    "code_challenge",
-    "code_verifier",
-    "grant_type",
-    "redirect_uri",
-    "response_type",
-}
-_PASSKEY_CREDENTIAL_QUERY_PARAM_NAMES = {
-    "credential",
-    "credential_id",
-    "credentialid",
-    "credential_identifier",
-    "passkey_credential",
-    "passkey_credential_id",
-    "public_key_credential",
-    "public_key_credential_id",
-    "raw_id",
-    "rawid",
-    "webauthn_credential",
-    "webauthn_credential_id",
-}
-_PASSKEY_CHALLENGE_QUERY_PARAM_NAMES = {
-    "challenge",
-    "challenge_id",
-    "challengeid",
-    "passkey_challenge",
-    "webauthn_challenge",
-    "webauthn_challenge_id",
-}
+
+
+def _normalized_query_param_name(name: str) -> str:
+    return unquote_plus(name).lower().replace("-", "_")
+
+
+def _query_param_name_aliases(name: str) -> Set[str]:
+    normalized = _normalized_query_param_name(name)
+    return {normalized, normalized.replace("_", "")}
+
+
+def _expand_query_param_names(names: Iterable[str]) -> Set[str]:
+    expanded = set()
+    for name in names:
+        expanded.update(_query_param_name_aliases(name))
+
+    return expanded
+
+
+_CREDENTIAL_QUERY_PARAM_NAMES = _expand_query_param_names(
+    {
+        "api_key",
+        "api_token",
+        "token",
+        "state",
+        "auth",
+        "auth_token",
+        "secret",
+        "client_secret",
+        "password",
+        "passwd",
+        "passphrase",
+        "totp_secret",
+        "otp_secret",
+        "mfa_secret",
+        "code_verifier",
+        "access_token",
+        "refresh_token",
+        "id_token",
+        "session",
+        "session_id",
+        "session_token",
+        "session_cookie",
+        "cookie",
+        "csrf",
+        "csrf_token",
+        "xsrf",
+        "xsrf_token",
+        "ticket",
+        "key",
+        "signature",
+        "sig",
+        "jwt",
+    }
+)
+_OAUTH_AUTHORIZATION_CODE_PARAM_NAMES = _expand_query_param_names(
+    {
+        "code",
+        "auth_code",
+        "authorization_code",
+        "oauth_code",
+    }
+)
+_OAUTH_AUTHORIZATION_CODE_QUERY_CONTEXT_PARAM_NAMES = _expand_query_param_names(
+    {
+        "client_id",
+        "code_challenge",
+        "code_verifier",
+        "grant_type",
+        "redirect_uri",
+        "response_type",
+    }
+)
+_PASSKEY_CREDENTIAL_QUERY_PARAM_NAMES = _expand_query_param_names(
+    {
+        "credential",
+        "credential_id",
+        "credential_identifier",
+        "passkey_credential",
+        "passkey_credential_id",
+        "public_key_credential",
+        "public_key_credential_id",
+        "raw_id",
+        "webauthn_credential",
+        "webauthn_credential_id",
+    }
+)
+_PASSKEY_CHALLENGE_QUERY_PARAM_NAMES = _expand_query_param_names(
+    {
+        "challenge",
+        "challenge_id",
+        "passkey_challenge",
+        "webauthn_challenge",
+        "webauthn_challenge_id",
+    }
+)
 _CREDENTIAL_QUERY_URL_RE = re.compile(
     r"(?P<url>(?:https?://|www\.)[^\s<>\"']{1,2048})",
     re.IGNORECASE,
@@ -4071,10 +4113,6 @@ def _redact_sensitive_link(match: re.Match) -> str:
         + trailing_punctuation
         + match.string[match.end("url") : match.end()]
     )
-
-
-def _normalized_query_param_name(name: str) -> str:
-    return unquote_plus(name).lower().replace("-", "_")
 
 
 def _query_param_names(query: str) -> Set[str]:

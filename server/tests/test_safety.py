@@ -1188,6 +1188,48 @@ class SafetyPolicyTests(unittest.TestCase):
                 self.assertIn("next=%2Fhome", redacted)
                 self.assertTrue(redacted.endswith("."))
 
+    def test_redaction_redacts_common_auth_secret_query_parameter_aliases(self):
+        cases = [
+            ("apikey", "api-key-secret-123"),
+            ("apitoken", "api-token-secret-123"),
+            ("authtoken", "auth-token-secret-123"),
+            ("accesstoken", "access-token-secret-123"),
+            ("refreshtoken", "refresh-token-secret-123"),
+            ("idtoken", "id-token-secret-123"),
+            ("client_secret", "client-secret-value-123"),
+            ("clientsecret", "clientsecret-value-123"),
+            ("session_id", "session-secret-value-123"),
+            ("sessiontoken", "session-token-secret-123"),
+            ("sessioncookie", "session-cookie-secret-123"),
+            ("csrf_token", "csrf-token-secret-123"),
+            ("csrftoken", "collapsed-csrf-token-secret-123"),
+            ("xsrftoken", "collapsed-xsrf-token-secret-123"),
+            ("password", "CorrectHorseBatteryStaple123"),
+            ("code_verifier", "pkce-code-verifier-secret-123"),
+            ("codeverifier", "collapsed-pkce-code-verifier-secret-123"),
+            ("totpsecret", _totp_seed_fixture()),
+            ("otpsecret", "otp-secret-seed-123"),
+            ("mfasecret", "mfa-secret-seed-123"),
+        ]
+
+        for param_name, secret in cases:
+            url = (
+                "https://accounts.example.test/oauth/callback"
+                f"?client_id=public-client&{param_name}={secret}&next=%2Fhome"
+            )
+
+            with self.subTest(param_name=param_name):
+                redacted = redact_sensitive_content(f"Review URL: {url}.")
+
+                self.assertNotIn(secret, redacted)
+                self.assertIn(
+                    f"{param_name}=[REDACTED_CREDENTIAL_QUERY_VALUE]",
+                    redacted,
+                )
+                self.assertIn("client_id=public-client", redacted)
+                self.assertIn("next=%2Fhome", redacted)
+                self.assertTrue(redacted.endswith("."))
+
     def test_redaction_redacts_oauth_authorization_code_query_parameters(self):
         cases = [
             (
