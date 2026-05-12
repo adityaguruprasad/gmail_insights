@@ -144,6 +144,7 @@ class SafetyPolicyTests(unittest.TestCase):
             "change_filter_settings",
             "change_blocked_senders",
             "create_forwarding_rule",
+            "change_importance_marker",
         ]
 
         effective, blocked = evaluate_requested_actions(["read", *mutation_actions])
@@ -177,6 +178,22 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertFalse(set(actions).intersection(effective))
         self.assertIn("change_blocked_senders", safety_module.BLOCKED_ACTIONS)
         self.assertIn("change_thread_mute_state", safety_module.BLOCKED_ACTIONS)
+
+    def test_importance_marker_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(
+            ["read", "change_importance_marker"]
+        )
+
+        self.assertEqual(effective, ["read"])
+        self.assertEqual(blocked, ["change_importance_marker"])
+        self.assertNotIn("change_importance_marker", effective)
+
+        safety = safety_metadata("change_importance_marker")
+        self.assertEqual(safety["mode"], "read_only")
+        self.assertEqual(safety["effective_actions"], ["read", "summarize"])
+        self.assertEqual(safety["blocked_actions"], ["change_importance_marker"])
+        self.assertIn("change_importance_marker", safety_module.BLOCKED_ACTIONS)
+        self.assertNotIn("change_importance_marker", safety_module.ALLOWED_ACTIONS)
 
     def test_forwarding_rule_action_is_supported_but_blocked(self):
         effective, blocked = evaluate_requested_actions(
@@ -2298,6 +2315,80 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertIn("Summary: Customer needs help with billing.", guarded)
         self.assertEqual(guarded.count("[Unsafe action suggestion removed]"), 8)
         self.assertEqual(blocked, expected_blocked)
+
+    def test_neutralize_unsafe_action_suggestions_blocks_importance_marker_directives(self):
+        cases = [
+            "Mark this email as important.",
+            "Mark the thread as not important now.",
+            "Flag these messages as important.",
+            "Recommended action: mark the message important.",
+            "Action item: mark these emails as not important.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["change_importance_marker"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_unimportant_importance_marker_directives(self):
+        cases = [
+            "Mark this email as unimportant.",
+            "Recommended action: mark the message unimportant.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["change_importance_marker"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_importance_marker_directives(self):
+        cases = [
+            "Mark\nthis email as important.",
+            "Mark the message\nas important.",
+            "Action item: mark these emails\nas not important.",
+            "Recommended action: flag these messages\nas important.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["change_importance_marker"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_importance_marker_descriptions(self):
+        text = (
+            "The email is marked important already.\n"
+            "Importance markers are disabled by policy.\n"
+            "Important details are summarized for manual review.\n"
+            "Do not mark this email as important."
+        )
+
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_ambiguous_importance_prose(self):
+        text = "Mark important items for the agenda."
+
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_importance_marker_split_line_handling_uses_directive_sets_without_action_words(self):
+        self.assertIn(
+            "change_importance_marker",
+            safety_module._DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS,
+        )
+        self.assertIn(
+            "change_importance_marker",
+            safety_module._DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS,
+        )
+        self.assertNotIn("change_importance_marker", safety_module._ACTION_WORD_PATTERNS)
 
     def test_neutralize_unsafe_action_suggestions_blocks_report_abuse_directives(self):
         cases = [

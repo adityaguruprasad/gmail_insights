@@ -20,6 +20,7 @@ BLOCKED_ACTIONS = {
     "modify_labels",
     "mark_read",
     "mark_unread",
+    "change_importance_marker",
     "star",
     "unstar",
     "move_to_spam",
@@ -951,6 +952,10 @@ _MARK_REPORT_PHISHING_TARGET = (
 )
 _MARK_REPORT_SPAM_TARGET = (
     rf"(?:{_MAILBOX_OBJECT}\s+)?(?:as|for)\s+{_REPORT_SPAM_TERM}\b{_TARGET_END}"
+)
+_IMPORTANCE_MARKER_TARGET = (
+    rf"(?:(?:{_MAILBOX_OBJECT}\s+(?:as\s+)?)?"
+    rf"(?:not\s+important|unimportant|important))\b{_TARGET_END}"
 )
 _UNSUBSCRIBE_TARGET_NOUN = (
     r"(?:senders?|newsletters?|mailing\s+lists?|lists?|subscriptions?|"
@@ -2483,6 +2488,7 @@ _TASK_PURPOSE_SUFFIX = r"(?:\s+(?:to|for)\s+[\w-]+(?:\s+[\w-]+){0,8})?"
 _TASK_SOURCE_SUFFIX = rf"(?:\s+from\s+{_MAILBOX_OBJECT})?"
 _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "modify_labels",
+    "change_importance_marker",
     "unsubscribe",
     "report_phishing",
     "report_spam",
@@ -2549,6 +2555,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "change_thread_mute_state",
 }
 _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
+    "change_importance_marker",
     "run_executable",
     "run_shell_command",
     "install_software",
@@ -2754,6 +2761,16 @@ _DIRECTIVE_PATTERNS = {
         re.compile(rf"{_DIRECTIVE_START}mark\s+(?:as\s+unread|{_MAILBOX_OBJECT}\s+(?:as\s+)?unread)\b"),
         re.compile(
             rf"{_RECOMMENDATION_PREFIX}\bmark\s+(?:as\s+unread|{_MAILBOX_OBJECT}\s+(?:as\s+)?unread)\b"
+        ),
+    ],
+    "change_importance_marker": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:mark|flag)\s+"
+            rf"{_IMPORTANCE_MARKER_TARGET}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}(?:mark|flag)\s+"
+            rf"{_IMPORTANCE_MARKER_TARGET}"
         ),
     ],
     "star": [
