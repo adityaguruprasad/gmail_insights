@@ -38,6 +38,21 @@ def _stripe_fixture_key(environment):
     return _fixture_secret("sk", "_", environment, "_", "abcdefghijklm", "nopqrstuvwxyz")
 
 
+def _aws_secret_access_key_fixture():
+    return _fixture_secret(
+        "abcd",
+        "EFGH",
+        "ijkl",
+        "MNOP",
+        "qrst",
+        "UVWX",
+        "yz01",
+        "2345",
+        "6789",
+        "+/ab",
+    )
+
+
 def _private_key_delimiter(label, key_type):
     return _fixture_secret("--", "---", label, " ", key_type, "--", "---")
 
@@ -965,6 +980,66 @@ class SafetyPolicyTests(unittest.TestCase):
                 self.assertNotIn(secret, redacted)
                 self.assertIn(marker, redacted)
 
+    def test_redaction_removes_contextual_aws_secret_access_keys(self):
+        secret = _aws_secret_access_key_fixture()
+        placeholder = "[REDACTED_AWS_SECRET_ACCESS_KEY]"
+        cases = [
+            (
+                f"aws_secret_access_key={secret}",
+                f"aws_secret_access_key={placeholder}",
+            ),
+            (
+                f'AWS_SECRET_ACCESS_KEY = "{secret}"',
+                f'AWS_SECRET_ACCESS_KEY = "{placeholder}"',
+            ),
+            (
+                f"'secret_access_key': '{secret}', keep=true",
+                f"'secret_access_key': '{placeholder}', keep=true",
+            ),
+            (
+                f"aws secret access key is {secret}.",
+                f"aws secret access key is {placeholder}.",
+            ),
+            (
+                f"secret-access-key: {secret}",
+                f"secret-access-key: {placeholder}",
+            ),
+        ]
+
+        for text, expected in cases:
+            with self.subTest(text=text):
+                redacted = redact_sensitive_content(text)
+
+                self.assertEqual(redacted, expected)
+                self.assertNotIn(secret, redacted)
+
+    def test_redaction_redacts_aws_access_key_id_and_secret_together(self):
+        secret = _aws_secret_access_key_fixture()
+        text = (
+            "Credentials: aws_access_key_id=AKIAIOSFODNN7EXAMPLE; "
+            f"aws_secret_access_key={secret}; keep region us-west-2."
+        )
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(
+            redacted,
+            "Credentials: aws_access_key_id=[REDACTED_AWS_KEY]; "
+            "aws_secret_access_key=[REDACTED_AWS_SECRET_ACCESS_KEY]; "
+            "keep region us-west-2.",
+        )
+        self.assertNotIn("AKIAIOSFODNN7EXAMPLE", redacted)
+        self.assertNotIn(secret, redacted)
+
+    def test_redaction_preserves_non_aws_secret_access_key_mentions(self):
+        text = (
+            "AWS secret access key rotation is scheduled. "
+            "secret_access_key=short-value. "
+            "aws_secret_access_key=not-a-40-character-secret."
+        )
+
+        self.assertEqual(redact_sensitive_content(text), text)
+
     def test_redaction_preserves_api_key_quotes_and_context(self):
         text = 'config api_key="api_abcdefghijklmnopqrstuvwxyz123456", next=true'
         redacted = redact_sensitive_content(text)
@@ -1228,6 +1303,61 @@ class SafetyPolicyTests(unittest.TestCase):
                 )
                 self.assertIn("client_id=public-client", redacted)
                 self.assertIn("next=%2Fhome", redacted)
+                self.assertTrue(redacted.endswith("."))
+
+    def test_redaction_redacts_cloud_credential_query_parameters(self):
+        aws_secret = _aws_secret_access_key_fixture()
+        cases = [
+            ("aws_secret_access_key", aws_secret),
+            ("secret_access_key", aws_secret),
+            ("aws_session_token", "aws-session-token-secret-123"),
+            ("security_token", "security-token-secret-456"),
+        ]
+
+        for param_name, secret in cases:
+            url = (
+                "https://cloud.example.test/resource"
+                f"?file=report&{param_name}={secret}&region=us-west-2"
+            )
+
+            with self.subTest(param_name=param_name):
+                redacted = redact_sensitive_content(f"Review URL: {url}.")
+
+                self.assertNotIn(secret, redacted)
+                self.assertIn("file=report", redacted)
+                self.assertIn("region=us-west-2", redacted)
+                self.assertIn(
+                    f"{param_name}=[REDACTED_CREDENTIAL_QUERY_VALUE]",
+                    redacted,
+                )
+                self.assertTrue(redacted.endswith("."))
+
+    def test_redaction_redacts_cloud_credential_fragment_parameters(self):
+        aws_secret = _aws_secret_access_key_fixture()
+        cases = [
+            ("aws_secret_access_key", aws_secret),
+            ("secret_access_key", aws_secret),
+            ("aws_session_token", "aws-fragment-session-token-123"),
+            ("security_token", "fragment-security-token-456"),
+        ]
+
+        for param_name, secret in cases:
+            url = (
+                "https://cloud.example.test/resource"
+                f"?file=report#region=us-west-2&{param_name}={secret}&tab=summary"
+            )
+
+            with self.subTest(param_name=param_name):
+                redacted = redact_sensitive_content(f"Review URL: {url}.")
+
+                self.assertNotIn(secret, redacted)
+                self.assertIn("file=report", redacted)
+                self.assertIn("region=us-west-2", redacted)
+                self.assertIn("tab=summary", redacted)
+                self.assertIn(
+                    f"{param_name}=[REDACTED_CREDENTIAL_QUERY_VALUE]",
+                    redacted,
+                )
                 self.assertTrue(redacted.endswith("."))
 
     def test_redaction_redacts_oauth_authorization_code_query_parameters(self):

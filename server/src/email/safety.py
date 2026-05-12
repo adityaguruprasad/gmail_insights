@@ -330,6 +330,26 @@ _GOOGLE_OAUTH_TOKEN_RE = re.compile(r"\bya29\.[A-Za-z0-9._-]+\b")
 _GOOGLE_REFRESH_TOKEN_RE = re.compile(r"\b1//[A-Za-z0-9._-]+\b")
 _JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b")
 _AWS_ACCESS_KEY_ID_RE = re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b")
+_AWS_SECRET_ACCESS_KEY_PLACEHOLDER = "[REDACTED_AWS_SECRET_ACCESS_KEY]"
+_AWS_SECRET_ACCESS_KEY_CONTEXT = (
+    r"(?:"
+    r"aws[_\-\s]*secret[_\-\s]*access[_\-\s]*key|"
+    r"secret[_\-\s]*access[_\-\s]*key"
+    r")"
+)
+_AWS_SECRET_ACCESS_KEY_VALUE = r"[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=])"
+_AWS_SECRET_ACCESS_KEY_AFTER_CONTEXT_RE = re.compile(
+    rf"(?<![A-Za-z0-9_])"
+    rf"(?P<context_quote>[\"'])?"
+    rf"(?P<context>{_AWS_SECRET_ACCESS_KEY_CONTEXT})"
+    rf"(?(context_quote)(?P=context_quote))"
+    rf"(?![A-Za-z0-9_])"
+    rf"(?P<between>\s*(?:(?:is|are|was)\s+|[:=]\s*|-\s*|\s+))"
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<aws_secret_access_key>{_AWS_SECRET_ACCESS_KEY_VALUE})"
+    rf"(?(quote)(?P=quote))",
+    re.IGNORECASE,
+)
 _SLACK_TOKEN_RE = re.compile(r"\b(?:xox[abprs]|xapp)-[A-Za-z0-9-]{10,}\b")
 _GITHUB_TOKEN_RE = re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{20,255}\b")
 _STRIPE_SECRET_KEY_RE = re.compile(r"\bsk_(?:live|test)_[A-Za-z0-9]{16,}\b")
@@ -451,6 +471,13 @@ _CREDENTIAL_QUERY_PARAM_NAMES = _expand_query_param_names(
         "auth_token",
         "secret",
         "client_secret",
+        "aws_secret_access_key",
+        "secret_access_key",
+        "aws_session_token",
+        "security_token",
+        "x_amz_credential",
+        "x_amz_security_token",
+        "x_amz_signature",
         "password",
         "passwd",
         "passphrase",
@@ -4493,6 +4520,21 @@ def _redact_oauth_authorization_codes(text: str) -> str:
     )
 
 
+def _redact_aws_secret_access_key(match: re.Match) -> str:
+    return _replace_match_group(
+        match,
+        "aws_secret_access_key",
+        _AWS_SECRET_ACCESS_KEY_PLACEHOLDER,
+    )
+
+
+def _redact_aws_secret_access_keys(text: str) -> str:
+    return _AWS_SECRET_ACCESS_KEY_AFTER_CONTEXT_RE.sub(
+        _redact_aws_secret_access_key,
+        text,
+    )
+
+
 def _redact_passkey_credential_id(match: re.Match) -> str:
     return _replace_match_group(
         match,
@@ -4744,6 +4786,7 @@ def redact_sensitive_content(text: str) -> str:
     redacted = _GOOGLE_REFRESH_TOKEN_RE.sub("[REDACTED_GOOGLE_REFRESH_TOKEN]", redacted)
     redacted = _JWT_RE.sub("[REDACTED_JWT]", redacted)
     redacted = _AWS_ACCESS_KEY_ID_RE.sub("[REDACTED_AWS_KEY]", redacted)
+    redacted = _redact_aws_secret_access_keys(redacted)
     redacted = _SLACK_TOKEN_RE.sub("[REDACTED_SLACK_TOKEN]", redacted)
     redacted = _GITHUB_TOKEN_RE.sub("[REDACTED_GITHUB_TOKEN]", redacted)
     redacted = _STRIPE_SECRET_KEY_RE.sub("[REDACTED_STRIPE_KEY]", redacted)
