@@ -92,6 +92,16 @@ def _totp_seed_fixture():
     return _fixture_secret("JBSW", "Y3DP", "EHPK", "3PXP")
 
 
+def _oidc_id_token_fixture():
+    return _fixture_secret(
+        "eyJhbGciOiJSUzI1NiIsImtpZCI6IjEifQ",
+        ".",
+        "eyJzdWIiOiIxMjM0NTY3ODkwIiwiaXNzIjoiaHR0cHM6Ly9hY2NvdW50cy5leGFtcGxlIn0",
+        ".",
+        "c2lnbmF0dXJlLXZhbHVlMTIzNDU2",
+    )
+
+
 def _processor_module():
     if "src.email.processor" in sys.modules:
         return sys.modules["src.email.processor"]
@@ -980,6 +990,50 @@ class SafetyPolicyTests(unittest.TestCase):
                 self.assertNotIn(secret, redacted)
                 self.assertIn(marker, redacted)
 
+    def test_redaction_removes_oauth_client_secret_assignment_forms(self):
+        cases = [
+            (
+                "client_secret=GOCSPX-oauthClientSecret123",
+                "GOCSPX-oauthClientSecret123",
+                "client_secret=[REDACTED_OAUTH_CLIENT_SECRET]",
+            ),
+            (
+                'oauth_client_secret = "oauth-client-secret-value-123"',
+                "oauth-client-secret-value-123",
+                'oauth_client_secret = "[REDACTED_OAUTH_CLIENT_SECRET]"',
+            ),
+            (
+                "'google_client_secret': 'google-client-secret-value-456',",
+                "google-client-secret-value-456",
+                "'google_client_secret': '[REDACTED_OAUTH_CLIENT_SECRET]',",
+            ),
+        ]
+
+        for text, secret, expected in cases:
+            with self.subTest(text=text):
+                redacted = redact_sensitive_content(text)
+
+                self.assertEqual(redacted, expected)
+                self.assertNotIn(secret, redacted)
+
+    def test_redaction_removes_id_token_assignment_jwts(self):
+        id_token = _oidc_id_token_fixture()
+        text = f'id_token = "{id_token}"'
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(redacted, 'id_token = "[REDACTED_JWT]"')
+        self.assertNotIn(id_token, redacted)
+
+    def test_redaction_preserves_benign_client_id_assignment_values(self):
+        text = (
+            "client_id=public-client.apps.googleusercontent.com "
+            "oauth_client_id='public-oauth-client' "
+            "google_client_id: public-google-client"
+        )
+
+        self.assertEqual(redact_sensitive_content(text), text)
+
     def test_redaction_removes_contextual_aws_secret_access_keys(self):
         secret = _aws_secret_access_key_fixture()
         placeholder = "[REDACTED_AWS_SECRET_ACCESS_KEY]"
@@ -1297,13 +1351,47 @@ class SafetyPolicyTests(unittest.TestCase):
                 redacted = redact_sensitive_content(f"Review URL: {url}.")
 
                 self.assertNotIn(secret, redacted)
+                placeholder = (
+                    "[REDACTED_OAUTH_CLIENT_SECRET]"
+                    if param_name in {"client_secret", "clientsecret"}
+                    else "[REDACTED_CREDENTIAL_QUERY_VALUE]"
+                )
                 self.assertIn(
-                    f"{param_name}=[REDACTED_CREDENTIAL_QUERY_VALUE]",
+                    f"{param_name}={placeholder}",
                     redacted,
                 )
                 self.assertIn("client_id=public-client", redacted)
                 self.assertIn("next=%2Fhome", redacted)
                 self.assertTrue(redacted.endswith("."))
+
+    def test_redaction_redacts_oauth_oidc_credential_url_parameters(self):
+        client_secret = "url-client-secret-value-123"
+        fragment_client_secret = "fragment-oauth-client-secret-456"
+        google_client_secret = "fragment-google-client-secret-789"
+        id_token = _oidc_id_token_fixture()
+        text = (
+            "Review URL: https://accounts.example.test/oauth/callback"
+            f"?client_id=public-client&client_secret={client_secret}"
+            f"&id_token={id_token}#view=summary"
+            f"&oauth_client_secret={fragment_client_secret}"
+            f"&google_client_secret={google_client_secret}."
+        )
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(
+            redacted,
+            "Review URL: https://accounts.example.test/oauth/callback"
+            "?client_id=public-client"
+            "&client_secret=[REDACTED_OAUTH_CLIENT_SECRET]"
+            "&id_token=[REDACTED_JWT]#view=summary"
+            "&oauth_client_secret=[REDACTED_OAUTH_CLIENT_SECRET]"
+            "&google_client_secret=[REDACTED_OAUTH_CLIENT_SECRET].",
+        )
+        self.assertNotIn(client_secret, redacted)
+        self.assertNotIn(fragment_client_secret, redacted)
+        self.assertNotIn(google_client_secret, redacted)
+        self.assertNotIn(id_token, redacted)
 
     def test_redaction_redacts_cloud_credential_query_parameters(self):
         aws_secret = _aws_secret_access_key_fixture()

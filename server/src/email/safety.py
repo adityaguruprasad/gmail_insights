@@ -329,6 +329,41 @@ _GOVERNMENT_ID_NUMBER_BEFORE_CONTEXT_RE = re.compile(
 _GOOGLE_OAUTH_TOKEN_RE = re.compile(r"\bya29\.[A-Za-z0-9._-]+\b")
 _GOOGLE_REFRESH_TOKEN_RE = re.compile(r"\b1//[A-Za-z0-9._-]+\b")
 _JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b")
+_JWT_VALUE_RE = re.compile(
+    r"^eyJ[A-Za-z0-9_-]{5,}={0,2}\.[A-Za-z0-9_-]{5,}={0,2}\."
+    r"[A-Za-z0-9_-]{5,}={0,2}$"
+)
+_OAUTH_CLIENT_SECRET_PLACEHOLDER = "[REDACTED_OAUTH_CLIENT_SECRET]"
+_OAUTH_CLIENT_SECRET_NAME = (
+    r"(?:client[_-]?secret|oauth[_-]?client[_-]?secret|"
+    r"google[_-]?client[_-]?secret)"
+)
+_OAUTH_CLIENT_SECRET_VALUE = (
+    r"[A-Za-z0-9_~+/%=-][A-Za-z0-9._~+/%=-]{6,}"
+    r"[A-Za-z0-9_~+/%=-]"
+)
+_OAUTH_CLIENT_SECRET_ASSIGNMENT_RE = re.compile(
+    rf"(?P<prefix>(?<![A-Za-z0-9_])(?P<key_quote>[\"'])?"
+    rf"{_OAUTH_CLIENT_SECRET_NAME}(?(key_quote)(?P=key_quote))"
+    rf"(?![A-Za-z0-9_])\s*[:=]\s*)"
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<oauth_client_secret>{_OAUTH_CLIENT_SECRET_VALUE})"
+    rf"(?(quote)(?P=quote))",
+    re.IGNORECASE,
+)
+_OIDC_ID_TOKEN_VALUE = (
+    r"eyJ[A-Za-z0-9_-]{5,}={0,2}\.[A-Za-z0-9_-]{5,}={0,2}\."
+    r"[A-Za-z0-9_-]{5,}={0,2}"
+)
+_OIDC_ID_TOKEN_ASSIGNMENT_RE = re.compile(
+    rf"(?P<prefix>(?<![A-Za-z0-9_])(?P<key_quote>[\"'])?"
+    rf"id[_-]?token(?(key_quote)(?P=key_quote))"
+    rf"(?![A-Za-z0-9_])\s*[:=]\s*)"
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<id_token>{_OIDC_ID_TOKEN_VALUE})"
+    rf"(?(quote)(?P=quote))",
+    re.IGNORECASE,
+)
 _AWS_ACCESS_KEY_ID_RE = re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b")
 _AWS_SECRET_ACCESS_KEY_PLACEHOLDER = "[REDACTED_AWS_SECRET_ACCESS_KEY]"
 _AWS_SECRET_ACCESS_KEY_CONTEXT = (
@@ -502,6 +537,18 @@ _CREDENTIAL_QUERY_PARAM_NAMES = _expand_query_param_names(
         "signature",
         "sig",
         "jwt",
+    }
+)
+_OAUTH_CLIENT_SECRET_QUERY_PARAM_NAMES = _expand_query_param_names(
+    {
+        "client_secret",
+        "oauth_client_secret",
+        "google_client_secret",
+    }
+)
+_OIDC_ID_TOKEN_QUERY_PARAM_NAMES = _expand_query_param_names(
+    {
+        "id_token",
     }
 )
 _OAUTH_AUTHORIZATION_CODE_PARAM_NAMES = _expand_query_param_names(
@@ -4313,6 +4360,27 @@ def _passkey_webauthn_query_param_placeholder(name: str):
     return None
 
 
+def _is_redacted_or_raw_jwt(value: str) -> bool:
+    decoded_value = unquote_plus(value)
+    return decoded_value == "[REDACTED_JWT]" or bool(
+        _JWT_VALUE_RE.fullmatch(decoded_value)
+    )
+
+
+def _credential_query_param_placeholder(name: str, value: str):
+    normalized_name = _normalized_query_param_name(name)
+    if normalized_name in _OAUTH_CLIENT_SECRET_QUERY_PARAM_NAMES:
+        return _OAUTH_CLIENT_SECRET_PLACEHOLDER
+    if normalized_name in _OIDC_ID_TOKEN_QUERY_PARAM_NAMES and _is_redacted_or_raw_jwt(
+        value,
+    ):
+        return "[REDACTED_JWT]"
+    if normalized_name in _CREDENTIAL_QUERY_PARAM_NAMES:
+        return _CREDENTIAL_QUERY_VALUE_PLACEHOLDER
+
+    return None
+
+
 def _redact_credential_query_string(
     query: str,
     oauth_authorization_code_context: bool = False,
@@ -4360,14 +4428,10 @@ def _redact_credential_query_string(
         elif separator and value and passkey_placeholder:
             redacted_parts.append(f"{name}{separator}{passkey_placeholder}")
             changed = True
-        elif (
-            separator
-            and value
-            and _normalized_query_param_name(name) in _CREDENTIAL_QUERY_PARAM_NAMES
+        elif separator and value and (
+            placeholder := _credential_query_param_placeholder(name, value)
         ):
-            redacted_parts.append(
-                f"{name}{separator}{_CREDENTIAL_QUERY_VALUE_PLACEHOLDER}"
-            )
+            redacted_parts.append(f"{name}{separator}{placeholder}")
             changed = True
         elif separator and value:
             redacted_value, value_changed = _redact_url_encoded_otpauth_payload(value)
@@ -4518,6 +4582,26 @@ def _redact_oauth_authorization_codes(text: str) -> str:
         _redact_oauth_authorization_code,
         text,
     )
+
+
+def _redact_oauth_client_secret(match: re.Match) -> str:
+    return _replace_match_group(
+        match,
+        "oauth_client_secret",
+        _OAUTH_CLIENT_SECRET_PLACEHOLDER,
+    )
+
+
+def _redact_oidc_id_token(match: re.Match) -> str:
+    return _replace_match_group(match, "id_token", "[REDACTED_JWT]")
+
+
+def _redact_oauth_oidc_assignments(text: str) -> str:
+    redacted = _OAUTH_CLIENT_SECRET_ASSIGNMENT_RE.sub(
+        _redact_oauth_client_secret,
+        text,
+    )
+    return _OIDC_ID_TOKEN_ASSIGNMENT_RE.sub(_redact_oidc_id_token, redacted)
 
 
 def _redact_aws_secret_access_key(match: re.Match) -> str:
@@ -4782,6 +4866,7 @@ def redact_sensitive_content(text: str) -> str:
         return ""
 
     redacted = _redact_private_keys(text)
+    redacted = _redact_oauth_oidc_assignments(redacted)
     redacted = _GOOGLE_OAUTH_TOKEN_RE.sub("[REDACTED_GOOGLE_TOKEN]", redacted)
     redacted = _GOOGLE_REFRESH_TOKEN_RE.sub("[REDACTED_GOOGLE_REFRESH_TOKEN]", redacted)
     redacted = _JWT_RE.sub("[REDACTED_JWT]", redacted)
