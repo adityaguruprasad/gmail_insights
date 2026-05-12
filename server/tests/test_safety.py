@@ -2521,6 +2521,165 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertIn("%5BREDACTED_CREDENTIAL_QUERY_VALUE%5D", redacted)
         self.assertIn("issuer%3DExample", redacted)
 
+    def test_redaction_redacts_sensitive_cookie_headers(self):
+        session_cookie = _fixture_secret("session", "-", "abc123", "-secret")
+        quoted_token_cookie = _fixture_secret("ab", ";", "cd", "-", "123")
+        quoted_refresh_cookie = _fixture_secret("ef", ";", "gh", "-", "456")
+        sid_cookie = _fixture_secret("sid", "-", "def456", "-secret")
+        csrf_cookie = _fixture_secret("csrf", "-", "ghi789", "-secret")
+        text = (
+            f"Set-Cookie: sessionid={session_cookie}; HttpOnly; Secure\n"
+            f"Set-Cookie: token=\"{quoted_token_cookie}\"; HttpOnly\n"
+            f"Cookie: sid={sid_cookie}; refresh_token=\"{quoted_refresh_cookie}\"; "
+            f"csrf_token={csrf_cookie}; theme=dark"
+        )
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertNotIn(session_cookie, redacted)
+        self.assertNotIn(quoted_token_cookie, redacted)
+        self.assertNotIn(quoted_refresh_cookie, redacted)
+        self.assertNotIn(sid_cookie, redacted)
+        self.assertNotIn(csrf_cookie, redacted)
+        self.assertIn(
+            "Set-Cookie: sessionid=[REDACTED_COOKIE_SECRET]; HttpOnly; Secure",
+            redacted,
+        )
+        self.assertIn(
+            'Set-Cookie: token="[REDACTED_COOKIE_SECRET]"; HttpOnly',
+            redacted,
+        )
+        self.assertIn(
+            "Cookie: sid=[REDACTED_COOKIE_SECRET]; "
+            'refresh_token="[REDACTED_COOKIE_SECRET]"; '
+            "csrf_token=[REDACTED_COOKIE_SECRET]; theme=dark",
+            redacted,
+        )
+
+    def test_redaction_redacts_sensitive_cookie_prose_assignments(self):
+        cases = [
+            (
+                "session cookie: session-abc123-secret",
+                "session-abc123-secret",
+                "session cookie: [REDACTED_COOKIE_SECRET]",
+            ),
+            (
+                "auth cookie = auth-cookie-secret",
+                "auth-cookie-secret",
+                "auth cookie = [REDACTED_COOKIE_SECRET]",
+            ),
+            (
+                "remember_me cookie is remember-me-789",
+                "remember-me-789",
+                "remember_me cookie is [REDACTED_COOKIE_SECRET]",
+            ),
+            (
+                "xsrf cookie xsrf-token-123",
+                "xsrf-token-123",
+                "xsrf cookie [REDACTED_COOKIE_SECRET]",
+            ),
+        ]
+
+        for text, secret, expected in cases:
+            with self.subTest(text=text):
+                redacted = redact_sensitive_content(text)
+
+                self.assertEqual(redacted, expected)
+                self.assertNotIn(secret, redacted)
+
+    def test_redaction_preserves_benign_cookie_policy_and_preferences(self):
+        text = (
+            "Cookie policy explains session cookie rotation and SameSite help. "
+            "Cookie preferences include theme cookies and analytics cookie names "
+            "without values.\n"
+            "The session cookie is rotated-every-24h and the csrf cookie is "
+            "SameSite=Lax.\n"
+            "Cookie names only: sessionid, sid, csrf_token.\n"
+            "Cookie: theme=dark; locale=en-US; preference_center=enabled"
+        )
+
+        self.assertEqual(redact_sensitive_content(text), text)
+        self.assertEqual(sanitize_untrusted_email_text(text), text)
+
+    def test_returned_subject_and_sender_preserve_normal_text(self):
+        processor = _processor_module()
+        email = {
+            "id": "normal-returned-fields-1",
+            "subject": "Planning notes for launch review",
+            "sender": "Maya Patel via Product Ops",
+            "date": "2026-05-10",
+            "content": "Ordinary project update.",
+            "is_archived": False,
+        }
+        original_create = processor.anthropic.completions.create
+        processor.anthropic.completions.create = (
+            lambda **kwargs: types.SimpleNamespace(
+                completion="Summary: ordinary update."
+            )
+        )
+        try:
+            result = processor.extract_insights(email)
+        finally:
+            processor.anthropic.completions.create = original_create
+
+        self.assertEqual(result["subject"], email["subject"])
+        self.assertEqual(result["sender"], email["sender"])
+
+    def test_sanitize_untrusted_email_text_redacts_cookie_artifacts(self):
+        sid_cookie = _fixture_secret("sid", "-", "sanitize", "-", "123")
+        session_cookie = _fixture_secret("session", "-", "sanitize", "-", "456")
+        text = (
+            f"Cookie: sid={sid_cookie}; theme=dark\n"
+            f"session cookie: {session_cookie}"
+        )
+
+        sanitized = sanitize_untrusted_email_text(text)
+
+        self.assertNotIn(sid_cookie, sanitized)
+        self.assertNotIn(session_cookie, sanitized)
+        self.assertIn("Cookie: sid=[REDACTED_COOKIE_SECRET]; theme=dark", sanitized)
+        self.assertIn("session cookie: [REDACTED_COOKIE_SECRET]", sanitized)
+
+    def test_prompt_summary_and_warning_paths_redact_cookie_artifacts(self):
+        processor = _processor_module()
+        sid_cookie = _fixture_secret("sid", "-", "prompt", "-", "secret123")
+        subject_cookie = _fixture_secret("sid", "-", "subject", "-", "secret456")
+        cookie_header = f"Cookie: sid={sid_cookie}; theme=dark"
+        email = {
+            "id": "cookie-secret-1",
+            "subject": f"Cookie artifact review Cookie: sid={subject_cookie}",
+            "sender": "Security Ops",
+            "date": "2026-05-10",
+            "snippet": cookie_header,
+            "security_warnings": [
+                f"Session cookie artifact was present: {cookie_header}",
+            ],
+            "content": f"Observed header:\n{cookie_header}",
+            "is_archived": False,
+        }
+
+        prompt = processor._build_prompt(email, redact_sensitive=True)
+        original_create = processor.anthropic.completions.create
+        processor.anthropic.completions.create = (
+            lambda **kwargs: types.SimpleNamespace(
+                completion=f"Summary: copied cookie header {cookie_header}."
+            )
+        )
+        try:
+            result = processor.extract_insights(email)
+        finally:
+            processor.anthropic.completions.create = original_create
+
+        self.assertNotIn(sid_cookie, prompt)
+        self.assertNotIn(subject_cookie, prompt)
+        self.assertNotIn(sid_cookie, result["summary"])
+        self.assertNotIn(sid_cookie, "\n".join(result["security_warnings"]))
+        self.assertNotIn(subject_cookie, result["subject"])
+        self.assertIn("sid=[REDACTED_COOKIE_SECRET]", prompt)
+        self.assertIn("sid=[REDACTED_COOKIE_SECRET]", result["summary"])
+        self.assertIn("sid=[REDACTED_COOKIE_SECRET]", result["subject"])
+        self.assertIn("theme=dark", prompt)
+
     def test_prompt_summary_and_warning_paths_redact_totp_provisioning_seeds(self):
         processor = _processor_module()
         seed = _totp_seed_fixture()

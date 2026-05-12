@@ -594,6 +594,7 @@ _SAML_RESPONSE_PLACEHOLDER = "[REDACTED_SAML_RESPONSE]"
 _SAML_REQUEST_PLACEHOLDER = "[REDACTED_SAML_REQUEST]"
 _SAML_XML_PLACEHOLDER = "[REDACTED_SAML_XML]"
 _URL_USERINFO_CREDENTIAL_PLACEHOLDER = "[REDACTED_URL_CREDENTIAL]"
+_COOKIE_SECRET_PLACEHOLDER = "[REDACTED_COOKIE_SECRET]"
 _URL_USERINFO_CREDENTIAL_SCHEMES = {
     "http",
     "https",
@@ -621,6 +622,90 @@ def _expand_query_param_names(names: Iterable[str]) -> Set[str]:
         expanded.update(_query_param_name_aliases(name))
 
     return expanded
+
+
+_COOKIE_SECRET_NAMES = _expand_query_param_names(
+    {
+        "session",
+        "sessionid",
+        "session_id",
+        "session_token",
+        "session_cookie",
+        "sid",
+        "auth",
+        "auth_token",
+        "token",
+        "access_token",
+        "refresh_token",
+        "csrf",
+        "csrf_token",
+        "xsrf",
+        "xsrf_token",
+        "jwt",
+        "id_token",
+        "remember_me",
+    }
+)
+_COOKIE_NAME = r"[A-Za-z0-9][A-Za-z0-9_.-]{0,128}"
+_COOKIE_SECRET_VALUE = r"[^;,\s\"'<>]{1,4096}"
+_COOKIE_QUOTED_SECRET_VALUE = r"[^\"'\r\n<>]{1,4096}"
+_COOKIE_MAYBE_QUOTED_SECRET_VALUE = (
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<cookie_secret>"
+    rf"(?(quote){_COOKIE_QUOTED_SECRET_VALUE}|{_COOKIE_SECRET_VALUE})"
+    rf")"
+    rf"(?(quote)(?P=quote))"
+)
+_COOKIE_SECRET_LIKE_VALUE = (
+    r"(?=[A-Za-z0-9._~+/%=-]{6,4096}(?![A-Za-z0-9._~+/%=-]))"
+    r"(?=[A-Za-z0-9._~+/%=-]*(?:\d|[._~+/%=-]))"
+    r"[A-Za-z0-9][A-Za-z0-9._~+/%=-]*"
+)
+_COOKIE_BENIGN_PROSE_VALUE_PREFIXES = (
+    "expiration",
+    "expired",
+    "expires",
+    "first-party",
+    "opt-in",
+    "opt-out",
+    "persistent",
+    "preference",
+    "rotated",
+    "rotation",
+    "same-site",
+    "samesite",
+    "session-only",
+    "temporary",
+    "third-party",
+)
+_COOKIE_PAIR_RE = re.compile(
+    rf"(?<![A-Za-z0-9_.-])(?P<name>{_COOKIE_NAME})"
+    rf"\s*=\s*{_COOKIE_MAYBE_QUOTED_SECRET_VALUE}",
+    re.IGNORECASE,
+)
+_SET_COOKIE_HEADER_RE = re.compile(
+    r"(?i)(?P<label>(?<![A-Za-z0-9_-])Set-Cookie\s*:\s*)"
+    r"(?P<cookies>[^\r\n]{0,4096})"
+)
+_COOKIE_HEADER_RE = re.compile(
+    r"(?i)(?P<label>(?<![A-Za-z0-9_-])Cookie\s*:\s*)"
+    r"(?P<cookies>[^\r\n]{0,4096})"
+)
+_COOKIE_PROSE_ASSIGNMENT_RE = re.compile(
+    rf"(?<![A-Za-z0-9_.-])(?P<name>{_COOKIE_NAME})(?![A-Za-z0-9_.-])"
+    rf"(?P<between>\s+cookies?\s*(?:[:=]\s*|-\s+))"
+    rf"{_COOKIE_MAYBE_QUOTED_SECRET_VALUE}",
+    re.IGNORECASE,
+)
+_COOKIE_PROSE_VALUE_RE = re.compile(
+    rf"(?<![A-Za-z0-9_.-])(?P<name>{_COOKIE_NAME})(?![A-Za-z0-9_.-])"
+    rf"(?P<between>\s+cookies?\s+(?P<prose_verb>(?:is|are|was|were)\s+)?)"
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<cookie_secret>{_COOKIE_SECRET_LIKE_VALUE})"
+    rf"(?(quote)(?P=quote))",
+    re.IGNORECASE,
+)
+_COOKIE_SECRET_TRAILING_PUNCTUATION = ".,)]}"
 
 
 _CREDENTIAL_QUERY_PARAM_NAMES = _expand_query_param_names(
@@ -4577,6 +4662,65 @@ def _redact_url_userinfo_credentials(text: str) -> str:
     )
 
 
+def _is_sensitive_cookie_name(name: str) -> bool:
+    return bool(_query_param_name_aliases(name).intersection(_COOKIE_SECRET_NAMES))
+
+
+def _split_cookie_secret_trailing_punctuation(value: str) -> Tuple[str, str]:
+    trailing_punctuation = ""
+    while value and value[-1] in _COOKIE_SECRET_TRAILING_PUNCTUATION:
+        trailing_punctuation = value[-1] + trailing_punctuation
+        value = value[:-1]
+
+    return value, trailing_punctuation
+
+
+def _is_benign_cookie_prose_value(match: re.Match) -> bool:
+    if not match.groupdict().get("prose_verb"):
+        return False
+
+    value = match.group("cookie_secret").lower().strip(".,)]}\"'")
+    return value.startswith(_COOKIE_BENIGN_PROSE_VALUE_PREFIXES)
+
+
+def _redact_cookie_secret(match: re.Match) -> str:
+    if not _is_sensitive_cookie_name(match.group("name")):
+        return match.group(0)
+    if _is_benign_cookie_prose_value(match):
+        return match.group(0)
+
+    secret, trailing_punctuation = _split_cookie_secret_trailing_punctuation(
+        match.group("cookie_secret"),
+    )
+    if not secret:
+        return match.group(0)
+
+    return _replace_match_group(
+        match,
+        "cookie_secret",
+        _COOKIE_SECRET_PLACEHOLDER + trailing_punctuation,
+    )
+
+
+def _redact_cookie_pairs(text: str) -> str:
+    return _COOKIE_PAIR_RE.sub(_redact_cookie_secret, text)
+
+
+def _redact_cookie_header(match: re.Match) -> str:
+    return _replace_match_group(
+        match,
+        "cookies",
+        _redact_cookie_pairs(match.group("cookies")),
+    )
+
+
+def _redact_cookie_artifacts(text: str) -> str:
+    redacted = _SET_COOKIE_HEADER_RE.sub(_redact_cookie_header, text)
+    redacted = _COOKIE_HEADER_RE.sub(_redact_cookie_header, redacted)
+    redacted = _COOKIE_PROSE_ASSIGNMENT_RE.sub(_redact_cookie_secret, redacted)
+    return _COOKIE_PROSE_VALUE_RE.sub(_redact_cookie_secret, redacted)
+
+
 def _query_param_names(query: str) -> Set[str]:
     names = set()
 
@@ -5551,6 +5695,7 @@ def redact_sensitive_content(text: str) -> str:
     redacted = _redact_saml_sso_artifacts(redacted)
     redacted = _redact_oauth_oidc_assignments(redacted)
     redacted = _redact_oauth_oidc_authorization_artifacts(redacted)
+    redacted = _redact_cookie_artifacts(redacted)
     redacted = _GOOGLE_OAUTH_TOKEN_RE.sub("[REDACTED_GOOGLE_TOKEN]", redacted)
     redacted = _GOOGLE_REFRESH_TOKEN_RE.sub("[REDACTED_GOOGLE_REFRESH_TOKEN]", redacted)
     redacted = _JWT_RE.sub("[REDACTED_JWT]", redacted)
@@ -5590,6 +5735,7 @@ def sanitize_untrusted_email_text(text: str) -> str:
     sanitized = text.replace("\r\n", "\n").replace("\r", "\n")
     sanitized = _redact_saml_sso_artifacts(sanitized)
     sanitized = _redact_oauth_oidc_authorization_artifacts(sanitized)
+    sanitized = _redact_cookie_artifacts(sanitized)
     sanitized = _ROLE_TAG_RE.sub(r"\1[quoted-role \2] ", sanitized)
     sanitized = _INSTRUCTION_PHRASE_RE.sub(r"[quoted-instruction: \1]", sanitized)
     sanitized = _SAFETY_METADATA_DIRECTIVE_RE.sub(

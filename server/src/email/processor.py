@@ -86,6 +86,13 @@ def _prepare_untrusted_email_field(value, max_length: int, redact_sensitive: boo
     return sanitize_untrusted_email_text(text)
 
 
+def _prepare_returned_untrusted_field(value):
+    if value is None:
+        return None
+
+    return sanitize_untrusted_email_text(str(value))
+
+
 def _iter_security_warning_values(raw_warnings):
     if not raw_warnings:
         return []
@@ -277,8 +284,8 @@ def extract_insights(email, redact_sensitive: bool = True):
 
     return {
         "id": email.get("id"),
-        "subject": email.get("subject"),
-        "sender": email.get("sender"),
+        "subject": _prepare_returned_untrusted_field(email.get("subject")),
+        "sender": _prepare_returned_untrusted_field(email.get("sender")),
         "is_archived": email.get("is_archived", False),
         "security_warnings": returned_security_warnings,
         "summary": guarded_summary,
