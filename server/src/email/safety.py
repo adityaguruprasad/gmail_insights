@@ -469,6 +469,65 @@ _OTP_CODE_AFTER_ACTION_RE = re.compile(
     rf"(?P<trail>\s+(?:to|for)\s+{_OTP_PURPOSE_CONTEXT}\b)",
     re.IGNORECASE,
 )
+_MFA_BACKUP_CODE_PLACEHOLDER = "[REDACTED_MFA_BACKUP_CODE]"
+_MFA_BACKUP_FACTOR_CONTEXT = (
+    r"(?:mfa|2fa|two[-\s]?factor|multi[-\s]?factor|authenticator(?:\s+app)?)"
+)
+_MFA_BACKUP_CODE_CONTEXT = (
+    r"(?:"
+    rf"(?:(?:{_MFA_BACKUP_FACTOR_CONTEXT})\s+)?"
+    r"(?:backup|recovery|scratch|emergency)\s+"
+    r"(?:codes?|passcodes?|pins?)|"
+    r"(?:backup|recovery|scratch|emergency)\s+"
+    rf"(?:{_MFA_BACKUP_FACTOR_CONTEXT})\s+"
+    r"(?:codes?|passcodes?|pins?)"
+    r")"
+)
+_MFA_BACKUP_DIGIT_CODE = (
+    r"(?:"
+    r"\d{8,12}|"
+    r"\d{4}[- ]\d{4}(?:[- ]\d{2,4})?|"
+    r"\d{5}[- ]\d{5}|"
+    r"\d{6}[- ]\d{6}|"
+    r"\d{3}[- ]\d{3}[- ]\d{2,6}"
+    r")"
+)
+_MFA_BACKUP_ALPHANUMERIC_CODE = (
+    r"(?=[A-Za-z0-9-]{9,20}(?![A-Za-z0-9-]))"
+    r"(?=[A-Za-z0-9-]*[A-Za-z])"
+    r"[A-Za-z0-9]{4,6}(?:-[A-Za-z0-9]{4,6}){1,2}"
+)
+_MFA_BACKUP_CODE_VALUE = (
+    rf"(?<![A-Za-z0-9-])"
+    rf"(?:{_MFA_BACKUP_DIGIT_CODE}|{_MFA_BACKUP_ALPHANUMERIC_CODE})"
+    rf"(?![A-Za-z0-9-])"
+)
+_MFA_BACKUP_CODE_VALUE_RE = re.compile(_MFA_BACKUP_CODE_VALUE, re.IGNORECASE)
+_MFA_BACKUP_CODE_LIST_SEPARATOR = (
+    r"(?:\s*(?:,|;|/|\||\band\b|\bor\b)\s*|\s+)"
+)
+_MFA_BACKUP_CODE_LIST_ITEM = rf"[\"']?{_MFA_BACKUP_CODE_VALUE}[\"']?"
+_MFA_BACKUP_CODE_LIST = (
+    rf"{_MFA_BACKUP_CODE_LIST_ITEM}"
+    rf"(?:{_MFA_BACKUP_CODE_LIST_SEPARATOR}{_MFA_BACKUP_CODE_LIST_ITEM}){{0,9}}"
+)
+_MFA_BACKUP_CODE_AFTER_CONTEXT_RE = re.compile(
+    rf"(?<![A-Za-z0-9_])(?P<context>{_MFA_BACKUP_CODE_CONTEXT})"
+    rf"(?![A-Za-z0-9_])"
+    rf"(?P<between>\s*(?:(?:is|are|was|were)\b\s*)?(?:[:,=#-]\s*)?)"
+    rf"(?P<codes>{_MFA_BACKUP_CODE_LIST})",
+    re.IGNORECASE,
+)
+_MFA_BACKUP_CODE_BEFORE_CONTEXT_RE = re.compile(
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<code>{_MFA_BACKUP_CODE_VALUE})"
+    rf"(?(quote)(?P=quote))"
+    rf"(?P<between>\s+(?:is|are|as|for)\s+"
+    rf"(?:your|my|our|the|this|that|a|an)?\s*)"
+    rf"(?P<context>{_MFA_BACKUP_CODE_CONTEXT})"
+    rf"(?![A-Za-z0-9_])",
+    re.IGNORECASE,
+)
 _SENSITIVE_LINK_URL_TARGET = (
     r"(?:https?://[^\s<>\]\"']{1,2048}|www\.[^\s<>\]\"']{1,2048})"
 )
@@ -4176,6 +4235,25 @@ def _redact_otp_code(match: re.Match) -> str:
     return _replace_match_group(match, "code", "[REDACTED_OTP]")
 
 
+def _redact_mfa_backup_code(match: re.Match) -> str:
+    return _replace_match_group(
+        match,
+        "code",
+        _MFA_BACKUP_CODE_PLACEHOLDER,
+    )
+
+
+def _redact_mfa_backup_code_list(match: re.Match) -> str:
+    return _replace_match_group(
+        match,
+        "codes",
+        _MFA_BACKUP_CODE_VALUE_RE.sub(
+            _MFA_BACKUP_CODE_PLACEHOLDER,
+            match.group("codes"),
+        ),
+    )
+
+
 def _redact_oauth_authorization_code(match: re.Match) -> str:
     return _replace_match_group(
         match,
@@ -4594,6 +4672,17 @@ def _redact_short_lived_login_credentials(text: str) -> str:
     return _OTP_CODE_BEFORE_CONTEXT_RE.sub(_redact_otp_code, redacted)
 
 
+def _redact_mfa_backup_codes(text: str) -> str:
+    redacted = _MFA_BACKUP_CODE_AFTER_CONTEXT_RE.sub(
+        _redact_mfa_backup_code_list,
+        text,
+    )
+    return _MFA_BACKUP_CODE_BEFORE_CONTEXT_RE.sub(
+        _redact_mfa_backup_code,
+        redacted,
+    )
+
+
 def _redact_oauth_authorization_codes(text: str) -> str:
     return _OAUTH_AUTHORIZATION_CODE_AFTER_CONTEXT_RE.sub(
         _redact_oauth_authorization_code,
@@ -4894,6 +4983,7 @@ def redact_sensitive_content(text: str) -> str:
     redacted = _STRIPE_SECRET_KEY_RE.sub("[REDACTED_STRIPE_KEY]", redacted)
     redacted = _BEARER_TOKEN_RE.sub(r"\1[REDACTED_TOKEN]", redacted)
     redacted = _redact_short_lived_login_credentials(redacted)
+    redacted = _redact_mfa_backup_codes(redacted)
     redacted = _redact_oauth_authorization_codes(redacted)
     redacted = _redact_authenticator_provisioning_uris(redacted)
     redacted = _redact_passkey_webauthn_artifacts(redacted)

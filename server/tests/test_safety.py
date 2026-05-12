@@ -1252,6 +1252,92 @@ class SafetyPolicyTests(unittest.TestCase):
                 self.assertNotIn(code, redacted)
                 self.assertIn("[REDACTED_OTP]", redacted)
 
+    def test_redaction_removes_mfa_backup_code_lists_after_context(self):
+        cases = [
+            (
+                "Your backup codes are 12345678, 87654321. Keep them offline.",
+                ["12345678", "87654321"],
+                (
+                    "Your backup codes are [REDACTED_MFA_BACKUP_CODE], "
+                    "[REDACTED_MFA_BACKUP_CODE]. Keep them offline."
+                ),
+            ),
+            (
+                "2FA recovery codes: ABCD-EFGH IJKL-MNOP. Store them securely.",
+                ["ABCD-EFGH", "IJKL-MNOP"],
+                (
+                    "2FA recovery codes: [REDACTED_MFA_BACKUP_CODE] "
+                    "[REDACTED_MFA_BACKUP_CODE]. Store them securely."
+                ),
+            ),
+            (
+                "Authenticator scratch codes: 1234-5678; 8765 4321.",
+                ["1234-5678", "8765 4321"],
+                (
+                    "Authenticator scratch codes: [REDACTED_MFA_BACKUP_CODE]; "
+                    "[REDACTED_MFA_BACKUP_CODE]."
+                ),
+            ),
+        ]
+
+        for text, codes, expected in cases:
+            with self.subTest(text=text):
+                redacted = redact_sensitive_content(text)
+
+                self.assertEqual(redacted, expected)
+                for code in codes:
+                    self.assertNotIn(code, redacted)
+
+    def test_redaction_removes_mfa_backup_code_before_context(self):
+        cases = [
+            (
+                "12345678 is a backup code for this account.",
+                "12345678",
+                "[REDACTED_MFA_BACKUP_CODE] is a backup code for this account.",
+            ),
+            (
+                '"ABCD-EFGH" is your 2FA recovery code for sign-in.',
+                "ABCD-EFGH",
+                (
+                    '"[REDACTED_MFA_BACKUP_CODE]" is your 2FA recovery code '
+                    "for sign-in."
+                ),
+            ),
+        ]
+
+        for text, code, expected in cases:
+            with self.subTest(text=text):
+                redacted = redact_sensitive_content(text)
+
+                self.assertEqual(redacted, expected)
+                self.assertNotIn(code, redacted)
+
+    def test_redaction_preserves_numbers_without_mfa_backup_code_context(self):
+        text = (
+            "Order number 12345678 ships with invoice 8765-4321. "
+            "Reference ABCD-EFGH stays visible. "
+            "The backup report mentions recovery planning but has no codes."
+        )
+
+        self.assertEqual(redact_sensitive_content(text), text)
+
+    def test_mfa_backup_redaction_keeps_existing_otp_redaction(self):
+        otp = "123456"
+        backup_code = "87654321"
+        text = f"Your verification code is {otp}. Backup codes: {backup_code}."
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(
+            redacted,
+            (
+                "Your verification code is [REDACTED_OTP]. "
+                "Backup codes: [REDACTED_MFA_BACKUP_CODE]."
+            ),
+        )
+        self.assertNotIn(otp, redacted)
+        self.assertNotIn(backup_code, redacted)
+
     def test_redaction_removes_sensitive_login_and_reset_links(self):
         cases = [
             (
