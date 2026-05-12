@@ -1,6 +1,6 @@
 import re
 from typing import Iterable, List, Set, Tuple
-from urllib.parse import unquote_plus, urlsplit
+from urllib.parse import quote_plus, unquote_plus, urlsplit
 
 ALLOWED_ACTIONS = {
     "read",
@@ -328,6 +328,10 @@ _CREDENTIAL_QUERY_PARAM_NAMES = {
     "code",
     "state",
     "auth",
+    "secret",
+    "totp_secret",
+    "otp_secret",
+    "mfa_secret",
     "access_token",
     "refresh_token",
     "id_token",
@@ -340,6 +344,10 @@ _CREDENTIAL_QUERY_PARAM_NAMES = {
 }
 _CREDENTIAL_QUERY_URL_RE = re.compile(
     r"(?P<url>(?:https?://|www\.)[^\s<>\"']{1,2048})",
+    re.IGNORECASE,
+)
+_OTPAUTH_URL_RE = re.compile(
+    r"(?P<url>otpauth://[^\s<>\"']{1,2048})",
     re.IGNORECASE,
 )
 _QUERY_PARAM_SEPARATOR_RE = re.compile(r"([&;])")
@@ -609,9 +617,20 @@ _LINK_TARGET = (
     rf"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){{0,4}}{_LINK_NOUN})"
 )
 _CLICK_LINK_TARGET = rf"(?:here|{_LINK_TARGET})"
-_QR_EXPLICIT_TARGET = r"(?:(?:the|this|that|an?|your)\s+)?qr\s+codes?\b"
-_QR_SCAN_TARGET = r"(?:(?:the|this|that|an?|your)\s+)?(?:qr\s+)?codes?\b"
-_QR_LINK_TARGET = r"(?:(?:the|this|that|an?|your)\s+)?qr\s+codes?\s+(?:links?|urls?)\b"
+_QR_CONTEXT_MODIFIER = (
+    r"(?:(?:authenticator|mfa|2fa|two[-\s]?factor|multi[-\s]?factor|"
+    r"totp|login|sign[-\s]?in|verification)\s+){0,3}"
+)
+_QR_EXPLICIT_TARGET = (
+    rf"(?:(?:the|this|that|an?|your)\s+)?{_QR_CONTEXT_MODIFIER}qr\s+codes?\b"
+)
+_QR_SCAN_TARGET = (
+    rf"(?:(?:the|this|that|an?|your)\s+)?{_QR_CONTEXT_MODIFIER}(?:qr\s+)?codes?\b"
+)
+_QR_LINK_TARGET = (
+    rf"(?:(?:the|this|that|an?|your)\s+)?{_QR_CONTEXT_MODIFIER}"
+    r"qr\s+codes?\s+(?:links?|urls?)\b"
+)
 _QR_PURPOSE_SUFFIX = r"(?:\s+to\s+[\w-]+(?:\s+[\w-]+){0,8})?"
 _ATTACHED_FILE_NOUN = (
     r"(?:file|files|pdf|pdfs|document|documents|doc|docs|spreadsheet|spreadsheets|"
@@ -1681,6 +1700,26 @@ _SECURITY_MFA_SETTING_TARGET = (
 )
 _SECURITY_MFA_ACTION_SUFFIX = (
     rf"(?:\s+(?:for|from|in|on|within)\s+{_SECURITY_ACCOUNT_SETTING_TARGET})?"
+    rf"{_TARGET_END}"
+)
+_AUTHENTICATOR_PROVISIONING_SOURCE = (
+    r"(?:(?:the|this|that|an?|your)\s+)?"
+    r"(?:"
+    r"otpauth\s+(?:uris?|urls?)|"
+    r"(?:totp|otp|mfa)\s+secrets?|"
+    r"authenticator\s+(?:uris?|urls?|links?|"
+    r"provisioning\s+(?:uris?|urls?|links?)|"
+    r"enrollment\s+(?:uris?|urls?|links?))|"
+    r"mfa\s+enrollment\s+(?:uris?|urls?|links?)|"
+    r"provisioning\s+(?:uris?|urls?|links?)"
+    r")\b"
+)
+_AUTHENTICATOR_APP_TARGET = (
+    rf"(?:(?:the|this|that|your|an?)\s+)?{_LOGIN_APPROVAL_SERVICE}\b"
+)
+_AUTHENTICATOR_PROVISIONING_ACTION_SUFFIX = (
+    rf"(?:\s+(?:to|into|in|on|with|using|via|through)\s+"
+    rf"{_AUTHENTICATOR_APP_TARGET})?"
     rf"{_TARGET_END}"
 )
 _ACCOUNT_PROTECTION_TARGET = (
@@ -3344,6 +3383,18 @@ _DIRECTIVE_PATTERNS = {
     "change_mfa_settings": [
         re.compile(
             rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:add|import|enter|input|paste|use)\s+"
+            rf"{_AUTHENTICATOR_PROVISIONING_SOURCE}"
+            rf"{_AUTHENTICATOR_PROVISIONING_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:add|import|enter|input|paste|use)\s+"
+            rf"{_AUTHENTICATOR_PROVISIONING_SOURCE}"
+            rf"{_AUTHENTICATOR_PROVISIONING_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
             rf"(?:enable|disable|deactivate|turn\s+on|turn\s+off|"
             rf"switch\s+on|switch\s+off|add|remove|delete|change|update|"
             rf"configure|set(?:\s+up)?|reset|replace|enroll)\s+"
@@ -3597,27 +3648,17 @@ def _redact_credential_query_string(query: str) -> Tuple[str, bool]:
                 f"{name}{separator}{_CREDENTIAL_QUERY_VALUE_PLACEHOLDER}"
             )
             changed = True
+        elif separator and value:
+            redacted_value, value_changed = _redact_url_encoded_otpauth_payload(value)
+            redacted_parts.append(f"{name}{separator}{redacted_value}")
+            changed = changed or value_changed
         else:
             redacted_parts.append(part)
 
     return "".join(redacted_parts), changed
 
 
-def _redact_credential_query_params_in_url(match: re.Match) -> str:
-    url, trailing_punctuation = _split_url_trailing_punctuation(match.group("url"))
-
-    candidate = url
-    if candidate.lower().startswith("www."):
-        candidate = f"https://{candidate}"
-
-    try:
-        parsed = urlsplit(candidate)
-    except ValueError:
-        return match.group(0)
-
-    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
-        return match.group(0)
-
+def _redact_url_query_and_fragment(url: str) -> Tuple[str, bool]:
     query_start = url.find("?")
     if query_start >= 0:
         fragment_start = url.find("#", query_start + 1)
@@ -3642,11 +3683,31 @@ def _redact_credential_query_params_in_url(match: re.Match) -> str:
     else:
         fragment_start = url.find("#")
         if fragment_start < 0:
-            return match.group(0)
+            return url, False
 
         fragment = url[fragment_start + 1 :]
         redacted_fragment, changed = _redact_credential_query_string(fragment)
         redacted_url = url[: fragment_start + 1] + redacted_fragment
+
+    return redacted_url, changed
+
+
+def _redact_credential_query_params_in_url(match: re.Match) -> str:
+    url, trailing_punctuation = _split_url_trailing_punctuation(match.group("url"))
+
+    candidate = url
+    if candidate.lower().startswith("www."):
+        candidate = f"https://{candidate}"
+
+    try:
+        parsed = urlsplit(candidate)
+    except ValueError:
+        return match.group(0)
+
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        return match.group(0)
+
+    redacted_url, changed = _redact_url_query_and_fragment(url)
 
     if not changed:
         return match.group(0)
@@ -3657,6 +3718,45 @@ def _redact_credential_query_params_in_url(match: re.Match) -> str:
         + redacted_url
         + match.string[match.end("url") : match.end()]
     )
+
+
+def _redact_otpauth_uri_query_params_in_url(match: re.Match) -> str:
+    url, trailing_punctuation = _split_url_trailing_punctuation(match.group("url"))
+
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return match.group(0)
+
+    if parsed.scheme.lower() != "otpauth":
+        return match.group(0)
+
+    redacted_url, changed = _redact_url_query_and_fragment(url)
+    if not changed:
+        return match.group(0)
+
+    redacted_url = redacted_url + trailing_punctuation
+    return (
+        match.string[match.start() : match.start("url")]
+        + redacted_url
+        + match.string[match.end("url") : match.end()]
+    )
+
+
+def _redact_authenticator_provisioning_uris(text: str) -> str:
+    return _OTPAUTH_URL_RE.sub(_redact_otpauth_uri_query_params_in_url, text)
+
+
+def _redact_url_encoded_otpauth_payload(value: str) -> Tuple[str, bool]:
+    decoded_value = unquote_plus(value)
+    if "otpauth://" not in decoded_value.lower():
+        return value, False
+
+    redacted_value = _redact_authenticator_provisioning_uris(decoded_value)
+    if redacted_value == decoded_value:
+        return value, False
+
+    return quote_plus(redacted_value), True
 
 
 def _redact_credential_query_params(text: str) -> str:
@@ -3777,6 +3877,7 @@ def redact_sensitive_content(text: str) -> str:
     redacted = _STRIPE_SECRET_KEY_RE.sub("[REDACTED_STRIPE_KEY]", redacted)
     redacted = _BEARER_TOKEN_RE.sub(r"\1[REDACTED_TOKEN]", redacted)
     redacted = _redact_short_lived_login_credentials(redacted)
+    redacted = _redact_authenticator_provisioning_uris(redacted)
     redacted = _redact_credential_query_params(redacted)
     redacted = _API_TOKEN_RE.sub(r"\1\2[REDACTED_TOKEN]\2", redacted)
     redacted = _redact_app_passwords(redacted)

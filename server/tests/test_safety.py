@@ -73,6 +73,10 @@ def _wallet_seed_phrase_24():
     )
 
 
+def _totp_seed_fixture():
+    return _fixture_secret("JBSW", "Y3DP", "EHPK", "3PXP")
+
+
 def _processor_module():
     if "src.email.processor" in sys.modules:
         return sys.modules["src.email.processor"]
@@ -1121,6 +1125,10 @@ class SafetyPolicyTests(unittest.TestCase):
             "code",
             "state",
             "auth",
+            "secret",
+            "totp_secret",
+            "otp_secret",
+            "mfa_secret",
             "access_token",
             "refresh_token",
             "id_token",
@@ -1199,6 +1207,120 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertNotIn(query_code, redacted)
         self.assertNotIn(fragment_token, redacted)
         self.assertNotIn(fragment_state, redacted)
+
+    def test_redaction_redacts_otpauth_uri_secret_parameters(self):
+        seed = _totp_seed_fixture()
+        cases = [
+            (
+                "secret",
+                f"otpauth://totp/Example:alice?secret={seed}&issuer=Example",
+            ),
+            (
+                "totp_secret",
+                f"otpauth://totp/Example:alice?totp_secret={seed}&issuer=Example",
+            ),
+            (
+                "otp_secret",
+                f"otpauth://totp/Example:alice?otp_secret={seed}&issuer=Example",
+            ),
+            (
+                "mfa_secret",
+                f"otpauth://totp/Example:alice?mfa_secret={seed}&issuer=Example",
+            ),
+        ]
+
+        for param_name, uri in cases:
+            with self.subTest(param_name=param_name):
+                redacted = redact_sensitive_content(f"Enroll with {uri}.")
+
+                self.assertNotIn(seed, redacted)
+                self.assertIn("otpauth://totp/Example:alice", redacted)
+                self.assertIn(
+                    f"{param_name}=[REDACTED_CREDENTIAL_QUERY_VALUE]",
+                    redacted,
+                )
+                self.assertIn("issuer=Example", redacted)
+                self.assertTrue(redacted.endswith("."))
+
+    def test_redaction_redacts_authenticator_secret_aliases_in_https_urls(self):
+        seeds = [
+            _fixture_secret("ALFA", "BRAV", "CHAR", "LIE2"),
+            _fixture_secret("DELT", "ECHO", "FOXT", "ROT3"),
+            _fixture_secret("GOLF", "HOTL", "INDI", "A444"),
+            _fixture_secret("JULI", "KILO", "LIMA", "5555"),
+        ]
+        text = (
+            "Provisioning URL: https://auth.example.test/mfa/enroll"
+            f"?secret={seeds[0]}&totp_secret={seeds[1]}"
+            f"&otp_secret={seeds[2]}#mfa_secret={seeds[3]}&issuer=Example."
+        )
+
+        redacted = redact_sensitive_content(text)
+
+        for seed in seeds:
+            self.assertNotIn(seed, redacted)
+        self.assertIn("https://auth.example.test/mfa/enroll", redacted)
+        self.assertIn("secret=[REDACTED_CREDENTIAL_QUERY_VALUE]", redacted)
+        self.assertIn("totp_secret=[REDACTED_CREDENTIAL_QUERY_VALUE]", redacted)
+        self.assertIn("otp_secret=[REDACTED_CREDENTIAL_QUERY_VALUE]", redacted)
+        self.assertIn("mfa_secret=[REDACTED_CREDENTIAL_QUERY_VALUE]", redacted)
+        self.assertIn("issuer=Example", redacted)
+
+    def test_redaction_redacts_url_encoded_otpauth_payloads_in_query_values(self):
+        seed = _totp_seed_fixture()
+        encoded_payload = (
+            "otpauth%3A%2F%2Ftotp%2FExample%3Aalice%3F"
+            f"secret%3D{seed}%26issuer%3DExample"
+        )
+        text = (
+            "QR enrollment: https://auth.example.test/qr"
+            f"?account=alice&qr={encoded_payload}&view=setup."
+        )
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertNotIn(seed, redacted)
+        self.assertIn("https://auth.example.test/qr", redacted)
+        self.assertIn("account=alice", redacted)
+        self.assertIn("view=setup", redacted)
+        self.assertIn("%5BREDACTED_CREDENTIAL_QUERY_VALUE%5D", redacted)
+        self.assertIn("issuer%3DExample", redacted)
+
+    def test_prompt_summary_and_warning_paths_redact_totp_provisioning_seeds(self):
+        processor = _processor_module()
+        seed = _totp_seed_fixture()
+        uri = f"otpauth://totp/Example:alice?secret={seed}&issuer=Example"
+        email = {
+            "id": "mfa-enroll-1",
+            "subject": f"MFA enrollment {uri}",
+            "sender": "Security Ops",
+            "date": "2026-05-10",
+            "snippet": f"Authenticator setup link: {uri}",
+            "security_warnings": [
+                f"MFA provisioning link was present: {uri}",
+            ],
+            "content": f"This email contains an MFA enrollment link: {uri}",
+            "is_archived": False,
+        }
+
+        prompt = processor._build_prompt(email, redact_sensitive=True)
+        original_create = processor.anthropic.completions.create
+        processor.anthropic.completions.create = (
+            lambda **kwargs: types.SimpleNamespace(
+                completion=f"Summary: This email contains an MFA enrollment link {uri}."
+            )
+        )
+        try:
+            result = processor.extract_insights(email)
+        finally:
+            processor.anthropic.completions.create = original_create
+
+        self.assertNotIn(seed, prompt)
+        self.assertNotIn(seed, result["summary"])
+        self.assertNotIn(seed, "\n".join(result["security_warnings"]))
+        self.assertIn("MFA enrollment link", result["summary"])
+        self.assertIn("[REDACTED_CREDENTIAL_QUERY_VALUE]", prompt)
+        self.assertIn("[REDACTED_CREDENTIAL_QUERY_VALUE]", result["summary"])
 
     def test_redaction_preserves_benign_fragments(self):
         text = (
@@ -2444,6 +2566,8 @@ class SafetyPolicyTests(unittest.TestCase):
     def test_neutralize_unsafe_action_suggestions_blocks_qr_code_directives(self):
         cases = [
             "Scan the QR code.",
+            "Scan the authenticator QR code.",
+            "Scan the MFA QR code.",
             "Scan this code now.",
             "Recommended action: scan the QR code.",
             "Use the QR code to sign in.",
@@ -2486,6 +2610,36 @@ class SafetyPolicyTests(unittest.TestCase):
             "The sender mentions a QR code but no automated action is required."
         )
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_authenticator_provisioning_directives(self):
+        cases = [
+            "Import the otpauth URI.",
+            "Import the otpauth URL into Google Authenticator.",
+            "Add this TOTP secret to your authenticator app.",
+            "Paste the MFA secret into Authy.",
+            "Use the provisioning URI with the authenticator app.",
+            "Recommended action: import the MFA enrollment link.",
+            "Action item: add the OTP secret to your 2FA app.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["change_mfa_settings"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_authenticator_provisioning_descriptions(self):
+        text = (
+            "Summary: this email contains an MFA enrollment link.\n"
+            "The otpauth URI was present but redacted.\n"
+            "Authenticator setup information is included for manual review.\n"
+            "Do not import the otpauth URI from this email."
+        )
+
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+
         self.assertEqual(guarded, text)
         self.assertEqual(blocked, [])
 
