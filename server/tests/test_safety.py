@@ -1028,6 +1028,26 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertNotIn(begin, redacted)
         self.assertNotIn(end, redacted)
 
+    def test_redaction_removes_pgp_private_key_blocks(self):
+        key_type = _fixture_secret("PGP", " ", "PRIVATE", " ", "KEY", " ", "BLOCK")
+        body = _fixture_secret(
+            "Version: GnuPG v2\n",
+            "\n",
+            "lQOYBGN1fakeABCDEF0123456789+/=\n",
+            "mQENBFakeSecondLine0987654321+/=\n",
+            "=abcd",
+        )
+        begin = _private_key_delimiter("begin", key_type.lower())
+        end = _private_key_delimiter("END", key_type)
+        text = f"before\n{begin}\n{body}\n{end}\nafter"
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(redacted, "before\n[REDACTED_PRIVATE_KEY]\nafter")
+        self.assertNotIn(body, redacted)
+        self.assertNotIn(begin, redacted)
+        self.assertNotIn(end, redacted)
+
     def test_redaction_removes_inline_private_key_assignments(self):
         key_type = _fixture_secret("PRIVATE", " ", "KEY")
         begin = _private_key_delimiter("BEGIN", key_type)
@@ -1047,6 +1067,21 @@ class SafetyPolicyTests(unittest.TestCase):
         text = "The private key rotation runbook is ready for the next maintenance window."
 
         self.assertEqual(redact_sensitive_content(text), text)
+
+    def test_redaction_preserves_non_secret_pgp_armor_blocks(self):
+        cases = [
+            "PGP PUBLIC KEY BLOCK",
+            "PGP MESSAGE",
+            "PGP SIGNATURE",
+        ]
+
+        for armor_type in cases:
+            with self.subTest(armor_type=armor_type):
+                begin = _private_key_delimiter("BEGIN", armor_type)
+                end = _private_key_delimiter("END", armor_type)
+                text = f"prefix\n{begin}\nVersion: GnuPG v2\n\nabcDEF123+/=\n{end}\nsuffix"
+
+                self.assertEqual(redact_sensitive_content(text), text)
 
     def test_redaction_removes_high_risk_secret_patterns(self):
         cases = [
