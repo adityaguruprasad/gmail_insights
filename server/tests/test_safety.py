@@ -3072,6 +3072,21 @@ class SafetyPolicyTests(unittest.TestCase):
                 self.assertEqual(guarded, "[Unsafe action suggestion removed]")
                 self.assertEqual(blocked, ["authorize_app"])
 
+    def test_neutralize_unsafe_action_suggestions_blocks_oauth_consent_ui_approval_directives(self):
+        cases = [
+            "Click Allow on the Google OAuth consent screen.",
+            "Action item: tap Approve on the app permission prompt.",
+            "Recommended action: choose the Grant Access button on the third-party app access request.",
+            "Next step: select Authorize on the Gmail authorization prompt.",
+            "Recommended action: press Accept on the Google sign-in consent dialog.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["authorize_app"])
+
     def test_neutralize_unsafe_action_suggestions_blocks_split_line_app_authorization_directives(self):
         cases = [
             "Authorize the OAuth app\nfor Gmail access.",
@@ -3081,6 +3096,21 @@ class SafetyPolicyTests(unittest.TestCase):
             "Recommended action: connect this mailbox\nto the AI assistant.",
             "Authorize the Slack bot\nfor mailbox access.",
             "Recommended action: approve the OAuth\nconsent request.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["authorize_app"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_oauth_consent_ui_approval_directives(self):
+        cases = [
+            "Click Allow\non the Google OAuth consent screen.",
+            "Recommended action: choose Grant Access\non the third-party app access request.",
         ]
 
         for text in cases:
@@ -3102,7 +3132,10 @@ class SafetyPolicyTests(unittest.TestCase):
             "Browser extension details are present for analysis\n"
             "The email mentions Zapier, Make, and IFTTT integrations.\n"
             "The Slack bot request is described for manual review.\n"
-            "Do not connect Gmail to Zapier."
+            "Do not connect Gmail to Zapier.\n"
+            "The email asks the user to click Allow on the Google OAuth consent screen for manual review.\n"
+            "Manual review recommended before clicking Allow on any OAuth consent screen.\n"
+            "Do not click Allow on the app permission prompt."
         )
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)

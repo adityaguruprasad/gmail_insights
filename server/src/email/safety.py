@@ -1526,6 +1526,22 @@ _AUTHZ_PERMISSION_TARGET = (
     r"permission\s+grant|permissions?|account\s+access|gmail\s+access|"
     r"mailbox\s+access|email\s+access)\b"
 )
+_AUTHZ_CONSENT_UI_MODIFIER = (
+    r"(?:google|gmail|oauth|app|application|third[-\s]?party|account|"
+    r"sign[-\s]?in|login)"
+)
+_AUTHZ_CONSENT_UI_TARGET = (
+    r"(?:(?:the|this|that|your|an?)\s+)?"
+    rf"(?:(?:{_AUTHZ_CONSENT_UI_MODIFIER})\s+){{0,4}}"
+    r"(?:"
+    r"(?:oauth\s+)?consent\s+(?:screen|prompt|dialog|dialogue|page|request)|"
+    r"permissions?\s+(?:screen|prompt|dialog|dialogue|page|request)|"
+    r"(?:access|authorization)\s+(?:prompt|dialog|dialogue|page|request)"
+    r")\b"
+)
+_AUTHZ_CONSENT_APPROVAL_BUTTON = (
+    r"(?:allow|approve|accept|authorize|grant\s+access)"
+)
 _AUTHZ_ACCESS_GRANT_TARGET = (
     r"(?:access|account\s+access|gmail\s+access|mailbox\s+access|"
     r"email\s+access|permissions?|permission\s+grant)\b"
@@ -3173,6 +3189,17 @@ _DIRECTIVE_PATTERNS = {
         re.compile(
             rf"{_ACTION_SUGGESTION_START}(?:authorize|approve)\s+"
             rf"{_AUTHZ_PERMISSION_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:click|press|tap|select|choose)\s+"
+            rf"(?:the\s+)?{_AUTHZ_CONSENT_APPROVAL_BUTTON}(?:\s+button)?\s+"
+            rf"(?:on|in|within)\s+{_AUTHZ_CONSENT_UI_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:click|press|tap|select|choose)\s+"
+            rf"(?:the\s+)?{_AUTHZ_CONSENT_APPROVAL_BUTTON}(?:\s+button)?\s+"
+            rf"(?:on|in|within)\s+{_AUTHZ_CONSENT_UI_TARGET}{_TARGET_END}"
         ),
         re.compile(
             rf"{_ACTION_SUGGESTION_START}grant\s+"
