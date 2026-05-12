@@ -102,6 +102,20 @@ def _oidc_id_token_fixture():
     )
 
 
+def _saml_response_fixture():
+    return _fixture_secret(
+        "PHNhbWxwOlJlc3BvbnNlIElEPSJhYmMiPjxzYW1sOkFzc2VydGlvbj5",
+        "hbGljZTwvc2FtbDpBc3NlcnRpb24+PC9zYW1scDpSZXNwb25zZT4=",
+    )
+
+
+def _saml_request_fixture():
+    return _fixture_secret(
+        "fZJNb9swDIbvgv8Csg9pJdmybZskO0xGYBu6GgGCpI3WZBsbFWkqS",
+        "vTfb7JtG6wBA8EH4XnkfLw8lR4u",
+    )
+
+
 def _processor_module():
     if "src.email.processor" in sys.modules:
         return sys.modules["src.email.processor"]
@@ -1543,6 +1557,86 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertNotIn(fragment_client_secret, redacted)
         self.assertNotIn(google_client_secret, redacted)
         self.assertNotIn(id_token, redacted)
+
+    def test_redaction_redacts_saml_fields_after_context(self):
+        saml_response = _saml_response_fixture()
+        saml_request = _saml_request_fixture()
+        text = (
+            f"SAMLResponse: {saml_response}. "
+            f"samlrequest={saml_request}"
+        )
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(
+            redacted,
+            "SAMLResponse: [REDACTED_SAML_RESPONSE]. "
+            "samlrequest=[REDACTED_SAML_REQUEST]",
+        )
+        self.assertNotIn(saml_response, redacted)
+        self.assertNotIn(saml_request, redacted)
+
+    def test_redaction_redacts_saml_url_query_and_form_encoded_parameters(self):
+        saml_response = _saml_response_fixture()
+        saml_request = _saml_request_fixture()
+        text = (
+            "Review URL: https://idp.example.test/sso"
+            f"?RelayState=%2Fhome&SAMLResponse={saml_response}"
+            f"#SAMLRequest={saml_request}&view=summary. "
+            f"Form body: RelayState=%2Fhome&SAMLRequest={saml_request}"
+            f";SAMLResponse={saml_response}"
+        )
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertNotIn(saml_response, redacted)
+        self.assertNotIn(saml_request, redacted)
+        self.assertIn("RelayState=%2Fhome", redacted)
+        self.assertIn("SAMLResponse=[REDACTED_SAML_RESPONSE]", redacted)
+        self.assertIn("SAMLRequest=[REDACTED_SAML_REQUEST]", redacted)
+        self.assertIn("view=summary", redacted)
+
+    def test_redaction_redacts_saml_xml_blocks(self):
+        cases = [
+            (
+                '<saml:Assertion ID="a1"><saml:Subject>alice</saml:Subject>'
+                "</saml:Assertion>"
+            ),
+            '<Assertion Version="2.0"><Subject>alice</Subject></Assertion>',
+            (
+                '<samlp:Response ID="r1"><saml:Assertion>alice</saml:Assertion>'
+                "</samlp:Response>"
+            ),
+            '<samlp:AuthnRequest ID="q1"><saml:Issuer>sp</saml:Issuer></samlp:AuthnRequest>',
+        ]
+
+        for saml_xml in cases:
+            with self.subTest(saml_xml=saml_xml):
+                redacted = redact_sensitive_content(f"Inline XML: {saml_xml} done.")
+
+                self.assertEqual(redacted, "Inline XML: [REDACTED_SAML_XML] done.")
+                self.assertNotIn(saml_xml, redacted)
+
+    def test_sanitize_untrusted_email_text_redacts_saml_artifacts(self):
+        saml_response = _saml_response_fixture()
+        saml_xml = '<saml:Assertion ID="a1">credential</saml:Assertion>'
+        text = f"SAMLResponse: {saml_response}\n{saml_xml}"
+
+        sanitized = sanitize_untrusted_email_text(text)
+
+        self.assertIn("[REDACTED_SAML_RESPONSE]", sanitized)
+        self.assertIn("[REDACTED_SAML_XML]", sanitized)
+        self.assertNotIn(saml_response, sanitized)
+        self.assertNotIn(saml_xml, sanitized)
+
+    def test_redaction_preserves_benign_sso_and_saml_prose(self):
+        text = (
+            "Your SSO policy summary is attached. "
+            "We discussed SAML architecture."
+        )
+
+        self.assertEqual(redact_sensitive_content(text), text)
+        self.assertEqual(sanitize_untrusted_email_text(text), text)
 
     def test_redaction_redacts_cloud_credential_query_parameters(self):
         aws_secret = _aws_secret_access_key_fixture()

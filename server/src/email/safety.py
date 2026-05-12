@@ -573,6 +573,9 @@ _PASSKEY_CREDENTIAL_ID_PLACEHOLDER = "[REDACTED_PASSKEY_CREDENTIAL_ID]"
 _PASSKEY_CHALLENGE_ID_PLACEHOLDER = "[REDACTED_PASSKEY_CHALLENGE_ID]"
 _PASSKEY_REGISTRATION_URL_PLACEHOLDER = "[REDACTED_PASSKEY_REGISTRATION_URL]"
 _PASSKEY_ASSERTION_URL_PLACEHOLDER = "[REDACTED_PASSKEY_ASSERTION_URL]"
+_SAML_RESPONSE_PLACEHOLDER = "[REDACTED_SAML_RESPONSE]"
+_SAML_REQUEST_PLACEHOLDER = "[REDACTED_SAML_REQUEST]"
+_SAML_XML_PLACEHOLDER = "[REDACTED_SAML_XML]"
 
 
 def _normalized_query_param_name(name: str) -> str:
@@ -688,6 +691,8 @@ _PASSKEY_CHALLENGE_QUERY_PARAM_NAMES = _expand_query_param_names(
         "webauthn_challenge_id",
     }
 )
+_SAML_RESPONSE_QUERY_PARAM_NAMES = _expand_query_param_names({"saml_response"})
+_SAML_REQUEST_QUERY_PARAM_NAMES = _expand_query_param_names({"saml_request"})
 _CREDENTIAL_QUERY_URL_RE = re.compile(
     r"(?P<url>(?:https?://|www\.)[^\s<>\"']{1,2048})",
     re.IGNORECASE,
@@ -882,6 +887,29 @@ _OAUTH_AUTHORIZATION_CODE_AFTER_CONTEXT_RE = re.compile(
     rf"(?P<authorization_code>{_OAUTH_AUTHORIZATION_CODE_VALUE})"
     rf"(?(quote)(?P=quote))",
     re.IGNORECASE,
+)
+_SAML_FORM_FIELD_NAME = r"SAML[-_]?Response|SAML[-_]?Request"
+_SAML_FORM_FIELD_VALUE = (
+    r"(?=[A-Za-z0-9+/_~%=-]{24,}(?![A-Za-z0-9+/_~%=-]))"
+    r"[A-Za-z0-9%][A-Za-z0-9+/_~%=-]*"
+)
+_SAML_FORM_FIELD_RE = re.compile(
+    rf"(?P<prefix>(?<![A-Za-z0-9_])(?P<key_quote>[\"'])?"
+    rf"(?P<field>{_SAML_FORM_FIELD_NAME})(?(key_quote)(?P=key_quote))"
+    rf"(?![A-Za-z0-9_])\s*[:=]\s*)"
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<saml_value>{_SAML_FORM_FIELD_VALUE})"
+    rf"(?(quote)(?P=quote))",
+    re.IGNORECASE,
+)
+_SAML_XML_BLOCK_RE = re.compile(
+    r"<\s*(?P<saml_xml_tag>"
+    r"(?:(?:saml|samlp|saml2|saml2p):)?(?:Assertion|Response|AuthnRequest)"
+    r")\b[^>]*>.*?</\s*(?P=saml_xml_tag)\s*>",
+    re.IGNORECASE | re.DOTALL,
+)
+_SAML_XML_MARKER_RE = re.compile(
+    r"(?i)\b(?:saml|samlp|saml2|saml2p)\b|urn:oasis:names:tc:SAML"
 )
 _SENSITIVE_LINK_CONTEXT = (
     r"(?:"
@@ -4501,6 +4529,16 @@ def _passkey_webauthn_query_param_placeholder(name: str):
     return None
 
 
+def _saml_query_param_placeholder(name: str):
+    normalized_name = _normalized_query_param_name(name)
+    if normalized_name in _SAML_RESPONSE_QUERY_PARAM_NAMES:
+        return _SAML_RESPONSE_PLACEHOLDER
+    if normalized_name in _SAML_REQUEST_QUERY_PARAM_NAMES:
+        return _SAML_REQUEST_PLACEHOLDER
+
+    return None
+
+
 def _is_redacted_or_raw_jwt(value: str) -> bool:
     decoded_value = unquote_plus(value)
     return decoded_value == "[REDACTED_JWT]" or bool(
@@ -4510,6 +4548,8 @@ def _is_redacted_or_raw_jwt(value: str) -> bool:
 
 def _credential_query_param_placeholder(name: str, value: str):
     normalized_name = _normalized_query_param_name(name)
+    if saml_placeholder := _saml_query_param_placeholder(name):
+        return saml_placeholder
     if normalized_name in _OAUTH_CLIENT_SECRET_QUERY_PARAM_NAMES:
         return _OAUTH_CLIENT_SECRET_PLACEHOLDER
     if normalized_name in _OIDC_ID_TOKEN_QUERY_PARAM_NAMES and _is_redacted_or_raw_jwt(
@@ -4734,6 +4774,32 @@ def _redact_oauth_authorization_codes(text: str) -> str:
         _redact_oauth_authorization_code,
         text,
     )
+
+
+def _redact_saml_form_field(match: re.Match) -> str:
+    placeholder = _saml_query_param_placeholder(match.group("field"))
+    if placeholder is None:
+        return match.group(0)
+
+    return _replace_match_group(match, "saml_value", placeholder)
+
+
+def _redact_saml_xml_block(match: re.Match) -> str:
+    tag = match.group("saml_xml_tag")
+    local_name = tag.rsplit(":", 1)[-1].lower()
+
+    if ":" in tag or local_name in {"assertion", "authnrequest"}:
+        return _SAML_XML_PLACEHOLDER
+
+    if _SAML_XML_MARKER_RE.search(match.group(0)):
+        return _SAML_XML_PLACEHOLDER
+
+    return match.group(0)
+
+
+def _redact_saml_sso_artifacts(text: str) -> str:
+    redacted = _SAML_XML_BLOCK_RE.sub(_redact_saml_xml_block, text)
+    return _SAML_FORM_FIELD_RE.sub(_redact_saml_form_field, redacted)
 
 
 def _split_password_trailing_punctuation(password: str) -> Tuple[str, str]:
@@ -5063,6 +5129,7 @@ def redact_sensitive_content(text: str) -> str:
         return ""
 
     redacted = _redact_private_keys(text)
+    redacted = _redact_saml_sso_artifacts(redacted)
     redacted = _redact_oauth_oidc_assignments(redacted)
     redacted = _GOOGLE_OAUTH_TOKEN_RE.sub("[REDACTED_GOOGLE_TOKEN]", redacted)
     redacted = _GOOGLE_REFRESH_TOKEN_RE.sub("[REDACTED_GOOGLE_REFRESH_TOKEN]", redacted)
@@ -5098,6 +5165,7 @@ def sanitize_untrusted_email_text(text: str) -> str:
         return ""
 
     sanitized = text.replace("\r\n", "\n").replace("\r", "\n")
+    sanitized = _redact_saml_sso_artifacts(sanitized)
     sanitized = _ROLE_TAG_RE.sub(r"\1[quoted-role \2] ", sanitized)
     sanitized = _INSTRUCTION_PHRASE_RE.sub(r"[quoted-instruction: \1]", sanitized)
     sanitized = _SAFETY_METADATA_DIRECTIVE_RE.sub(
