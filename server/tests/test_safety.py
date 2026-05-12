@@ -1582,6 +1582,97 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertNotIn(ssn, redacted)
         self.assertIn("2026-05-10", redacted)
 
+    def test_redaction_prioritizes_ssn_and_payment_card_over_identity_documents(self):
+        text = (
+            "Passport number 123-45-6789 is on file. "
+            "Government ID 4111-1111-1111-1111 is pending review."
+        )
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(
+            redacted,
+            "Passport number [REDACTED_SSN] is on file. "
+            "Government ID [REDACTED_PAYMENT_CARD] is pending review.",
+        )
+        self.assertNotIn("[REDACTED_PASSPORT_NUMBER]", redacted)
+        self.assertNotIn("[REDACTED_GOVERNMENT_ID_NUMBER]", redacted)
+
+    def test_redaction_removes_identity_document_numbers_after_context(self):
+        cases = [
+            (
+                "Passport number P1234567 is on the intake form.",
+                "P1234567",
+                "Passport number [REDACTED_PASSPORT_NUMBER] is on the intake form.",
+            ),
+            (
+                "Driver license no. D12345678 was copied from the attachment.",
+                "D12345678",
+                (
+                    "Driver license no. [REDACTED_DRIVER_LICENSE_NUMBER] was copied "
+                    "from the attachment."
+                ),
+            ),
+            (
+                "Government ID: AB1234567 appears in the uploaded scan.",
+                "AB1234567",
+                (
+                    "Government ID: [REDACTED_GOVERNMENT_ID_NUMBER] appears in the "
+                    "uploaded scan."
+                ),
+            ),
+        ]
+
+        for text, secret, expected in cases:
+            with self.subTest(text=text):
+                redacted = redact_sensitive_content(text)
+
+                self.assertEqual(redacted, expected)
+                self.assertNotIn(secret, redacted)
+
+    def test_redaction_removes_identity_document_numbers_before_context(self):
+        cases = [
+            (
+                '"P1234567" is the passport number on file.',
+                "P1234567",
+                '"[REDACTED_PASSPORT_NUMBER]" is the passport number on file.',
+            ),
+            (
+                "D12345678 is your driver license no. for verification.",
+                "D12345678",
+                (
+                    "[REDACTED_DRIVER_LICENSE_NUMBER] is your driver license no. "
+                    "for verification."
+                ),
+            ),
+            (
+                "AB1234567 is the government ID number in the form.",
+                "AB1234567",
+                (
+                    "[REDACTED_GOVERNMENT_ID_NUMBER] is the government ID number "
+                    "in the form."
+                ),
+            ),
+        ]
+
+        for text, secret, expected in cases:
+            with self.subTest(text=text):
+                redacted = redact_sensitive_content(text)
+
+                self.assertEqual(redacted, expected)
+                self.assertNotIn(secret, redacted)
+
+    def test_redaction_preserves_non_identity_document_identifiers(self):
+        text = (
+            "Order number P1234567 ships with invoice AB1234567. "
+            "Flight D12345678 departs on 2026-05-10. "
+            "Tracking reference GOV123456 and confirmation number D12345678 stay visible. "
+            "Passport appointment reference P7654321 is not a passport number. "
+            "Driver license renewal order DL12345 is a service request."
+        )
+
+        self.assertEqual(redact_sensitive_content(text), text)
+
     def test_redaction_removes_bank_routing_number_after_context(self):
         routing = "021-000-021"
         text = f'ABA routing number = "{routing}" for wire settlement.'
@@ -1680,15 +1771,24 @@ class SafetyPolicyTests(unittest.TestCase):
         processor = _processor_module()
         card = "4111 1111 1111 1111"
         ssn = "123-45-6789"
+        passport = "P1234567"
+        driver_license = "D12345678"
+        government_id = "AB1234567"
         email = {
-            "subject": f"Payment profile for {card} and {ssn}",
+            "subject": f"Payment profile for {card}, {ssn}, and passport no. {passport}",
             "sender": "Billing Ops",
             "date": "2026-05-10",
             "snippet": "Sensitive account update",
             "security_warnings": [
-                f"Identifier exposure detected for card {card} and SSN {ssn}."
+                (
+                    f"Identifier exposure detected for card {card}, SSN {ssn}, "
+                    f"and government ID: {government_id}."
+                )
             ],
-            "content": f"Please review card {card} and SSN {ssn}.",
+            "content": (
+                f"Please review card {card}, SSN {ssn}, and driver license no. "
+                f"{driver_license}."
+            ),
             "is_archived": False,
         }
 
@@ -1696,18 +1796,24 @@ class SafetyPolicyTests(unittest.TestCase):
 
         self.assertNotIn(card, prompt)
         self.assertNotIn(ssn, prompt)
+        self.assertNotIn(passport, prompt)
+        self.assertNotIn(driver_license, prompt)
+        self.assertNotIn(government_id, prompt)
         self.assertIn(
-            "Subject: Payment profile for [REDACTED_PAYMENT_CARD] and [REDACTED_SSN]",
+            "Subject: Payment profile for [REDACTED_PAYMENT_CARD], [REDACTED_SSN], "
+            "and passport no. [REDACTED_PASSPORT_NUMBER]",
             prompt,
         )
         self.assertIn(
             "Security warnings (read-only): Identifier exposure detected for card "
-            "[REDACTED_PAYMENT_CARD] and SSN [REDACTED_SSN].",
+            "[REDACTED_PAYMENT_CARD], SSN [REDACTED_SSN], and government ID: "
+            "[REDACTED_GOVERNMENT_ID_NUMBER].",
             prompt,
         )
         self.assertIn(
-            "Content:\nPlease review card [REDACTED_PAYMENT_CARD] and SSN "
-            "[REDACTED_SSN].",
+            "Content:\nPlease review card [REDACTED_PAYMENT_CARD], SSN "
+            "[REDACTED_SSN], and driver license no. "
+            "[REDACTED_DRIVER_LICENSE_NUMBER].",
             prompt,
         )
 

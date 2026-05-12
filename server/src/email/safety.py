@@ -159,6 +159,9 @@ _WALLET_SEED_BEFORE_CONTEXT_RE = re.compile(
 )
 _BANK_ROUTING_PLACEHOLDER = "[REDACTED_ROUTING_NUMBER]"
 _BANK_ACCOUNT_PLACEHOLDER = "[REDACTED_BANK_ACCOUNT]"
+_PASSPORT_NUMBER_PLACEHOLDER = "[REDACTED_PASSPORT_NUMBER]"
+_DRIVER_LICENSE_NUMBER_PLACEHOLDER = "[REDACTED_DRIVER_LICENSE_NUMBER]"
+_GOVERNMENT_ID_NUMBER_PLACEHOLDER = "[REDACTED_GOVERNMENT_ID_NUMBER]"
 _BANK_CONTEXT_BOUNDARY = r"(?![A-Za-z0-9_])"
 _BANK_VALUE_AFTER_CONTEXT_SEPARATOR = r"\s*(?:(?:is|are)\s+)?(?:[:,=#-]\s*)?"
 _BANK_VALUE_BEFORE_CONTEXT_SEPARATOR = (
@@ -196,6 +199,42 @@ _BANK_ACCOUNT_VALUE = (
     r"\d(?:[ -]?\d){3,16}"
     r"(?![ -]?\d)(?![A-Za-z0-9])"
 )
+_IDENTITY_DOCUMENT_CONTEXT_BOUNDARY = r"(?![A-Za-z0-9_])"
+_IDENTITY_DOCUMENT_VALUE_AFTER_CONTEXT_SEPARATOR = (
+    r"\s*(?:(?:is|are|was)\s+)?(?:[:,=#-]\s*)?"
+)
+_IDENTITY_DOCUMENT_VALUE_BEFORE_CONTEXT_SEPARATOR = (
+    r"(?:\s+|\s*[-:=,]\s*)"
+    r"(?:(?:is|are|was|as|for)\s+)?"
+    r"(?:(?:your|my|our|the|this|that|a|an)\s+)?"
+)
+_IDENTITY_DOCUMENT_NUMBER_VALUE = (
+    r"(?<![A-Za-z0-9-])"
+    r"(?=[A-Za-z0-9-]{5,24}(?![A-Za-z0-9-]))"
+    r"(?=[A-Za-z0-9-]*\d)"
+    r"(?!\d{4}-\d{2}-\d{2}(?![A-Za-z0-9-]))"
+    r"[A-Za-z0-9](?:[A-Za-z0-9-]{3,22}[A-Za-z0-9])"
+    r"(?![A-Za-z0-9-])"
+)
+_PASSPORT_NUMBER_CONTEXT = (
+    r"(?:"
+    r"passport\s+(?:numbers?|nos?\.?|#|ids?)|"
+    r"passport(?=\s*[:=#-])"
+    r")"
+)
+_DRIVER_LICENSE_NUMBER_CONTEXT = (
+    r"(?:"
+    r"(?:driver'?s|drivers?|driving)\s+licen[cs]e\s+"
+    r"(?:numbers?|nos?\.?|#|ids?)|"
+    r"(?:driver'?s|drivers?|driving)\s+licen[cs]e(?=\s*[:=#-])"
+    r")"
+)
+_GOVERNMENT_ID_NUMBER_CONTEXT = (
+    r"(?:"
+    r"government\s+ids?(?:\s+(?:numbers?|nos?\.?|#))?|"
+    r"government\s+identification\s+(?:numbers?|nos?\.?|#)"
+    r")"
+)
 _BANK_ROUTING_AFTER_CONTEXT_RE = re.compile(
     rf"(?<![A-Za-z0-9_])(?P<context>{_BANK_ROUTING_CONTEXT})"
     rf"{_BANK_CONTEXT_BOUNDARY}"
@@ -230,6 +269,60 @@ _BANK_ACCOUNT_BEFORE_CONTEXT_RE = re.compile(
     rf"(?P<between>{_BANK_VALUE_BEFORE_CONTEXT_SEPARATOR})"
     rf"(?P<context>{_BANK_ACCOUNT_CONTEXT})"
     rf"{_BANK_CONTEXT_BOUNDARY}",
+    re.IGNORECASE,
+)
+_PASSPORT_NUMBER_AFTER_CONTEXT_RE = re.compile(
+    rf"(?<![A-Za-z0-9_])(?P<context>{_PASSPORT_NUMBER_CONTEXT})"
+    rf"{_IDENTITY_DOCUMENT_CONTEXT_BOUNDARY}"
+    rf"(?P<between>{_IDENTITY_DOCUMENT_VALUE_AFTER_CONTEXT_SEPARATOR})"
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<passport_number>{_IDENTITY_DOCUMENT_NUMBER_VALUE})"
+    rf"(?(quote)(?P=quote))",
+    re.IGNORECASE,
+)
+_PASSPORT_NUMBER_BEFORE_CONTEXT_RE = re.compile(
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<passport_number>{_IDENTITY_DOCUMENT_NUMBER_VALUE})"
+    rf"(?(quote)(?P=quote))"
+    rf"(?P<between>{_IDENTITY_DOCUMENT_VALUE_BEFORE_CONTEXT_SEPARATOR})"
+    rf"(?P<context>{_PASSPORT_NUMBER_CONTEXT})"
+    rf"{_IDENTITY_DOCUMENT_CONTEXT_BOUNDARY}",
+    re.IGNORECASE,
+)
+_DRIVER_LICENSE_NUMBER_AFTER_CONTEXT_RE = re.compile(
+    rf"(?<![A-Za-z0-9_])(?P<context>{_DRIVER_LICENSE_NUMBER_CONTEXT})"
+    rf"{_IDENTITY_DOCUMENT_CONTEXT_BOUNDARY}"
+    rf"(?P<between>{_IDENTITY_DOCUMENT_VALUE_AFTER_CONTEXT_SEPARATOR})"
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<driver_license_number>{_IDENTITY_DOCUMENT_NUMBER_VALUE})"
+    rf"(?(quote)(?P=quote))",
+    re.IGNORECASE,
+)
+_DRIVER_LICENSE_NUMBER_BEFORE_CONTEXT_RE = re.compile(
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<driver_license_number>{_IDENTITY_DOCUMENT_NUMBER_VALUE})"
+    rf"(?(quote)(?P=quote))"
+    rf"(?P<between>{_IDENTITY_DOCUMENT_VALUE_BEFORE_CONTEXT_SEPARATOR})"
+    rf"(?P<context>{_DRIVER_LICENSE_NUMBER_CONTEXT})"
+    rf"{_IDENTITY_DOCUMENT_CONTEXT_BOUNDARY}",
+    re.IGNORECASE,
+)
+_GOVERNMENT_ID_NUMBER_AFTER_CONTEXT_RE = re.compile(
+    rf"(?<![A-Za-z0-9_])(?P<context>{_GOVERNMENT_ID_NUMBER_CONTEXT})"
+    rf"{_IDENTITY_DOCUMENT_CONTEXT_BOUNDARY}"
+    rf"(?P<between>{_IDENTITY_DOCUMENT_VALUE_AFTER_CONTEXT_SEPARATOR})"
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<government_id_number>{_IDENTITY_DOCUMENT_NUMBER_VALUE})"
+    rf"(?(quote)(?P=quote))",
+    re.IGNORECASE,
+)
+_GOVERNMENT_ID_NUMBER_BEFORE_CONTEXT_RE = re.compile(
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<government_id_number>{_IDENTITY_DOCUMENT_NUMBER_VALUE})"
+    rf"(?(quote)(?P=quote))"
+    rf"(?P<between>{_IDENTITY_DOCUMENT_VALUE_BEFORE_CONTEXT_SEPARATOR})"
+    rf"(?P<context>{_GOVERNMENT_ID_NUMBER_CONTEXT})"
+    rf"{_IDENTITY_DOCUMENT_CONTEXT_BOUNDARY}",
     re.IGNORECASE,
 )
 _GOOGLE_OAUTH_TOKEN_RE = re.compile(r"\bya29\.[A-Za-z0-9._-]+\b")
@@ -4080,6 +4173,57 @@ def _redact_bank_credentials(text: str) -> str:
     )
 
 
+def _redact_passport_number(match: re.Match) -> str:
+    return _replace_match_group(
+        match,
+        "passport_number",
+        _PASSPORT_NUMBER_PLACEHOLDER,
+    )
+
+
+def _redact_driver_license_number(match: re.Match) -> str:
+    return _replace_match_group(
+        match,
+        "driver_license_number",
+        _DRIVER_LICENSE_NUMBER_PLACEHOLDER,
+    )
+
+
+def _redact_government_id_number(match: re.Match) -> str:
+    return _replace_match_group(
+        match,
+        "government_id_number",
+        _GOVERNMENT_ID_NUMBER_PLACEHOLDER,
+    )
+
+
+def _redact_identity_document_numbers(text: str) -> str:
+    redacted = _PASSPORT_NUMBER_AFTER_CONTEXT_RE.sub(
+        _redact_passport_number,
+        text,
+    )
+    redacted = _PASSPORT_NUMBER_BEFORE_CONTEXT_RE.sub(
+        _redact_passport_number,
+        redacted,
+    )
+    redacted = _DRIVER_LICENSE_NUMBER_AFTER_CONTEXT_RE.sub(
+        _redact_driver_license_number,
+        redacted,
+    )
+    redacted = _DRIVER_LICENSE_NUMBER_BEFORE_CONTEXT_RE.sub(
+        _redact_driver_license_number,
+        redacted,
+    )
+    redacted = _GOVERNMENT_ID_NUMBER_AFTER_CONTEXT_RE.sub(
+        _redact_government_id_number,
+        redacted,
+    )
+    return _GOVERNMENT_ID_NUMBER_BEFORE_CONTEXT_RE.sub(
+        _redact_government_id_number,
+        redacted,
+    )
+
+
 def _redact_private_key_assignment(match: re.Match) -> str:
     return (
         f"{match.group('prefix')}{match.group('quote')}"
@@ -4141,6 +4285,7 @@ def redact_sensitive_content(text: str) -> str:
     redacted = _redact_bank_credentials(redacted)
     redacted = _PAYMENT_CARD_RE.sub(_redact_payment_card, redacted)
     redacted = _US_SSN_RE.sub("[REDACTED_SSN]", redacted)
+    redacted = _redact_identity_document_numbers(redacted)
     redacted = _EMAIL_RE.sub("[REDACTED_EMAIL]", redacted)
     redacted = _PHONE_RE.sub("[REDACTED_PHONE]", redacted)
     return redacted
