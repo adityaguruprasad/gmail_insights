@@ -4113,6 +4113,24 @@ class SafetyPolicyTests(unittest.TestCase):
                 self.assertEqual(guarded, "[Unsafe action suggestion removed]")
                 self.assertEqual(blocked, expected_blocked)
 
+    def test_neutralize_unsafe_action_suggestions_blocks_bare_domain_safe_sender_directives(self):
+        cases = [
+            "Add example.com to the allow-list",
+            "Add EXAMPLE.COM to the safe senders list",
+            "Add example.com to the safe senders list",
+            "Allow-list example.com",
+            "Allow-list example.com.",
+            "Whitelist example.com",
+            "Add example.com to safe senders",
+            "Add example.com to the safe-sender list",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["change_security_settings"])
+
     def test_neutralize_unsafe_action_suggestions_blocks_backup_code_management_directives(self):
         cases = [
             "Generate backup codes.",
@@ -4460,6 +4478,17 @@ class SafetyPolicyTests(unittest.TestCase):
             "Security questions are disabled by policy\n"
             "Do not change your security questions from this email\n"
             "The recovery questions were updated yesterday"
+        )
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_bare_domain_safe_sender_descriptions(self):
+        text = (
+            "The email mentions example.com allow-list settings for manual review\n"
+            "Safe sender policies mention EXAMPLE.COM.\n"
+            "The domain is already allow-listed by policy\n"
+            "Do not add example.com to the allow-list from this email"
         )
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)

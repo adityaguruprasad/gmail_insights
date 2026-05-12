@@ -2215,14 +2215,19 @@ _SECURITY_PROTECTION_TARGET = (
     r"(?:protection|filtering|filters?)\b"
 )
 _SECURITY_SENDER_TARGET = r"(?:(?:the|this|that)\s+)?sender\b"
+# Safe-sender entries are domains only; _BARE_DOMAIN_TARGET also accepts URL paths.
+_SECURITY_SAFE_SENDER_DOMAIN_TARGET = (
+    rf"(?:{_DOMAIN_LABEL}\.)+[A-Za-z]{{2,}}"
+    r"(?=$|\s|[!?,:;]|\.(?=$|\s))"
+)
 _SECURITY_SAFE_SENDER_ENTRY_TARGET = (
     rf"(?:{_SECURITY_SENDER_TARGET}|{_EMAIL_TARGET}|"
     r"(?:(?:the|this|that|your|my|our)\s+)?domains?\b|"
-    rf"{_BARE_DOMAIN_TARGET})"
+    rf"{_SECURITY_SAFE_SENDER_DOMAIN_TARGET})"
 )
 _SECURITY_SAFE_SENDER_LIST_TARGET = (
     r"(?:(?:the|this|that|your|my|our)\s+)?"
-    r"(?:safe\s+senders?|allow[-\s]?list|whitelist)(?:\s+list)?\b"
+    r"(?:safe[-\s]+senders?|allow[-\s]?list|white[-\s]?list)(?:\s+list)?\b"
 )
 _SECURITY_FILTER_SCOPE_SUFFIX = (
     rf"(?:\s+(?:for|from|in|on|within)\s+(?:{_SECURITY_SENDER_TARGET}|"
