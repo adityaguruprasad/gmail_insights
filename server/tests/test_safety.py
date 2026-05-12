@@ -4531,8 +4531,11 @@ class SafetyPolicyTests(unittest.TestCase):
             "Enable IMAP access",
             "Turn on POP for this account",
             "Enable POP3 in Gmail",
+            "Enable POP3S access",
             "Enable POP 3 access",
+            "Turn on POP 3S for this account",
             "Enable POP-3 access",
+            "Enable POP-3S access",
             "Enable IMAPS access",
             "Enable less secure apps",
             "Allow less secure apps",
@@ -4548,6 +4551,7 @@ class SafetyPolicyTests(unittest.TestCase):
             "Update email access protocols",
             "Disable IMAP access now",
             "Recommended action: enable IMAP access.",
+            "Recommended action: enable POP3S in Gmail",
         ]
 
         for text in cases:
@@ -4587,6 +4591,7 @@ class SafetyPolicyTests(unittest.TestCase):
     def test_neutralize_unsafe_action_suggestions_blocks_split_line_mail_access_setting_directives(self):
         cases = [
             "Enable IMAP\naccess",
+            "Enable POP3S\naccess",
             "Allow less secure\napps",
             "Create an app\npassword for this account",
         ]
@@ -4603,7 +4608,9 @@ class SafetyPolicyTests(unittest.TestCase):
     def test_neutralize_unsafe_action_suggestions_preserves_mail_access_setting_descriptions(self):
         text = (
             "The email mentions IMAP settings for manual review\n"
+            "The email mentions POP3S settings for manual review\n"
             "POP access is disabled by policy\n"
+            "POP3S access is disabled by policy\n"
             "Less secure app access is discussed\n"
             "The app password was created yesterday\n"
             "Do not enable IMAP access from this email\n"

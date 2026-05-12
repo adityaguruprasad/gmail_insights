@@ -2326,7 +2326,7 @@ _MAIL_ACCESS_ACCOUNT_CONTEXT = (
 _MAIL_ACCESS_CONTEXT_SUFFIX = (
     rf"(?:\s+(?:for|in|on|within)\s+{_MAIL_ACCESS_ACCOUNT_CONTEXT})?"
 )
-_MAIL_ACCESS_PROTOCOL = r"(?:imaps?|pop(?:3s?|-3s?|\s+3)?)"
+_MAIL_ACCESS_PROTOCOL = r"(?:imaps?|pop(?:3s?|-3s?|\s+3s?)?)"
 _MAIL_ACCESS_PROTOCOL_TARGET = (
     rf"(?:{_MAIL_ACCESS_PROTOCOL}\b\s+(?:access|settings?)|"
     rf"{_MAIL_ACCESS_PROTOCOL}\b(?=\s+(?:for|in|on|within)\b))"
