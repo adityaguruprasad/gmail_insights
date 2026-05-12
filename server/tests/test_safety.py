@@ -6127,6 +6127,14 @@ class SafetyPolicyTests(unittest.TestCase):
         cases = [
             "Update the Gmail filter for this sender.",
             "Modify the mail rule to archive invoices.",
+            "Adjust the Gmail filter for this sender.",
+            "Tweak the mail rule for invoices.",
+            "Rename the inbox rule for invoices.",
+            "Reset the Gmail filter for this sender.",
+            "Replace the mail rule for invoices.",
+            "Rewrite the inbox rule matching alerts.",
+            "Pause the mail rule matching alerts.",
+            "Unpause the email filter for security updates.",
             "Delete the filter for alerts.",
             "Remove the inbox rule now.",
             "Disable the Gmail filter for this sender.",
@@ -6147,6 +6155,7 @@ class SafetyPolicyTests(unittest.TestCase):
         cases = [
             "Update the filter\nfor this sender.",
             "Modify the mail\nrule to archive invoices.",
+            "Adjust the Gmail\nfilter for this sender.",
             "Recommended action: delete the filter\nfor alerts.",
         ]
 
@@ -6164,6 +6173,12 @@ class SafetyPolicyTests(unittest.TestCase):
             "The email mentions filter settings for manual review.\n"
             "Filtering metrics are summarized.\n"
             "The rule was updated yesterday.\n"
+            "The rule was renamed yesterday.\n"
+            "Your password was reset; the spam filter caught the notice.\n"
+            "The rollout was paused while the mail rule notes were reviewed.\n"
+            "Updated filter rules were attached for manual review.\n"
+            "Adjust the forecast window after reviewing volume trends.\n"
+            "Tweak the forecast window after reviewing volume trends.\n"
             "Do not delete the filter from this email.\n"
             "Filter details are present for analysis."
         )

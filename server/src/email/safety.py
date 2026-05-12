@@ -975,8 +975,9 @@ _FILTER_TARGET = (
     rf"filter(?:{_FILTER_CONNECTOR}|{_TARGET_END}))"
 )
 _FILTER_RULE_MUTATION_VERB = (
-    r"(?:update|modify|change|edit|delete|remove|disable|deactivate|"
-    r"turn\s+off|enable|activate|turn\s+on)"
+    r"(?:update|modify|change|edit|adjust|tweak|reset|rename|replace|rewrite|"
+    r"delete|remove|disable|deactivate|turn\s+off|enable|activate|turn\s+on|"
+    r"pause|unpause)"
 )
 _FILTER_OBJECT_TARGET = (
     r"(?:(?:the|an?|this|that|my|your|our)\s+)?"
