@@ -18,10 +18,93 @@ def _fixture_secret(*parts):
     return "".join(parts)
 
 
-def _slack_fixture_token():
+def _openai_project_api_key_fixture():
+    return _fixture_secret(
+        "sk",
+        "-",
+        "proj",
+        "-",
+        "abcdEFGHij",
+        "klMNOPqrst",
+        "UVWXyz0123",
+        "456789_-AB",
+    )
+
+
+def _openai_user_api_key_fixture():
+    return _fixture_secret(
+        "sk",
+        "-",
+        "abcdEFGHij",
+        "klMNOPqrst",
+        "UVWXyz0123",
+        "456789ABCD",
+    )
+
+
+def _anthropic_api_key_fixture():
+    return _fixture_secret(
+        "sk",
+        "-",
+        "ant",
+        "-",
+        "api03",
+        "-",
+        "abcdEFGHij",
+        "klMNOPqrst",
+        "UVWXyz0123",
+        "456789_-AB",
+    )
+
+
+def _github_classic_fixture_token():
+    return _fixture_secret(
+        "gh",
+        "p",
+        "_",
+        "abcdefghij",
+        "klmnopqrst",
+        "uvwxyzABCD",
+        "EFGHIJ",
+    )
+
+
+def _github_fine_grained_fixture_token():
+    return _fixture_secret(
+        "github",
+        "_",
+        "pat",
+        "_",
+        "11AA",
+        "BBBBB",
+        "CCCCC",
+        "_",
+        "abcdefghij",
+        "klmnopqrst",
+        "uvwxyzABCD",
+        "EFGHIJ0123",
+    )
+
+
+def _google_api_key_fixture():
+    return _fixture_secret(
+        "AI",
+        "za",
+        "AbCdE",
+        "fGhIj",
+        "KlMnO",
+        "pQrSt",
+        "UvWxY",
+        "z0123",
+        "45678",
+    )
+
+
+def _slack_fixture_token(kind="b"):
     return _fixture_secret(
         "xo",
-        "xb",
+        "x",
+        kind,
         "-",
         "123456",
         "789012",
@@ -999,8 +1082,8 @@ class SafetyPolicyTests(unittest.TestCase):
                 "[REDACTED_SLACK_TOKEN]",
             ),
             (
-                "GitHub ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ",
-                "ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ",
+                "GitHub " + _github_classic_fixture_token(),
+                _github_classic_fixture_token(),
                 "[REDACTED_GITHUB_TOKEN]",
             ),
             (
@@ -1020,6 +1103,85 @@ class SafetyPolicyTests(unittest.TestCase):
                 redacted = redact_sensitive_content(text)
                 self.assertNotIn(secret, redacted)
                 self.assertIn(marker, redacted)
+
+    def test_redaction_removes_provider_shaped_unlabeled_api_tokens(self):
+        cases = [
+            (
+                "OpenAI project",
+                _openai_project_api_key_fixture(),
+                "[REDACTED_OPENAI_API_KEY]",
+            ),
+            (
+                "OpenAI user",
+                _openai_user_api_key_fixture(),
+                "[REDACTED_OPENAI_API_KEY]",
+            ),
+            (
+                "Anthropic",
+                _anthropic_api_key_fixture(),
+                "[REDACTED_ANTHROPIC_API_KEY]",
+            ),
+            (
+                "GitHub classic",
+                _github_classic_fixture_token(),
+                "[REDACTED_GITHUB_TOKEN]",
+            ),
+            (
+                "GitHub fine-grained",
+                _github_fine_grained_fixture_token(),
+                "[REDACTED_GITHUB_TOKEN]",
+            ),
+            (
+                "Slack bot",
+                _slack_fixture_token("b"),
+                "[REDACTED_SLACK_TOKEN]",
+            ),
+            (
+                "Slack user",
+                _slack_fixture_token("p"),
+                "[REDACTED_SLACK_TOKEN]",
+            ),
+            (
+                "Stripe live",
+                _stripe_fixture_key("live"),
+                "[REDACTED_STRIPE_KEY]",
+            ),
+            (
+                "Stripe test",
+                _stripe_fixture_key("test"),
+                "[REDACTED_STRIPE_KEY]",
+            ),
+            (
+                "Google API",
+                _google_api_key_fixture(),
+                "[REDACTED_GOOGLE_API_KEY]",
+            ),
+        ]
+
+        for provider, secret, placeholder in cases:
+            with self.subTest(provider=provider):
+                text = f"Forwarded credential from {provider}: {secret}."
+                redacted = redact_sensitive_content(text)
+
+                self.assertEqual(
+                    redacted,
+                    f"Forwarded credential from {provider}: {placeholder}.",
+                )
+                self.assertNotIn(secret, redacted)
+
+    def test_redaction_preserves_provider_shaped_false_positives(self):
+        cases = [
+            "The task-sk-proj-rollout note describes sk-feature prefixes.",
+            "Anthropic docs may mention a sk-ant prefix without a credential.",
+            "Slack examples xoxb-1234 and xoxp-short are incomplete.",
+            "GitHub examples ghp_sample and github_pat_short are placeholders.",
+            "Stripe fixtures sk_live_demo and sk_test_short are not credentials.",
+            "Google docs mention AIza and AIzaShort, not a real key.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                self.assertEqual(redact_sensitive_content(text), text)
 
     def test_redaction_removes_oauth_client_secret_assignment_forms(self):
         cases = [

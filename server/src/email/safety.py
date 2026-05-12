@@ -422,8 +422,24 @@ _AWS_SECRET_ACCESS_KEY_AFTER_CONTEXT_RE = re.compile(
     rf"(?(quote)(?P=quote))",
     re.IGNORECASE,
 )
+_OPENAI_API_KEY_PLACEHOLDER = "[REDACTED_OPENAI_API_KEY]"
+_OPENAI_API_KEY_RE = re.compile(
+    r"(?<![A-Za-z0-9_-])"
+    r"sk-(?:proj-[A-Za-z0-9_-]{32,}|(?!ant-)[A-Za-z0-9]{32,})"
+    r"(?![A-Za-z0-9_-])"
+)
+_ANTHROPIC_API_KEY_PLACEHOLDER = "[REDACTED_ANTHROPIC_API_KEY]"
+_ANTHROPIC_API_KEY_RE = re.compile(
+    r"(?<![A-Za-z0-9_-])sk-ant-[A-Za-z0-9_-]{32,}(?![A-Za-z0-9_-])"
+)
+_GOOGLE_API_KEY_PLACEHOLDER = "[REDACTED_GOOGLE_API_KEY]"
+_GOOGLE_API_KEY_RE = re.compile(
+    r"(?<![A-Za-z0-9_-])AIza[A-Za-z0-9_-]{35}(?![A-Za-z0-9_-])"
+)
 _SLACK_TOKEN_RE = re.compile(r"\b(?:xox[abprs]|xapp)-[A-Za-z0-9-]{10,}\b")
-_GITHUB_TOKEN_RE = re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{20,255}\b")
+_GITHUB_TOKEN_RE = re.compile(
+    r"\b(?:gh[pousr]_[A-Za-z0-9_]{20,255}|github_pat_[A-Za-z0-9_]{22,255})\b"
+)
 _STRIPE_SECRET_KEY_RE = re.compile(r"\bsk_(?:live|test)_[A-Za-z0-9]{16,}\b")
 _PAYMENT_CARD_RE = re.compile(
     r"(?<![A-Za-z0-9])(?<!\d[ -])"
@@ -5261,6 +5277,9 @@ def redact_sensitive_content(text: str) -> str:
     redacted = _JWT_RE.sub("[REDACTED_JWT]", redacted)
     redacted = _AWS_ACCESS_KEY_ID_RE.sub("[REDACTED_AWS_KEY]", redacted)
     redacted = _redact_aws_secret_access_keys(redacted)
+    redacted = _OPENAI_API_KEY_RE.sub(_OPENAI_API_KEY_PLACEHOLDER, redacted)
+    redacted = _ANTHROPIC_API_KEY_RE.sub(_ANTHROPIC_API_KEY_PLACEHOLDER, redacted)
+    redacted = _GOOGLE_API_KEY_RE.sub(_GOOGLE_API_KEY_PLACEHOLDER, redacted)
     redacted = _SLACK_TOKEN_RE.sub("[REDACTED_SLACK_TOKEN]", redacted)
     redacted = _GITHUB_TOKEN_RE.sub("[REDACTED_GITHUB_TOKEN]", redacted)
     redacted = _STRIPE_SECRET_KEY_RE.sub("[REDACTED_STRIPE_KEY]", redacted)
