@@ -699,6 +699,7 @@ class SafetyPolicyTests(unittest.TestCase):
             "change_trusted_devices",
             "change_session_settings",
             "change_security_key_settings",
+            "manage_passkeys",
             "change_mfa_settings",
             "disable_account_protection",
         ]
@@ -715,6 +716,29 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(safety["blocked_actions"], sorted(actions))
         self.assertTrue(set(actions).issubset(safety_module.BLOCKED_ACTIONS))
         self.assertFalse(set(actions).intersection(safety_module.ALLOWED_ACTIONS))
+
+    def test_passkey_management_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(["read", "manage_passkeys"])
+
+        self.assertEqual(effective, ["read"])
+        self.assertEqual(blocked, ["manage_passkeys"])
+        self.assertNotIn("manage_passkeys", effective)
+
+        safety = safety_metadata("manage_passkeys")
+        self.assertEqual(safety["mode"], "read_only")
+        self.assertEqual(safety["effective_actions"], ["read", "summarize"])
+        self.assertEqual(safety["blocked_actions"], ["manage_passkeys"])
+        self.assertIn("manage_passkeys", safety_module.BLOCKED_ACTIONS)
+        self.assertNotIn("manage_passkeys", safety_module.ALLOWED_ACTIONS)
+        self.assertIn(
+            "manage_passkeys",
+            safety_module._DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS,
+        )
+        self.assertIn(
+            "manage_passkeys",
+            safety_module._DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS,
+        )
+        self.assertNotIn("manage_passkeys", safety_module._ACTION_WORD_PATTERNS)
 
     def test_backup_code_management_action_is_supported_but_blocked(self):
         effective, blocked = evaluate_requested_actions(["read", "manage_backup_codes"])
@@ -1340,6 +1364,68 @@ class SafetyPolicyTests(unittest.TestCase):
             "#code=[REDACTED_CREDENTIAL_QUERY_VALUE]&view=summary.",
             redacted_fragment,
         )
+
+    def test_redaction_removes_passkey_webauthn_artifacts_with_context(self):
+        credential_id = "cred-A1B2C3D4E5"
+        challenge_id = "chal-Z9Y8X7W6V5"
+        registration_challenge = "reg-C1D2E3F4G5"
+        assertion_credential = "assert-R1S2T3U4V5"
+        registration_url = (
+            "https://auth.example.test/webauthn/register"
+            f"?challenge={registration_challenge}&credential_id=cred-P9Q8R7S6"
+        )
+        assertion_url = (
+            "https://auth.example.test/passkeys/assertion"
+            f"?rawId={assertion_credential}&view=prompt"
+        )
+        text = (
+            f"WebAuthn credential ID: {credential_id}. "
+            f"Passkey challenge ID: {challenge_id}. "
+            f"Passkey registration URL: {registration_url}. "
+            f"FIDO2 assertion URL: {assertion_url}."
+        )
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertNotIn(credential_id, redacted)
+        self.assertNotIn(challenge_id, redacted)
+        self.assertNotIn(registration_url, redacted)
+        self.assertNotIn(assertion_url, redacted)
+        self.assertNotIn(registration_challenge, redacted)
+        self.assertNotIn(assertion_credential, redacted)
+        self.assertIn("[REDACTED_PASSKEY_CREDENTIAL_ID]", redacted)
+        self.assertIn("[REDACTED_PASSKEY_CHALLENGE_ID]", redacted)
+        self.assertIn("[REDACTED_PASSKEY_REGISTRATION_URL]", redacted)
+        self.assertIn("[REDACTED_PASSKEY_ASSERTION_URL]", redacted)
+
+    def test_redaction_redacts_contextual_passkey_url_query_artifacts(self):
+        credential_id = "cred-L1M2N3O4P5"
+        challenge_id = "chal-Q1R2S3T4U5"
+        text = (
+            "Observed URL: https://auth.example.test/webauthn/challenge"
+            f"?credential_id={credential_id}&challenge={challenge_id}&view=summary."
+        )
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertNotIn(credential_id, redacted)
+        self.assertNotIn(challenge_id, redacted)
+        self.assertIn(
+            "credential_id=[REDACTED_PASSKEY_CREDENTIAL_ID]",
+            redacted,
+        )
+        self.assertIn("challenge=[REDACTED_PASSKEY_CHALLENGE_ID]", redacted)
+        self.assertIn("view=summary", redacted)
+
+    def test_redaction_preserves_benign_non_passkey_ids_and_urls(self):
+        text = (
+            "Project credential ID: cred-A1B2C3D4E5. "
+            "Challenge ID: chal-Z9Y8X7W6V5. "
+            "Registration URL: https://events.example.test/register"
+            "?challenge=team-spring-2026&credential_id=badge-12345."
+        )
+
+        self.assertEqual(redact_sensitive_content(text), text)
 
     def test_redaction_redacts_credential_fragment_parameters_in_standalone_urls(self):
         access_token = _fixture_secret("fragment", "-", "access", "-", "secret123")
@@ -3512,8 +3598,9 @@ class SafetyPolicyTests(unittest.TestCase):
             ("Remove the MFA method", ["change_mfa_settings"]),
             (
                 "Remove the security key from your account",
-                ["change_security_key_settings"],
+                ["manage_passkeys"],
             ),
+            ("Update security key settings", ["change_security_key_settings"]),
             ("Whitelist the sender", ["change_security_settings"]),
             ("Add this sender to the safe senders list", ["change_security_settings"]),
             (
@@ -3692,11 +3779,17 @@ class SafetyPolicyTests(unittest.TestCase):
                 "Remove this device from trusted devices",
                 ["change_trusted_devices"],
             ),
-            ("Register a passkey for this account", ["change_security_key_settings"]),
-            ("Create a passkey using the link", ["change_security_key_settings"]),
-            ("Add this security key", ["change_security_key_settings"]),
-            ("Add a security key to your account", ["change_security_key_settings"]),
-            ("Enroll this device for passkeys", ["change_security_key_settings"]),
+            ("Register a passkey for this account", ["manage_passkeys"]),
+            ("Create a passkey using the link", ["manage_passkeys"]),
+            ("Add this security key", ["manage_passkeys"]),
+            ("Add a security key to your account", ["manage_passkeys"]),
+            ("Enroll this device for passkeys", ["manage_passkeys"]),
+            ("Register a WebAuthn credential for this account", ["manage_passkeys"]),
+            ("Create a resident credential", ["manage_passkeys"]),
+            ("Remove the FIDO2 security key", ["manage_passkeys"]),
+            ("Sync platform authenticators to this device", ["manage_passkeys"]),
+            ("Export passkeys to a CSV", ["manage_passkeys"]),
+            ("Reset resident credentials", ["manage_passkeys"]),
             ("Recommended action: trust this browser", ["change_trusted_devices"]),
             (
                 "Action item: add this phone as a trusted device",
@@ -3836,8 +3929,12 @@ class SafetyPolicyTests(unittest.TestCase):
         cases = [
             ("Trust this\ndevice", ["change_trusted_devices"]),
             ("Remove trusted\ndevices", ["change_trusted_devices"]),
-            ("Register a passkey\nfor this account", ["change_security_key_settings"]),
-            ("Add this security\nkey", ["change_security_key_settings"]),
+            ("Register a passkey\nfor this account", ["manage_passkeys"]),
+            ("Add this security\nkey", ["manage_passkeys"]),
+            ("Register a WebAuthn\ncredential for this account", ["manage_passkeys"]),
+            ("Export resident\ncredentials to a file", ["manage_passkeys"]),
+            ("Sync platform\nauthenticators to this device", ["manage_passkeys"]),
+            ("Copy the passkey\nchallenge ID", ["manage_passkeys"]),
             ("Turn off advanced\nprotection", ["disable_account_protection"]),
         ]
 
@@ -3900,6 +3997,7 @@ class SafetyPolicyTests(unittest.TestCase):
             "change_trusted_devices",
             "change_session_settings",
             "change_security_key_settings",
+            "manage_passkeys",
             "change_mfa_settings",
             "disable_account_protection",
         ]

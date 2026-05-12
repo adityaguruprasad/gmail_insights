@@ -81,6 +81,7 @@ BLOCKED_ACTIONS = {
     "change_trusted_devices",
     "change_session_settings",
     "change_security_key_settings",
+    "manage_passkeys",
     "change_mfa_settings",
     "disable_account_protection",
     "change_mail_access_settings",
@@ -417,6 +418,10 @@ _SENSITIVE_LINK_URL_TARGET = (
 )
 _CREDENTIAL_QUERY_VALUE_PLACEHOLDER = "[REDACTED_CREDENTIAL_QUERY_VALUE]"
 _OAUTH_AUTHORIZATION_CODE_PLACEHOLDER = "[REDACTED_OAUTH_AUTHORIZATION_CODE]"
+_PASSKEY_CREDENTIAL_ID_PLACEHOLDER = "[REDACTED_PASSKEY_CREDENTIAL_ID]"
+_PASSKEY_CHALLENGE_ID_PLACEHOLDER = "[REDACTED_PASSKEY_CHALLENGE_ID]"
+_PASSKEY_REGISTRATION_URL_PLACEHOLDER = "[REDACTED_PASSKEY_REGISTRATION_URL]"
+_PASSKEY_ASSERTION_URL_PLACEHOLDER = "[REDACTED_PASSKEY_ASSERTION_URL]"
 _CREDENTIAL_QUERY_PARAM_NAMES = {
     "token",
     "state",
@@ -448,6 +453,28 @@ _OAUTH_AUTHORIZATION_CODE_QUERY_CONTEXT_PARAM_NAMES = {
     "grant_type",
     "redirect_uri",
     "response_type",
+}
+_PASSKEY_CREDENTIAL_QUERY_PARAM_NAMES = {
+    "credential",
+    "credential_id",
+    "credentialid",
+    "credential_identifier",
+    "passkey_credential",
+    "passkey_credential_id",
+    "public_key_credential",
+    "public_key_credential_id",
+    "raw_id",
+    "rawid",
+    "webauthn_credential",
+    "webauthn_credential_id",
+}
+_PASSKEY_CHALLENGE_QUERY_PARAM_NAMES = {
+    "challenge",
+    "challenge_id",
+    "challengeid",
+    "passkey_challenge",
+    "webauthn_challenge",
+    "webauthn_challenge_id",
 }
 _CREDENTIAL_QUERY_URL_RE = re.compile(
     r"(?P<url>(?:https?://|www\.)[^\s<>\"']{1,2048})",
@@ -482,6 +509,144 @@ _CREDENTIAL_LINK_CODE_URL_CONTEXT_RE = re.compile(
     r"callback(?:url)?|redirect(?:uri|url)?|"
     r"oauth(?:2|[-_/]?2(?:\.0)?)?"
     r")(?![A-Za-z])"
+)
+_PASSKEY_WEBAUTHN_CONTEXT = (
+    r"(?:"
+    r"passkeys?|"
+    r"web[-_\s/]*authn(?:[-_\s/]+credentials?)?|"
+    r"webauthn(?:[-_\s/]+credentials?)?|"
+    r"fido(?:2)?|ctap(?:2)?|"
+    r"security[-_\s/]+keys?|"
+    r"platform[-_\s/]+authenticators?|"
+    r"resident[-_\s/]+credentials?|"
+    r"discoverable[-_\s/]+credentials?|"
+    r"public[-_\s/]+key[-_\s/]+credentials?"
+    r")"
+)
+_PASSKEY_WEBAUTHN_URL_CONTEXT_RE = re.compile(
+    rf"(?i)(?<![A-Za-z]){_PASSKEY_WEBAUTHN_CONTEXT}(?![A-Za-z])"
+)
+_PASSKEY_REGISTRATION_URL_PURPOSE = (
+    r"(?:"
+    r"register|registration|enroll(?:ment)?|attestation|"
+    r"create|creation|credential[-_\s/]+creation|make[-_\s/]*credential"
+    r")"
+)
+_PASSKEY_ASSERTION_URL_PURPOSE = (
+    r"(?:"
+    r"assert(?:ion)?|authenticate|authentication|login|"
+    r"sign[-_\s/]*in|signin|credential[-_\s/]+request|get[-_\s/]*assertion"
+    r")"
+)
+_PASSKEY_REGISTRATION_URL_PURPOSE_RE = re.compile(
+    rf"(?i)(?<![A-Za-z]){_PASSKEY_REGISTRATION_URL_PURPOSE}(?![A-Za-z])"
+)
+_PASSKEY_ASSERTION_URL_PURPOSE_RE = re.compile(
+    rf"(?i)(?<![A-Za-z]){_PASSKEY_ASSERTION_URL_PURPOSE}(?![A-Za-z])"
+)
+_PASSKEY_ARTIFACT_VALUE = (
+    r"(?=[A-Za-z0-9_~+/\-=%]{8,}(?![A-Za-z0-9_~+/\-=%]))"
+    r"(?=[A-Za-z0-9_~+/\-=%]*[A-Za-z])"
+    r"(?=[A-Za-z0-9_~+/\-=%]*\d)"
+    r"[A-Za-z0-9][A-Za-z0-9_~+/\-=%]*"
+)
+_PASSKEY_CREDENTIAL_ID_LABEL = (
+    r"(?:"
+    r"credential[-_\s]?(?:id|identifier)|credentialid|"
+    r"raw[-_\s]?id|rawid|"
+    r"public[-_\s]?key[-_\s]?credential[-_\s]?id"
+    r")"
+)
+_PASSKEY_CHALLENGE_ID_LABEL = (
+    r"(?:"
+    r"challenge(?:[-_\s]?(?:id|identifier))?|challengeid|"
+    r"public[-_\s]?key[-_\s]?challenge"
+    r")"
+)
+_PASSKEY_ARTIFACT_CONTEXT_WINDOW = r"[^\n.!?]{0,80}?"
+_PASSKEY_CREDENTIAL_ID_AFTER_CONTEXT_RE = re.compile(
+    rf"\b(?P<context>{_PASSKEY_WEBAUTHN_CONTEXT})\b"
+    rf"(?P<between>{_PASSKEY_ARTIFACT_CONTEXT_WINDOW})"
+    rf"\b(?P<label>{_PASSKEY_CREDENTIAL_ID_LABEL})\b"
+    rf"(?P<separator>\s*(?:(?:is|are|was)\s+|[:=#-]\s*))"
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<credential_id>{_PASSKEY_ARTIFACT_VALUE})"
+    rf"(?(quote)(?P=quote))",
+    re.IGNORECASE,
+)
+_PASSKEY_CREDENTIAL_ID_BEFORE_CONTEXT_RE = re.compile(
+    rf"\b(?P<label>{_PASSKEY_CREDENTIAL_ID_LABEL})\b"
+    rf"(?P<separator>\s*(?:(?:is|are|was)\s+|[:=#-]\s*))"
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<credential_id>{_PASSKEY_ARTIFACT_VALUE})"
+    rf"(?(quote)(?P=quote))"
+    rf"(?P<between>{_PASSKEY_ARTIFACT_CONTEXT_WINDOW})"
+    rf"\b(?P<context>{_PASSKEY_WEBAUTHN_CONTEXT})\b",
+    re.IGNORECASE,
+)
+_PASSKEY_CHALLENGE_ID_AFTER_CONTEXT_RE = re.compile(
+    rf"\b(?P<context>{_PASSKEY_WEBAUTHN_CONTEXT})\b"
+    rf"(?P<between>{_PASSKEY_ARTIFACT_CONTEXT_WINDOW})"
+    rf"\b(?P<label>{_PASSKEY_CHALLENGE_ID_LABEL})\b"
+    rf"(?P<separator>\s*(?:(?:is|are|was)\s+|[:=#-]\s*))"
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<challenge_id>{_PASSKEY_ARTIFACT_VALUE})"
+    rf"(?(quote)(?P=quote))",
+    re.IGNORECASE,
+)
+_PASSKEY_CHALLENGE_ID_BEFORE_CONTEXT_RE = re.compile(
+    rf"\b(?P<label>{_PASSKEY_CHALLENGE_ID_LABEL})\b"
+    rf"(?P<separator>\s*(?:(?:is|are|was)\s+|[:=#-]\s*))"
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<challenge_id>{_PASSKEY_ARTIFACT_VALUE})"
+    rf"(?(quote)(?P=quote))"
+    rf"(?P<between>{_PASSKEY_ARTIFACT_CONTEXT_WINDOW})"
+    rf"\b(?P<context>{_PASSKEY_WEBAUTHN_CONTEXT})\b",
+    re.IGNORECASE,
+)
+_PASSKEY_REGISTRATION_URL_LABEL = (
+    rf"(?:{_PASSKEY_REGISTRATION_URL_PURPOSE}"
+    r"[-_\s]+(?:url|link|endpoint|uri|page|request)|"
+    r"(?:url|link|endpoint|uri|page|request)\s+"
+    rf"(?:for|to)\s+{_PASSKEY_REGISTRATION_URL_PURPOSE})"
+)
+_PASSKEY_ASSERTION_URL_LABEL = (
+    rf"(?:{_PASSKEY_ASSERTION_URL_PURPOSE}"
+    r"[-_\s]+(?:url|link|endpoint|uri|page|request)|"
+    r"(?:url|link|endpoint|uri|page|request)\s+"
+    rf"(?:for|to)\s+{_PASSKEY_ASSERTION_URL_PURPOSE})"
+)
+_PASSKEY_REGISTRATION_URL_AFTER_CONTEXT_RE = re.compile(
+    rf"\b(?P<context>{_PASSKEY_WEBAUTHN_CONTEXT})\b"
+    rf"(?P<between>{_PASSKEY_ARTIFACT_CONTEXT_WINDOW})"
+    rf"\b(?P<label>{_PASSKEY_REGISTRATION_URL_LABEL})\b"
+    rf"(?P<separator>\s*(?:(?:is|are|was|at)\s+|[:=#-]\s*|here\s+)?\s*)"
+    rf"(?P<url>{_SENSITIVE_LINK_URL_TARGET})",
+    re.IGNORECASE,
+)
+_PASSKEY_REGISTRATION_URL_BEFORE_CONTEXT_RE = re.compile(
+    rf"\b(?P<label>{_PASSKEY_REGISTRATION_URL_LABEL})\b"
+    rf"(?P<between>{_PASSKEY_ARTIFACT_CONTEXT_WINDOW})"
+    rf"\b(?P<context>{_PASSKEY_WEBAUTHN_CONTEXT})\b"
+    rf"(?P<separator>\s*(?:(?:is|are|was|at)\s+|[:=#-]\s*|here\s+)?\s*)"
+    rf"(?P<url>{_SENSITIVE_LINK_URL_TARGET})",
+    re.IGNORECASE,
+)
+_PASSKEY_ASSERTION_URL_AFTER_CONTEXT_RE = re.compile(
+    rf"\b(?P<context>{_PASSKEY_WEBAUTHN_CONTEXT})\b"
+    rf"(?P<between>{_PASSKEY_ARTIFACT_CONTEXT_WINDOW})"
+    rf"\b(?P<label>{_PASSKEY_ASSERTION_URL_LABEL})\b"
+    rf"(?P<separator>\s*(?:(?:is|are|was|at)\s+|[:=#-]\s*|here\s+)?\s*)"
+    rf"(?P<url>{_SENSITIVE_LINK_URL_TARGET})",
+    re.IGNORECASE,
+)
+_PASSKEY_ASSERTION_URL_BEFORE_CONTEXT_RE = re.compile(
+    rf"\b(?P<label>{_PASSKEY_ASSERTION_URL_LABEL})\b"
+    rf"(?P<between>{_PASSKEY_ARTIFACT_CONTEXT_WINDOW})"
+    rf"\b(?P<context>{_PASSKEY_WEBAUTHN_CONTEXT})\b"
+    rf"(?P<separator>\s*(?:(?:is|are|was|at)\s+|[:=#-]\s*|here\s+)?\s*)"
+    rf"(?P<url>{_SENSITIVE_LINK_URL_TARGET})",
+    re.IGNORECASE,
 )
 _OAUTH_AUTHORIZATION_CODE_CONTEXT = (
     r"(?:"
@@ -1727,6 +1892,31 @@ _TRUSTED_DEVICE_SETTING_TARGET = (
 _SECURITY_PASSKEY_TARGET = (
     r"(?:(?:the|this|that|your|my|our|an?)\s+)?passkeys?\b"
 )
+_PASSKEY_WEBAUTHN_TARGET = (
+    r"(?:(?:the|this|that|your|my|our|an?|all|new|saved|stored)\s+)?"
+    r"(?:[\w-]+\s+){0,3}"
+    rf"{_PASSKEY_WEBAUTHN_CONTEXT}\b"
+)
+_PASSKEY_WEBAUTHN_ARTIFACT_TARGET = (
+    r"(?:(?:the|this|that|your|my|our|an?)\s+)?"
+    r"(?:[\w-]+\s+){0,2}"
+    rf"(?:{_PASSKEY_WEBAUTHN_CONTEXT}\s+)?"
+    rf"(?:{_PASSKEY_CREDENTIAL_ID_LABEL}|{_PASSKEY_CHALLENGE_ID_LABEL}|"
+    rf"{_PASSKEY_REGISTRATION_URL_LABEL}|{_PASSKEY_ASSERTION_URL_LABEL})\b"
+)
+_PASSKEY_WEBAUTHN_LOCATION = (
+    r"(?:(?:the|this|that|your|my|our|an?)\s+)?"
+    r"(?:account|gmail|google\s+account|email\s+account|"
+    r"browser|device|phone|computer|laptop|platform\s+authenticator|"
+    r"security\s+key|password\s+manager|icloud\s+keychain|chrome|"
+    r"file|csv|json|backup|archive|cloud|drive|link|url|page|"
+    r"app|application|site|website|portal)\b"
+)
+_PASSKEY_WEBAUTHN_ACTION_SUFFIX = (
+    rf"(?:\s+(?:for|from|in|on|within|to|into|onto|with|using|via|through|as)\s+"
+    rf"{_PASSKEY_WEBAUTHN_LOCATION})?"
+    rf"{_TARGET_END}"
+)
 _SECURITY_ENROLLMENT_METHOD_TARGET = (
     r"(?:(?:the|this|that|your|my|our|an?)\s+)?"
     r"(?:link|url|page|browser|device|phone|computer)\b"
@@ -2227,6 +2417,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "change_trusted_devices",
     "change_session_settings",
     "change_security_key_settings",
+    "manage_passkeys",
     "change_mfa_settings",
     "disable_account_protection",
     "change_mail_access_settings",
@@ -2257,6 +2448,7 @@ _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "change_trusted_devices",
     "change_session_settings",
     "change_security_key_settings",
+    "manage_passkeys",
     "change_mfa_settings",
     "disable_account_protection",
     "change_mail_access_settings",
@@ -3433,6 +3625,73 @@ _DIRECTIVE_PATTERNS = {
             rf"{_MAILBOX_ACCESS_RESOURCE}{_TARGET_END}"
         ),
     ],
+    "manage_passkeys": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:add|register|enroll|create|set\s+up|enable|save|store)\s+"
+            rf"{_PASSKEY_WEBAUTHN_TARGET}{_PASSKEY_WEBAUTHN_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:add|register|enroll|create|set\s+up|enable|save|store)\s+"
+            rf"{_PASSKEY_WEBAUTHN_TARGET}{_PASSKEY_WEBAUTHN_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:remove|delete|revoke|disable|deactivate|turn\s+off|"
+            rf"reset|replace|recover)\s+"
+            rf"{_PASSKEY_WEBAUTHN_TARGET}{_PASSKEY_WEBAUTHN_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:remove|delete|revoke|disable|deactivate|turn\s+off|"
+            rf"reset|replace|recover)\s+"
+            rf"{_PASSKEY_WEBAUTHN_TARGET}{_PASSKEY_WEBAUTHN_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:sync|synchronize|export|download|copy|back\s+up|backup|"
+            rf"import|migrate|transfer)\s+"
+            rf"{_PASSKEY_WEBAUTHN_TARGET}{_PASSKEY_WEBAUTHN_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:sync|synchronize|export|download|copy|back\s+up|backup|"
+            rf"import|migrate|transfer)\s+"
+            rf"{_PASSKEY_WEBAUTHN_TARGET}{_PASSKEY_WEBAUTHN_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:change|update|configure|manage)\s+"
+            rf"{_PASSKEY_WEBAUTHN_TARGET}{_PASSKEY_WEBAUTHN_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:change|update|configure|manage)\s+"
+            rf"{_PASSKEY_WEBAUTHN_TARGET}{_PASSKEY_WEBAUTHN_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}enroll\s+{_TRUSTED_DEVICE_TARGET}\s+"
+            rf"for\s+{_PASSKEY_WEBAUTHN_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}enroll\s+"
+            rf"{_TRUSTED_DEVICE_TARGET}\s+for\s+"
+            rf"{_PASSKEY_WEBAUTHN_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:share|send|provide|enter|paste|upload|submit|reveal|"
+            rf"disclose|expose|copy)\s+"
+            rf"{_PASSKEY_WEBAUTHN_ARTIFACT_TARGET}{_PASSKEY_WEBAUTHN_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:share|send|provide|enter|paste|upload|submit|reveal|"
+            rf"disclose|expose|copy)\s+"
+            rf"{_PASSKEY_WEBAUTHN_ARTIFACT_TARGET}{_PASSKEY_WEBAUTHN_ACTION_SUFFIX}"
+        ),
+    ],
     "change_trusted_devices": [
         re.compile(
             rf"{_ACTION_SUGGESTION_START}(?:trust|remember)\s+"
@@ -3905,6 +4164,59 @@ def _has_credential_link_code_url_context(url: str) -> bool:
     return bool(_CREDENTIAL_LINK_CODE_URL_CONTEXT_RE.search(structural_context))
 
 
+def _passkey_webauthn_url_components(url: str):
+    candidate = url
+    if candidate.lower().startswith("www."):
+        candidate = f"https://{candidate}"
+
+    try:
+        parsed = urlsplit(candidate)
+    except ValueError:
+        return None
+
+    query_param_names = _query_param_names(parsed.query)
+    fragment_param_names = _query_param_names(parsed.fragment)
+    structural_context = _url_structural_context(
+        parsed,
+        query_param_names,
+        fragment_param_names,
+    )
+
+    return structural_context, query_param_names | fragment_param_names
+
+
+def _has_passkey_webauthn_url_context(url: str) -> bool:
+    components = _passkey_webauthn_url_components(url)
+    if components is None:
+        return False
+
+    structural_context, _ = components
+    return bool(_PASSKEY_WEBAUTHN_URL_CONTEXT_RE.search(structural_context))
+
+
+def _passkey_webauthn_url_purpose(url: str):
+    components = _passkey_webauthn_url_components(url)
+    if components is None:
+        return None
+
+    structural_context, context_param_names = components
+    if not _PASSKEY_WEBAUTHN_URL_CONTEXT_RE.search(structural_context):
+        return None
+
+    passkey_param_names = (
+        _PASSKEY_CREDENTIAL_QUERY_PARAM_NAMES | _PASSKEY_CHALLENGE_QUERY_PARAM_NAMES
+    )
+    if not context_param_names.intersection(passkey_param_names):
+        return None
+
+    if _PASSKEY_REGISTRATION_URL_PURPOSE_RE.search(structural_context):
+        return "registration"
+    if _PASSKEY_ASSERTION_URL_PURPOSE_RE.search(structural_context):
+        return "assertion"
+
+    return None
+
+
 def _is_oauth_authorization_code_query_param(
     name: str,
     oauth_authorization_code_context: bool,
@@ -3926,10 +4238,21 @@ def _is_credential_link_code_query_param(
     )
 
 
+def _passkey_webauthn_query_param_placeholder(name: str):
+    normalized_name = _normalized_query_param_name(name)
+    if normalized_name in _PASSKEY_CREDENTIAL_QUERY_PARAM_NAMES:
+        return _PASSKEY_CREDENTIAL_ID_PLACEHOLDER
+    if normalized_name in _PASSKEY_CHALLENGE_QUERY_PARAM_NAMES:
+        return _PASSKEY_CHALLENGE_ID_PLACEHOLDER
+
+    return None
+
+
 def _redact_credential_query_string(
     query: str,
     oauth_authorization_code_context: bool = False,
     credential_link_code_context: bool = False,
+    passkey_webauthn_context: bool = False,
 ) -> Tuple[str, bool]:
     changed = False
     redacted_parts = []
@@ -3940,6 +4263,11 @@ def _redact_credential_query_string(
             continue
 
         name, separator, value = part.partition("=")
+        passkey_placeholder = (
+            _passkey_webauthn_query_param_placeholder(name)
+            if passkey_webauthn_context
+            else None
+        )
         if (
             separator
             and value
@@ -3964,6 +4292,9 @@ def _redact_credential_query_string(
                 f"{name}{separator}{_CREDENTIAL_QUERY_VALUE_PLACEHOLDER}"
             )
             changed = True
+        elif separator and value and passkey_placeholder:
+            redacted_parts.append(f"{name}{separator}{passkey_placeholder}")
+            changed = True
         elif (
             separator
             and value
@@ -3986,6 +4317,7 @@ def _redact_credential_query_string(
 def _redact_url_query_and_fragment(url: str) -> Tuple[str, bool]:
     oauth_authorization_code_context = _has_oauth_authorization_code_url_context(url)
     credential_link_code_context = _has_credential_link_code_url_context(url)
+    passkey_webauthn_context = _has_passkey_webauthn_url_context(url)
     query_start = url.find("?")
     if query_start >= 0:
         fragment_start = url.find("#", query_start + 1)
@@ -3995,6 +4327,7 @@ def _redact_url_query_and_fragment(url: str) -> Tuple[str, bool]:
                 query,
                 oauth_authorization_code_context,
                 credential_link_code_context,
+                passkey_webauthn_context,
             )
             redacted_url = url[: query_start + 1] + redacted_query
         else:
@@ -4004,11 +4337,13 @@ def _redact_url_query_and_fragment(url: str) -> Tuple[str, bool]:
                 query,
                 oauth_authorization_code_context,
                 credential_link_code_context,
+                passkey_webauthn_context,
             )
             redacted_fragment, fragment_changed = _redact_credential_query_string(
                 fragment,
                 oauth_authorization_code_context,
                 credential_link_code_context,
+                passkey_webauthn_context,
             )
             changed = query_changed or fragment_changed
             redacted_url = (
@@ -4027,6 +4362,7 @@ def _redact_url_query_and_fragment(url: str) -> Tuple[str, bool]:
             fragment,
             oauth_authorization_code_context,
             credential_link_code_context,
+            passkey_webauthn_context,
         )
         redacted_url = url[: fragment_start + 1] + redacted_fragment
 
@@ -4116,6 +4452,105 @@ def _redact_oauth_authorization_codes(text: str) -> str:
     return _OAUTH_AUTHORIZATION_CODE_AFTER_CONTEXT_RE.sub(
         _redact_oauth_authorization_code,
         text,
+    )
+
+
+def _redact_passkey_credential_id(match: re.Match) -> str:
+    return _replace_match_group(
+        match,
+        "credential_id",
+        _PASSKEY_CREDENTIAL_ID_PLACEHOLDER,
+    )
+
+
+def _redact_passkey_challenge_id(match: re.Match) -> str:
+    return _replace_match_group(
+        match,
+        "challenge_id",
+        _PASSKEY_CHALLENGE_ID_PLACEHOLDER,
+    )
+
+
+def _redact_passkey_url_match(match: re.Match, placeholder: str) -> str:
+    _, trailing_punctuation = _split_url_trailing_punctuation(match.group("url"))
+
+    return (
+        match.string[match.start() : match.start("url")]
+        + placeholder
+        + trailing_punctuation
+        + match.string[match.end("url") : match.end()]
+    )
+
+
+def _redact_passkey_registration_url(match: re.Match) -> str:
+    return _redact_passkey_url_match(
+        match,
+        _PASSKEY_REGISTRATION_URL_PLACEHOLDER,
+    )
+
+
+def _redact_passkey_assertion_url(match: re.Match) -> str:
+    return _redact_passkey_url_match(
+        match,
+        _PASSKEY_ASSERTION_URL_PLACEHOLDER,
+    )
+
+
+def _redact_structural_passkey_webauthn_url(match: re.Match) -> str:
+    url, trailing_punctuation = _split_url_trailing_punctuation(match.group("url"))
+
+    purpose = _passkey_webauthn_url_purpose(url)
+    if purpose == "registration":
+        placeholder = _PASSKEY_REGISTRATION_URL_PLACEHOLDER
+    elif purpose == "assertion":
+        placeholder = _PASSKEY_ASSERTION_URL_PLACEHOLDER
+    else:
+        return match.group(0)
+
+    return (
+        match.string[match.start() : match.start("url")]
+        + placeholder
+        + trailing_punctuation
+        + match.string[match.end("url") : match.end()]
+    )
+
+
+def _redact_passkey_webauthn_artifacts(text: str) -> str:
+    redacted = _PASSKEY_REGISTRATION_URL_AFTER_CONTEXT_RE.sub(
+        _redact_passkey_registration_url,
+        text,
+    )
+    redacted = _PASSKEY_REGISTRATION_URL_BEFORE_CONTEXT_RE.sub(
+        _redact_passkey_registration_url,
+        redacted,
+    )
+    redacted = _PASSKEY_ASSERTION_URL_AFTER_CONTEXT_RE.sub(
+        _redact_passkey_assertion_url,
+        redacted,
+    )
+    redacted = _PASSKEY_ASSERTION_URL_BEFORE_CONTEXT_RE.sub(
+        _redact_passkey_assertion_url,
+        redacted,
+    )
+    redacted = _CREDENTIAL_QUERY_URL_RE.sub(
+        _redact_structural_passkey_webauthn_url,
+        redacted,
+    )
+    redacted = _PASSKEY_CREDENTIAL_ID_AFTER_CONTEXT_RE.sub(
+        _redact_passkey_credential_id,
+        redacted,
+    )
+    redacted = _PASSKEY_CREDENTIAL_ID_BEFORE_CONTEXT_RE.sub(
+        _redact_passkey_credential_id,
+        redacted,
+    )
+    redacted = _PASSKEY_CHALLENGE_ID_AFTER_CONTEXT_RE.sub(
+        _redact_passkey_challenge_id,
+        redacted,
+    )
+    return _PASSKEY_CHALLENGE_ID_BEFORE_CONTEXT_RE.sub(
+        _redact_passkey_challenge_id,
+        redacted,
     )
 
 
@@ -4278,6 +4713,7 @@ def redact_sensitive_content(text: str) -> str:
     redacted = _redact_short_lived_login_credentials(redacted)
     redacted = _redact_oauth_authorization_codes(redacted)
     redacted = _redact_authenticator_provisioning_uris(redacted)
+    redacted = _redact_passkey_webauthn_artifacts(redacted)
     redacted = _redact_credential_query_params(redacted)
     redacted = _API_TOKEN_RE.sub(r"\1\2[REDACTED_TOKEN]\2", redacted)
     redacted = _redact_app_passwords(redacted)
@@ -4401,6 +4837,7 @@ def _suppress_overlapping_account_security_actions(
     account_security_actions = {
         "change_trusted_devices",
         "change_security_key_settings",
+        "manage_passkeys",
         "change_mfa_settings",
         "disable_account_protection",
     }
@@ -4418,6 +4855,14 @@ def _suppress_overlapping_account_security_actions(
         )
     ):
         suppressed.add("change_security_settings")
+
+    if {"change_security_key_settings", "manage_passkeys"}.issubset(actions):
+        passkey_spans = _directive_match_spans(line, "manage_passkeys")
+        if passkey_spans and _all_spans_overlap_any(
+            _directive_match_spans(line, "change_security_key_settings"),
+            passkey_spans,
+        ):
+            suppressed.add("change_security_key_settings")
 
     if not suppressed:
         return actions
