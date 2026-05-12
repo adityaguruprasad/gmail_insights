@@ -1148,7 +1148,12 @@ _DELETE_TARGET = rf"delete\s+{_MAILBOX_OBJECT}\b"
 _PERMANENT_DELETE_TARGET = rf"\bpermanent(?:ly)?\s+{_DELETE_TARGET}"
 # Keep generic delete from also matching the delete verb inside a permanent-delete directive.
 _GENERIC_DELETE_RECOMMENDATION_LEAD_IN = rf"(?:(?!{_PERMANENT_DELETE_TARGET}).)*"
-_URGENCY_SUFFIX = r"(?:right\s+now|now|asap|immediately|as\s+soon\s+as\s+possible)(?:\s+please)?"
+_URGENCY_SUFFIX = (
+    r"(?:please\s+do\s+(?:it|this|that)\s+"
+    r"(?:right\s+now|now|asap|immediately|as\s+soon\s+as\s+possible)|"
+    r"(?:right\s+now|now|asap|immediately|as\s+soon\s+as\s+possible)"
+    r"(?:\s+please)?)"
+)
 _TARGET_END = rf"(?=\s*(?:$|[.!?,:;]|\b{_URGENCY_SUFFIX}\b\s*(?:$|[.!?,:;])))"
 _STANDALONE_POLITE_SUFFIX = r"(?:please)"
 _DIRECT_SMS_TARGET_END = rf"(?=\s*(?:[.!?,:;]|\b{_URGENCY_SUFFIX}\b\s*(?:$|[.!?,:;])))"
