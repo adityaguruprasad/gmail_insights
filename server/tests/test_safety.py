@@ -1565,38 +1565,153 @@ class SafetyPolicyTests(unittest.TestCase):
     def test_redaction_removes_sensitive_login_and_reset_links(self):
         cases = [
             (
-                "Password reset link: https://accounts.example.test/reset?token=reset123.",
-                "https://accounts.example.test/reset?token=reset123",
+                "Password reset link: "
+                "https://accounts.example.test/reset?reset_token=reset123&next=%2Fhome.",
+                "https://accounts.example.test/reset"
+                "?reset_token=[REDACTED_CREDENTIAL_QUERY_VALUE]&next=%2Fhome.",
+                "reset123",
             ),
             (
                 "Magic sign-in link https://login.example.test/magic?code=A1B2C3",
-                "https://login.example.test/magic?code=A1B2C3",
+                "https://login.example.test/magic"
+                "?code=[REDACTED_CREDENTIAL_QUERY_VALUE]",
+                "A1B2C3",
             ),
             (
-                "Verify your account: https://accounts.example.test/verify?ticket=abc123",
-                "https://accounts.example.test/verify?ticket=abc123",
+                "Verify your account: "
+                "https://accounts.example.test/verify?ticket=abc123&locale=en",
+                "https://accounts.example.test/verify"
+                "?ticket=[REDACTED_CREDENTIAL_QUERY_VALUE]&locale=en",
+                "abc123",
             ),
             (
-                "Go to https://accounts.example.test/reset?token=abc123 to reset your password.",
-                "https://accounts.example.test/reset?token=abc123",
+                "Go to https://accounts.example.test/reset?key=abc123"
+                "&view=compact to reset your password.",
+                "https://accounts.example.test/reset"
+                "?key=[REDACTED_CREDENTIAL_QUERY_VALUE]&view=compact",
+                "abc123",
             ),
             (
-                "Use this link to sign in: https://auth.example.test/magic?token=abc123.",
-                "https://auth.example.test/magic?token=abc123",
+                "Use this link to sign in: "
+                "https://auth.example.test/magic?otp_code=123456&mode=link.",
+                "https://auth.example.test/magic"
+                "?otp_code=[REDACTED_CREDENTIAL_QUERY_VALUE]&mode=link.",
+                "123456",
             ),
         ]
 
-        for text, url in cases:
+        for text, expected_url, secret in cases:
             with self.subTest(text=text):
                 redacted = redact_sensitive_content(text)
-                self.assertNotIn(url, redacted)
-                self.assertIn("[REDACTED_SENSITIVE_LINK]", redacted)
+                self.assertNotIn(secret, redacted)
+                self.assertIn(expected_url, redacted)
+                self.assertNotIn("[REDACTED_SENSITIVE_LINK]", redacted)
 
         self.assertEqual(
             redact_sensitive_content(
-                "Password reset link: https://accounts.example.test/reset?token=reset123."
+                "Password reset link: https://accounts.example.test/reset."
             ),
             "Password reset link: [REDACTED_SENSITIVE_LINK].",
+        )
+
+    def test_redaction_removes_sensitive_link_with_path_borne_secret(self):
+        url = "https://accounts.example.test/reset/secret-token-123"
+        redacted = redact_sensitive_content(f"Password reset link: {url}")
+
+        self.assertEqual(redacted, "Password reset link: [REDACTED_SENSITIVE_LINK]")
+        self.assertNotIn(url, redacted)
+        self.assertNotIn("secret-token-123", redacted)
+        self.assertNotIn("[REDACTED_CREDENTIAL_QUERY_VALUE]", redacted)
+
+    def test_redaction_removes_sensitive_link_with_path_secret_and_query_secret(self):
+        cases = [
+            (
+                "Password reset link: "
+                "https://accounts.example.test/reset/secret-token-123"
+                "?next=home&token=q.",
+                "Password reset link: [REDACTED_SENSITIVE_LINK].",
+                "secret-token-123",
+                "token=q",
+            ),
+            (
+                "Magic sign-in link: "
+                "https://login.example.test/magic/magic-token-456"
+                "?code=magic-query-secret-456&mode=link.",
+                "Magic sign-in link: [REDACTED_SENSITIVE_LINK].",
+                "magic-token-456",
+                "magic-query-secret-456",
+            ),
+            (
+                "Verify your account: "
+                "https://accounts.example.test/#/verify/verify-token-789"
+                "?signature=verify-fragment-secret-789&next=summary.",
+                "Verify your account: [REDACTED_SENSITIVE_LINK].",
+                "verify-token-789",
+                "verify-fragment-secret-789",
+            ),
+            (
+                "Invite link: "
+                "https://team.example.test/invite/accept/invite-token-123"
+                "?ticket=invite-query-secret-123&workspace=eng.",
+                "Invite link: [REDACTED_SENSITIVE_LINK].",
+                "invite-token-123",
+                "invite-query-secret-123",
+            ),
+        ]
+
+        for text, expected, path_secret, param_secret in cases:
+            with self.subTest(text=text):
+                redacted = redact_sensitive_content(text)
+
+                self.assertEqual(redacted, expected)
+                self.assertNotIn(path_secret, redacted)
+                self.assertNotIn(param_secret, redacted)
+                self.assertNotIn("[REDACTED_CREDENTIAL_QUERY_VALUE]", redacted)
+
+    def test_redaction_redacts_contextual_invite_and_fragment_link_parameters(self):
+        invite_ticket = "invite-ticket-secret-123"
+        fragment_signature = "fragment-signature-secret-456"
+        text = (
+            "Invite link: https://team.example.test/invite/accept"
+            f"?ticket={invite_ticket}&workspace=eng. "
+            "Verify link: https://accounts.example.test/verify"
+            f"#signature={fragment_signature}&next=summary."
+        )
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertNotIn(invite_ticket, redacted)
+        self.assertNotIn(fragment_signature, redacted)
+        self.assertIn(
+            "https://team.example.test/invite/accept"
+            "?ticket=[REDACTED_CREDENTIAL_QUERY_VALUE]&workspace=eng",
+            redacted,
+        )
+        self.assertIn(
+            "https://accounts.example.test/verify"
+            "#signature=[REDACTED_CREDENTIAL_QUERY_VALUE]&next=summary.",
+            redacted,
+        )
+
+    def test_redaction_redacts_browser_router_fragment_query_parameters(self):
+        signature = "router-signature-secret-123"
+        one_time_code = "router-one-time-code-456"
+        text = (
+            "Open https://example.test/#/verify"
+            f"?signature={signature}&one_time_code={one_time_code}"
+            "&email=user%40example.test&next=dashboard."
+        )
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertNotIn(signature, redacted)
+        self.assertNotIn(one_time_code, redacted)
+        self.assertIn(
+            "https://example.test/#/verify"
+            "?signature=[REDACTED_CREDENTIAL_QUERY_VALUE]"
+            "&one_time_code=[REDACTED_CREDENTIAL_QUERY_VALUE]"
+            "&email=user%40example.test&next=dashboard.",
+            redacted,
         )
 
     def test_redaction_redacts_credential_query_parameters_in_standalone_urls(self):
@@ -2015,6 +2130,29 @@ class SafetyPolicyTests(unittest.TestCase):
             "Review URL: https://app.example.test/finish"
             "?code=[REDACTED_OAUTH_AUTHORIZATION_CODE]"
             "&state=[REDACTED_CREDENTIAL_QUERY_VALUE]&next=%2Fhome.",
+        )
+        self.assertNotIn(authorization_code, redacted)
+        self.assertNotIn(state, redacted)
+
+    def test_redaction_redacts_oauth_authorization_url_code_and_state_parameters(self):
+        authorization_code = "4%2F0AfJohXauthorize123"
+        state = "oauth-state-secret-789"
+        text = (
+            "Review URL: https://accounts.example.test/oauth/authorize"
+            "?response_type=code&client_id=public-client"
+            f"&code={authorization_code}&state={state}"
+            "&redirect_uri=https%3A%2F%2Fapp.example.test%2Fcb."
+        )
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(
+            redacted,
+            "Review URL: https://accounts.example.test/oauth/authorize"
+            "?response_type=code&client_id=public-client"
+            "&code=[REDACTED_OAUTH_AUTHORIZATION_CODE]"
+            "&state=[REDACTED_CREDENTIAL_QUERY_VALUE]"
+            "&redirect_uri=https%3A%2F%2Fapp.example.test%2Fcb.",
         )
         self.assertNotIn(authorization_code, redacted)
         self.assertNotIn(state, redacted)
@@ -2453,12 +2591,35 @@ class SafetyPolicyTests(unittest.TestCase):
         text = (
             "Docs: https://help.example.test/reset-faq"
             "?topic=tokenization&code_sample=true#overview and "
+            "Search: https://app.example.test/search"
+            "?state=published&sort=code and "
+            "Coupon: https://shop.example.test/deals"
+            "?code=SAVE10&view=state and "
+            "Order: https://shop.example.test/orders/status"
+            "?signature=carrier-proof-123&state=shipped and "
+            "API docs: https://docs.example.test/api"
+            "?signature=example-signature&code=sample and "
             "OAuth docs: https://auth.example.test/oauth/authorize"
             "?client_id=public-client&redirect_uri=https%3A%2F%2Fapp.example.test%2Fcb"
             "&scope=openid."
         )
 
-        self.assertEqual(redact_sensitive_content(text), text)
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(redacted, text)
+        for benign_value in (
+            "published",
+            "SAVE10",
+            "carrier-proof-123",
+            "example-signature",
+            "sample",
+            "shipped",
+        ):
+            with self.subTest(benign_value=benign_value):
+                self.assertIn(benign_value, redacted)
+        self.assertNotIn("[REDACTED_CREDENTIAL_QUERY_VALUE]", redacted)
+        self.assertNotIn("[REDACTED_OAUTH_AUTHORIZATION_CODE]", redacted)
+        self.assertNotIn("[REDACTED_SENSITIVE_LINK]", redacted)
 
     def test_redaction_removes_valid_payment_card_numbers_with_separators(self):
         card = "4111-1111-1111-1111"

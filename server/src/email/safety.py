@@ -1,6 +1,6 @@
 import re
 from typing import Iterable, List, Set, Tuple
-from urllib.parse import quote_plus, unquote_plus, urlsplit
+from urllib.parse import quote_plus, unquote, unquote_plus, urlsplit
 
 ALLOWED_ACTIONS = {
     "read",
@@ -628,7 +628,6 @@ _CREDENTIAL_QUERY_PARAM_NAMES = _expand_query_param_names(
         "api_key",
         "api_token",
         "token",
-        "state",
         "auth",
         "auth_token",
         "secret",
@@ -661,9 +660,49 @@ _CREDENTIAL_QUERY_PARAM_NAMES = _expand_query_param_names(
         "xsrf_token",
         "ticket",
         "key",
+        "jwt",
+    }
+)
+_CONTEXTUAL_CREDENTIAL_QUERY_PARAM_NAMES = _expand_query_param_names(
+    {
+        "token",
+        "reset_token",
+        "password_reset_token",
+        "verification_token",
+        "verify_token",
+        "confirmation_token",
+        "confirm_token",
+        "invite_token",
+        "invitation_token",
+        "code",
+        "reset_code",
+        "password_reset_code",
+        "verification_code",
+        "verify_code",
+        "confirmation_code",
+        "confirm_code",
+        "invite_code",
+        "invitation_code",
+        "magic_code",
+        "login_code",
+        "sign_in_code",
+        "signin_code",
+        "key",
+        "reset_key",
+        "verification_key",
+        "confirmation_key",
+        "invite_key",
+        "invitation_key",
+        "ticket",
+        "invite_ticket",
+        "invitation_ticket",
         "signature",
         "sig",
-        "jwt",
+        "state",
+        "otp",
+        "otp_code",
+        "one_time_code",
+        "one_time_password",
     }
 )
 _OAUTH_CLIENT_SECRET_QUERY_PARAM_NAMES = _expand_query_param_names(
@@ -758,6 +797,22 @@ _CREDENTIAL_LINK_CODE_URL_CONTEXT_RE = re.compile(
     r"callback(?:url)?|redirect(?:uri|url)?|"
     r"oauth(?:2|[-_/]?2(?:\.0)?)?"
     r")(?![A-Za-z])"
+)
+_SENSITIVE_EMAIL_LINK_URL_CONTEXT_RE = re.compile(
+    r"(?i)(?<![A-Za-z])(?:"
+    r"password[-_/ ]?reset|reset[-_/ ]?(?:password|pwd)|"
+    r"forgot(?:ten)?[-_/ ]?password|"
+    r"verify|verification|"
+    r"confirm(?:ation)?|"
+    r"confirm[-_/ ]?(?:account|email|identity)|"
+    r"(?:account|email|identity)[-_/ ]?confirm(?:ation)?|"
+    r"magic(?:[-_/ ]?(?:login|sign[-_ ]?in|link|code))?|"
+    r"(?:accept[-_/ ]?)?(?:invite|invitation)|"
+    r"(?:invite|invitation)[-_/ ]?accept"
+    r")(?![A-Za-z])"
+)
+_SENSITIVE_LINK_TOKEN_LIKE_PATH_SEGMENT_RE = re.compile(
+    r"(?i)(?=.{12,256}$)(?=.*[A-Za-z])(?=.*\d)[A-Za-z0-9._~%+=-]+"
 )
 _PASSKEY_WEBAUTHN_CONTEXT = (
     r"(?:"
@@ -4429,11 +4484,17 @@ def _split_url_trailing_punctuation(url: str) -> Tuple[str, str]:
 
 
 def _redact_sensitive_link(match: re.Match) -> str:
-    _, trailing_punctuation = _split_url_trailing_punctuation(match.group("url"))
+    url, trailing_punctuation = _split_url_trailing_punctuation(match.group("url"))
+    redacted_url, changed = _redact_url_query_and_fragment(url)
+    replacement = (
+        redacted_url
+        if changed and not _url_has_token_like_path_segment(url)
+        else "[REDACTED_SENSITIVE_LINK]"
+    )
 
     return (
         match.string[match.start() : match.start("url")]
-        + "[REDACTED_SENSITIVE_LINK]"
+        + replacement
         + trailing_punctuation
         + match.string[match.end("url") : match.end()]
     )
@@ -4525,6 +4586,52 @@ def _query_param_names(query: str) -> Set[str]:
     return names
 
 
+def _fragment_query_param_names(fragment: str) -> Set[str]:
+    if "?" not in fragment:
+        return _query_param_names(fragment)
+
+    _, _, query = fragment.partition("?")
+    return _query_param_names(query)
+
+
+def _fragment_route_context(fragment: str) -> str:
+    route, separator, _ = fragment.partition("?")
+    return route if separator else ""
+
+
+def _fragment_path_context(fragment: str) -> str:
+    return _fragment_route_context(fragment) or (
+        fragment if fragment.startswith("/") else ""
+    )
+
+
+def _path_has_token_like_segment(path: str) -> bool:
+    for raw_segment in path.split("/"):
+        segment = unquote(raw_segment)
+        if _SENSITIVE_LINK_TOKEN_LIKE_PATH_SEGMENT_RE.fullmatch(segment):
+            return True
+
+    return False
+
+
+def _url_has_token_like_path_segment(url: str) -> bool:
+    candidate = url
+    if candidate.lower().startswith("www."):
+        candidate = f"https://{candidate}"
+
+    try:
+        parsed = urlsplit(candidate)
+    except ValueError:
+        return False
+
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        return False
+
+    return _path_has_token_like_segment(
+        parsed.path,
+    ) or _path_has_token_like_segment(_fragment_path_context(parsed.fragment))
+
+
 def _url_structural_context(
     parsed_url,
     query_param_names: Set[str],
@@ -4535,6 +4642,7 @@ def _url_structural_context(
             [
                 parsed_url.netloc,
                 parsed_url.path,
+                _fragment_route_context(parsed_url.fragment),
                 *query_param_names,
                 *fragment_param_names,
             ]
@@ -4553,7 +4661,7 @@ def _has_oauth_authorization_code_url_context(url: str) -> bool:
         return False
 
     query_param_names = _query_param_names(parsed.query)
-    fragment_param_names = _query_param_names(parsed.fragment)
+    fragment_param_names = _fragment_query_param_names(parsed.fragment)
     structural_context = _url_structural_context(
         parsed,
         query_param_names,
@@ -4588,7 +4696,7 @@ def _has_credential_link_code_url_context(url: str) -> bool:
         return False
 
     query_param_names = _query_param_names(parsed.query)
-    fragment_param_names = _query_param_names(parsed.fragment)
+    fragment_param_names = _fragment_query_param_names(parsed.fragment)
     structural_context = _url_structural_context(
         parsed,
         query_param_names,
@@ -4596,6 +4704,27 @@ def _has_credential_link_code_url_context(url: str) -> bool:
     )
 
     return bool(_CREDENTIAL_LINK_CODE_URL_CONTEXT_RE.search(structural_context))
+
+
+def _has_sensitive_email_link_url_context(url: str) -> bool:
+    candidate = url
+    if candidate.lower().startswith("www."):
+        candidate = f"https://{candidate}"
+
+    try:
+        parsed = urlsplit(candidate)
+    except ValueError:
+        return False
+
+    query_param_names = _query_param_names(parsed.query)
+    fragment_param_names = _fragment_query_param_names(parsed.fragment)
+    structural_context = _url_structural_context(
+        parsed,
+        query_param_names,
+        fragment_param_names,
+    )
+
+    return bool(_SENSITIVE_EMAIL_LINK_URL_CONTEXT_RE.search(structural_context))
 
 
 def _passkey_webauthn_url_components(url: str):
@@ -4609,7 +4738,7 @@ def _passkey_webauthn_url_components(url: str):
         return None
 
     query_param_names = _query_param_names(parsed.query)
-    fragment_param_names = _query_param_names(parsed.fragment)
+    fragment_param_names = _fragment_query_param_names(parsed.fragment)
     structural_context = _url_structural_context(
         parsed,
         query_param_names,
@@ -4672,6 +4801,17 @@ def _is_credential_link_code_query_param(
     )
 
 
+def _is_contextual_credential_query_param(
+    name: str,
+    contextual_credential_context: bool,
+) -> bool:
+    return (
+        contextual_credential_context
+        and _normalized_query_param_name(name)
+        in _CONTEXTUAL_CREDENTIAL_QUERY_PARAM_NAMES
+    )
+
+
 def _passkey_webauthn_query_param_placeholder(name: str):
     normalized_name = _normalized_query_param_name(name)
     if normalized_name in _PASSKEY_CREDENTIAL_QUERY_PARAM_NAMES:
@@ -4720,9 +4860,15 @@ def _redact_credential_query_string(
     oauth_authorization_code_context: bool = False,
     credential_link_code_context: bool = False,
     passkey_webauthn_context: bool = False,
+    sensitive_email_link_context: bool = False,
 ) -> Tuple[str, bool]:
     changed = False
     redacted_parts = []
+    contextual_credential_context = (
+        oauth_authorization_code_context
+        or credential_link_code_context
+        or sensitive_email_link_context
+    )
 
     for part in _QUERY_PARAM_SEPARATOR_RE.split(query):
         if part in {"&", ";"}:
@@ -4733,6 +4879,11 @@ def _redact_credential_query_string(
         passkey_placeholder = (
             _passkey_webauthn_query_param_placeholder(name)
             if passkey_webauthn_context
+            else None
+        )
+        credential_placeholder = (
+            _credential_query_param_placeholder(name, value)
+            if separator and value
             else None
         )
         if (
@@ -4762,10 +4913,23 @@ def _redact_credential_query_string(
         elif separator and value and passkey_placeholder:
             redacted_parts.append(f"{name}{separator}{passkey_placeholder}")
             changed = True
-        elif separator and value and (
-            placeholder := _credential_query_param_placeholder(name, value)
+        elif separator and value and credential_placeholder:
+            redacted_parts.append(f"{name}{separator}{credential_placeholder}")
+            changed = True
+        # Unconditional credential params are handled above. This contextual
+        # set only applies in OAuth, credential-link, or sensitive email-link
+        # contexts because names like code, state, and signature are common.
+        elif (
+            separator
+            and value
+            and _is_contextual_credential_query_param(
+                name,
+                contextual_credential_context,
+            )
         ):
-            redacted_parts.append(f"{name}{separator}{placeholder}")
+            redacted_parts.append(
+                f"{name}{separator}{_CREDENTIAL_QUERY_VALUE_PLACEHOLDER}"
+            )
             changed = True
         elif separator and value:
             redacted_value, value_changed = _redact_url_encoded_otpauth_payload(value)
@@ -4777,10 +4941,38 @@ def _redact_credential_query_string(
     return "".join(redacted_parts), changed
 
 
+def _redact_credential_fragment(
+    fragment: str,
+    oauth_authorization_code_context: bool = False,
+    credential_link_code_context: bool = False,
+    passkey_webauthn_context: bool = False,
+    sensitive_email_link_context: bool = False,
+) -> Tuple[str, bool]:
+    if "?" not in fragment:
+        return _redact_credential_query_string(
+            fragment,
+            oauth_authorization_code_context,
+            credential_link_code_context,
+            passkey_webauthn_context,
+            sensitive_email_link_context,
+        )
+
+    route, _, query = fragment.partition("?")
+    redacted_query, changed = _redact_credential_query_string(
+        query,
+        oauth_authorization_code_context,
+        credential_link_code_context,
+        passkey_webauthn_context,
+        sensitive_email_link_context,
+    )
+    return f"{route}?{redacted_query}", changed
+
+
 def _redact_url_query_and_fragment(url: str) -> Tuple[str, bool]:
     oauth_authorization_code_context = _has_oauth_authorization_code_url_context(url)
     credential_link_code_context = _has_credential_link_code_url_context(url)
     passkey_webauthn_context = _has_passkey_webauthn_url_context(url)
+    sensitive_email_link_context = _has_sensitive_email_link_url_context(url)
     query_start = url.find("?")
     if query_start >= 0:
         fragment_start = url.find("#", query_start + 1)
@@ -4791,6 +4983,7 @@ def _redact_url_query_and_fragment(url: str) -> Tuple[str, bool]:
                 oauth_authorization_code_context,
                 credential_link_code_context,
                 passkey_webauthn_context,
+                sensitive_email_link_context,
             )
             redacted_url = url[: query_start + 1] + redacted_query
         else:
@@ -4801,12 +4994,14 @@ def _redact_url_query_and_fragment(url: str) -> Tuple[str, bool]:
                 oauth_authorization_code_context,
                 credential_link_code_context,
                 passkey_webauthn_context,
+                sensitive_email_link_context,
             )
-            redacted_fragment, fragment_changed = _redact_credential_query_string(
+            redacted_fragment, fragment_changed = _redact_credential_fragment(
                 fragment,
                 oauth_authorization_code_context,
                 credential_link_code_context,
                 passkey_webauthn_context,
+                sensitive_email_link_context,
             )
             changed = query_changed or fragment_changed
             redacted_url = (
@@ -4821,11 +5016,12 @@ def _redact_url_query_and_fragment(url: str) -> Tuple[str, bool]:
             return url, False
 
         fragment = url[fragment_start + 1 :]
-        redacted_fragment, changed = _redact_credential_query_string(
+        redacted_fragment, changed = _redact_credential_fragment(
             fragment,
             oauth_authorization_code_context,
             credential_link_code_context,
             passkey_webauthn_context,
+            sensitive_email_link_context,
         )
         redacted_url = url[: fragment_start + 1] + redacted_fragment
 
@@ -4851,6 +5047,12 @@ def _redact_credential_query_params_in_url(match: re.Match) -> str:
 
     if not changed:
         return match.group(0)
+
+    if (
+        _has_sensitive_email_link_url_context(url)
+        and _url_has_token_like_path_segment(url)
+    ):
+        redacted_url = "[REDACTED_SENSITIVE_LINK]"
 
     redacted_url = redacted_url + trailing_punctuation
     return (

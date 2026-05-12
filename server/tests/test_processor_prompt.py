@@ -350,8 +350,17 @@ class ProcessorPromptTests(unittest.TestCase):
                 self.assertNotIn(sensitive_value, prompt)
 
         self.assertIn("Subject: Login code [REDACTED_OTP]", prompt)
-        self.assertIn("Magic sign-in link: [REDACTED_SENSITIVE_LINK]", prompt)
-        self.assertIn("Password reset link: [REDACTED_SENSITIVE_LINK]", prompt)
+        self.assertIn(
+            "Magic sign-in link: "
+            "https://auth.example.test/magic?code=[REDACTED_CREDENTIAL_QUERY_VALUE]",
+            prompt,
+        )
+        self.assertIn(
+            "Password reset link: "
+            "https://accounts.example.test/reset"
+            "?token=[REDACTED_CREDENTIAL_QUERY_VALUE]",
+            prompt,
+        )
         self.assertIn("[REDACTED_OTP] is your password reset code.", prompt)
         self.assertIn("Docs: https://help.example.test/reset-faq", prompt)
 
@@ -600,7 +609,12 @@ class ProcessorPromptTests(unittest.TestCase):
 
         self.assertIn("Bearer [REDACTED_TOKEN]", warnings_text)
         self.assertIn("Verification code is [REDACTED_OTP].", warnings_text)
-        self.assertIn("Password reset link: [REDACTED_SENSITIVE_LINK].", warnings_text)
+        self.assertIn(
+            "Password reset link: "
+            "https://accounts.example.test/reset"
+            "?token=[REDACTED_CREDENTIAL_QUERY_VALUE].",
+            warnings_text,
+        )
 
     def test_extract_insights_sanitizes_security_warnings_when_redaction_is_disabled(self):
         bearer_token = _fixture_bearer_token()
@@ -803,8 +817,17 @@ class ProcessorPromptTests(unittest.TestCase):
 
         self.assertIn("Login code [REDACTED_OTP]", summary)
         self.assertIn("[REDACTED_GOOGLE_TOKEN]", summary)
-        self.assertIn("Password reset link: [REDACTED_SENSITIVE_LINK]", summary)
-        self.assertIn("Magic login link: [REDACTED_SENSITIVE_LINK]", summary)
+        self.assertIn(
+            "Password reset link: "
+            "https://accounts.example.test/reset"
+            "?token=[REDACTED_CREDENTIAL_QUERY_VALUE]",
+            summary,
+        )
+        self.assertIn(
+            "Magic login link: "
+            "https://auth.example.test/magic?code=[REDACTED_CREDENTIAL_QUERY_VALUE]",
+            summary,
+        )
         self.assertLessEqual(len(summary), processor.SUMMARY_MAX_RETURNED_LENGTH)
 
     def test_extract_insights_leaves_short_completion_unchanged(self):
