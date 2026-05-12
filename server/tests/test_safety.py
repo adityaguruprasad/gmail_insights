@@ -2670,8 +2670,10 @@ class SafetyPolicyTests(unittest.TestCase):
             ("Open the PDF.", "open_attachment"),
             ("Open the invoice.", "open_attachment"),
             ("Open the report now please.", "open_attachment"),
+            ("Open the file please.", "open_attachment"),
             ("Action item: open the document.", "open_attachment"),
             ("Download the invoice.", "download_attachment"),
+            ("Download the invoice please.", "download_attachment"),
             ("Please download the spreadsheet.", "download_attachment"),
             ("Recommended action: download the file.", "download_attachment"),
         ]
@@ -2804,6 +2806,8 @@ class SafetyPolicyTests(unittest.TestCase):
             ("Follow the reset\nlink.", "click_link"),
             ("Download the\nattachment.", "download_attachment"),
             ("Open the attached\nPDF.", "open_attachment"),
+            ("Open the\nPDF.", "open_attachment"),
+            ("Download the\ninvoice.", "download_attachment"),
             ("Recommended action: click\nthe tracking link.", "click_link"),
         ]
 

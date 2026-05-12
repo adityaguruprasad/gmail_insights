@@ -986,6 +986,7 @@ _PERMANENT_DELETE_TARGET = rf"\bpermanent(?:ly)?\s+{_DELETE_TARGET}"
 _GENERIC_DELETE_RECOMMENDATION_LEAD_IN = rf"(?:(?!{_PERMANENT_DELETE_TARGET}).)*"
 _URGENCY_SUFFIX = r"(?:right\s+now|now|asap|immediately|as\s+soon\s+as\s+possible)(?:\s+please)?"
 _TARGET_END = rf"(?=\s*(?:$|[.!?,:;]|\b{_URGENCY_SUFFIX}\b\s*(?:$|[.!?,:;])))"
+_STANDALONE_POLITE_SUFFIX = r"(?:please)"
 _DIRECT_SMS_TARGET_END = rf"(?=\s*(?:[.!?,:;]|\b{_URGENCY_SUFFIX}\b\s*(?:$|[.!?,:;])))"
 _SNOOZE_TIME_SUFFIX = (
     r"(?:until\s+[\w-]+(?:\s+[\w-]+){0,3}|"
@@ -1175,6 +1176,9 @@ _ATTACHED_FILE_NOUN = (
 _BARE_ATTACHMENT_FILE_TARGET = (
     rf"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){{0,2}}{_ATTACHED_FILE_NOUN}\b"
 )
+_ATTACHMENT_TARGET_END = (
+    rf"(?=\s*(?:$|[.!?,:;]|\b(?:{_URGENCY_SUFFIX}|{_STANDALONE_POLITE_SUFFIX})\b\s*(?:$|[.!?,:;])))"
+)
 _EXPLICIT_ATTACHMENT_TARGET = (
     rf"(?:"
     rf"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){{0,3}}attachments?\b|"
@@ -1184,7 +1188,7 @@ _EXPLICIT_ATTACHMENT_TARGET = (
 _ATTACHMENT_TARGET = (
     rf"(?:"
     rf"{_EXPLICIT_ATTACHMENT_TARGET}|"
-    rf"{_BARE_ATTACHMENT_FILE_TARGET}{_TARGET_END}"
+    rf"{_BARE_ATTACHMENT_FILE_TARGET}{_ATTACHMENT_TARGET_END}"
     rf")"
 )
 _PRINT_TARGET = (
