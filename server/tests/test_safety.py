@@ -1851,6 +1851,48 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertNotIn(saml_response, sanitized)
         self.assertNotIn(saml_xml, sanitized)
 
+    def test_sanitize_untrusted_email_text_redacts_oauth_oidc_artifacts(self):
+        authorization_code = "4/0AfJohXabc123"
+        device_code = "device-Code-9ZQ4-LM2P"
+        user_code = "USER-9ZQ4-LM2P-8T"
+        refresh_token = "rt_9Fh2LmNopQrsTuvWxYz012345"
+        offline_access_token = "offlineTok-9Fh2LmNopQrsTuvWxYz"
+        text = (
+            f"authorization code: {authorization_code}\n"
+            f"Device code - {device_code}\n"
+            f"user_code={user_code}\n"
+            f"refresh token is {refresh_token}\n"
+            f"offline access token: {offline_access_token}"
+        )
+
+        sanitized = sanitize_untrusted_email_text(text)
+
+        self.assertEqual(
+            sanitized.count("[REDACTED_OAUTH_AUTHORIZATION_CODE]"),
+            3,
+        )
+        self.assertEqual(sanitized.count("[REDACTED_REFRESH_TOKEN]"), 2)
+        for secret in [
+            authorization_code,
+            device_code,
+            user_code,
+            refresh_token,
+            offline_access_token,
+        ]:
+            self.assertNotIn(secret, sanitized)
+
+    def test_sanitize_untrusted_email_text_preserves_benign_oauth_oidc_prose(self):
+        text = (
+            "The authorization code flow is documented. "
+            "The device code flow is documented. "
+            "The refresh token rotation policy is documented. "
+            "Auth code: ABCD1234. "
+            "User code: ABC123. "
+            "Refresh token: abc123."
+        )
+
+        self.assertEqual(sanitize_untrusted_email_text(text), text)
+
     def test_redaction_preserves_benign_sso_and_saml_prose(self):
         text = (
             "Your SSO policy summary is attached. "
@@ -1990,6 +2032,21 @@ class SafetyPolicyTests(unittest.TestCase):
                 "OAuth code is [REDACTED_OAUTH_AUTHORIZATION_CODE].",
             ),
             (
+                "OIDC code = oidcCode-9Vz7Lm2Qp4.",
+                "oidcCode-9Vz7Lm2Qp4",
+                "OIDC code = [REDACTED_OAUTH_AUTHORIZATION_CODE].",
+            ),
+            (
+                "Device code - device-Code-9ZQ4-LM2P",
+                "device-Code-9ZQ4-LM2P",
+                "Device code - [REDACTED_OAUTH_AUTHORIZATION_CODE]",
+            ),
+            (
+                'user_code="USER-9ZQ4-LM2P-8T"',
+                "USER-9ZQ4-LM2P-8T",
+                'user_code="[REDACTED_OAUTH_AUTHORIZATION_CODE]"',
+            ),
+            (
                 "auth_code=auth-code-secret-123&state=public",
                 "auth-code-secret-123",
                 "auth_code=[REDACTED_OAUTH_AUTHORIZATION_CODE]&state=public",
@@ -2008,14 +2065,49 @@ class SafetyPolicyTests(unittest.TestCase):
                 self.assertEqual(redacted, expected)
                 self.assertNotIn(secret, redacted)
 
+    def test_redaction_redacts_contextual_refresh_tokens(self):
+        cases = [
+            (
+                "refresh token: rt_9Fh2LmNopQrsTuvWxYz012345.",
+                "rt_9Fh2LmNopQrsTuvWxYz012345",
+                "refresh token: [REDACTED_REFRESH_TOKEN].",
+            ),
+            (
+                'refresh_token="refreshTok_9Fh2LmNopQrsTuvWxYz"',
+                "refreshTok_9Fh2LmNopQrsTuvWxYz",
+                'refresh_token="[REDACTED_REFRESH_TOKEN]"',
+            ),
+            (
+                "offline access token is offlineTok-9Fh2LmNopQrsTuvWxYz",
+                "offlineTok-9Fh2LmNopQrsTuvWxYz",
+                "offline access token is [REDACTED_REFRESH_TOKEN]",
+            ),
+        ]
+
+        for text, secret, expected in cases:
+            with self.subTest(text=text):
+                redacted = redact_sensitive_content(text)
+
+                self.assertEqual(redacted, expected)
+                self.assertNotIn(secret, redacted)
+
     def test_redaction_preserves_non_auth_code_false_positives(self):
         text = (
             "Promo code SAVE20 is active. "
             "HTTP status code is 404. "
             "OAuth code examples are in the developer guide. "
+            "OIDC code examples are in the developer guide. "
             "The authorization code grant is documented. "
+            "The authorization code flow is documented. "
+            "The device code flow is documented. "
+            "The refresh token rotation policy is documented. "
             "OAuth code is yes. "
             "OAuth code is abc. "
+            "Auth code: ABCD1234. "
+            "Device code is 12345678. "
+            "User code: ABC123. "
+            "Refresh token: abc123. "
+            "Offline access token is policy. "
             "Auth code: see docs. "
             "The auth-code-rotation123 policy is documented. "
             "Read the authorization-code-grant123 docs. "

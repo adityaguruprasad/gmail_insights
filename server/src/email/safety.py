@@ -585,6 +585,7 @@ _SENSITIVE_LINK_URL_TARGET = (
 )
 _CREDENTIAL_QUERY_VALUE_PLACEHOLDER = "[REDACTED_CREDENTIAL_QUERY_VALUE]"
 _OAUTH_AUTHORIZATION_CODE_PLACEHOLDER = "[REDACTED_OAUTH_AUTHORIZATION_CODE]"
+_REFRESH_TOKEN_PLACEHOLDER = "[REDACTED_REFRESH_TOKEN]"
 _PASSKEY_CREDENTIAL_ID_PLACEHOLDER = "[REDACTED_PASSKEY_CREDENTIAL_ID]"
 _PASSKEY_CHALLENGE_ID_PLACEHOLDER = "[REDACTED_PASSKEY_CHALLENGE_ID]"
 _PASSKEY_REGISTRATION_URL_PLACEHOLDER = "[REDACTED_PASSKEY_REGISTRATION_URL]"
@@ -900,22 +901,71 @@ _OAUTH_AUTHORIZATION_CODE_CONTEXT = (
     r"(?:"
     r"authorization\s+code|"
     r"oauth(?:\s*2(?:\.0)?)?\s+(?:authorization\s+)?code|"
+    r"oidc\s+(?:authorization\s+)?code|"
     r"auth\s+code|"
     r"auth[_-]?code|"
     r"authorization[_-]?code|"
-    r"oauth[_-]?code"
+    r"oauth[_-]?code|"
+    r"oidc[_-]?code"
     r")"
 )
 _OAUTH_AUTHORIZATION_CODE_VALUE = (
-    r"(?=[A-Za-z0-9_~+/\-=%]{8,})"
+    r"(?=[A-Za-z0-9_~+/\-=%]{12,})"
+    r"(?=[A-Za-z0-9_~+/\-=%]*[A-Za-z])"
     r"(?=[A-Za-z0-9_~+/\-=%]*\d)"
     r"[A-Za-z0-9][A-Za-z0-9_~+/\-=%]*"
 )
+_OAUTH_CONTEXT_VALUE_SEPARATOR = r"(?:\s+(?:is|are|was)\s+|\s*[:=]\s*|\s*-\s+)"
 _OAUTH_AUTHORIZATION_CODE_AFTER_CONTEXT_RE = re.compile(
     rf"\b(?P<context>{_OAUTH_AUTHORIZATION_CODE_CONTEXT})\b"
-    rf"(?P<between>(?:\s+(?:is|are|was)\s+|\s*[:=]\s*|\s+-\s+))"
+    rf"(?P<between>{_OAUTH_CONTEXT_VALUE_SEPARATOR})"
     rf"(?P<quote>[\"'])?"
     rf"(?P<authorization_code>{_OAUTH_AUTHORIZATION_CODE_VALUE})"
+    rf"(?(quote)(?P=quote))",
+    re.IGNORECASE,
+)
+_OAUTH_DEVICE_USER_CODE_CONTEXT = (
+    r"(?:"
+    r"(?:oauth(?:\s*2(?:\.0)?)?\s+)?device\s+code|"
+    r"(?:oauth(?:\s*2(?:\.0)?)?\s+)?user\s+code|"
+    r"device[_-]?code|"
+    r"user[_-]?code"
+    r")"
+)
+_OAUTH_DEVICE_USER_CODE_VALUE = (
+    r"(?=[A-Za-z0-9_~+/\-=%]{12,})"
+    r"(?=[A-Za-z0-9_~+/\-=%]*[A-Za-z])"
+    r"(?=[A-Za-z0-9_~+/\-=%]*\d)"
+    r"[A-Za-z0-9][A-Za-z0-9_~+/\-=%]*"
+)
+_OAUTH_DEVICE_USER_CODE_AFTER_CONTEXT_RE = re.compile(
+    rf"\b(?P<context>{_OAUTH_DEVICE_USER_CODE_CONTEXT})\b"
+    rf"(?P<between>{_OAUTH_CONTEXT_VALUE_SEPARATOR})"
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<authorization_code>{_OAUTH_DEVICE_USER_CODE_VALUE})"
+    rf"(?(quote)(?P=quote))",
+    re.IGNORECASE,
+)
+_REFRESH_TOKEN_CONTEXT = (
+    r"(?:"
+    r"(?:oauth(?:\s*2(?:\.0)?)?\s+)?refresh\s+tokens?|"
+    r"refresh[_-]?tokens?|"
+    r"offline\s+access\s+tokens?|"
+    r"offline[_-]?access[_-]?tokens?"
+    r")"
+)
+_REFRESH_TOKEN_VALUE = (
+    r"(?=[A-Za-z0-9._~+/%=-]{16,})"
+    r"(?=[A-Za-z0-9._~+/%=-]*[A-Za-z])"
+    r"(?=[A-Za-z0-9._~+/%=-]*\d)"
+    r"[A-Za-z0-9_~+/%=-][A-Za-z0-9._~+/%=-]*[A-Za-z0-9_~+/%=-]"
+    r"(?![A-Za-z0-9_~+/%=-])"
+)
+_REFRESH_TOKEN_AFTER_CONTEXT_RE = re.compile(
+    rf"\b(?P<context>{_REFRESH_TOKEN_CONTEXT})\b"
+    rf"(?P<between>{_OAUTH_CONTEXT_VALUE_SEPARATOR})"
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<refresh_token>{_REFRESH_TOKEN_VALUE})"
     rf"(?(quote)(?P=quote))",
     re.IGNORECASE,
 )
@@ -4873,10 +4923,31 @@ def _redact_mfa_backup_codes(text: str) -> str:
 
 
 def _redact_oauth_authorization_codes(text: str) -> str:
-    return _OAUTH_AUTHORIZATION_CODE_AFTER_CONTEXT_RE.sub(
+    redacted = _OAUTH_AUTHORIZATION_CODE_AFTER_CONTEXT_RE.sub(
         _redact_oauth_authorization_code,
         text,
     )
+    return _OAUTH_DEVICE_USER_CODE_AFTER_CONTEXT_RE.sub(
+        _redact_oauth_authorization_code,
+        redacted,
+    )
+
+
+def _redact_refresh_token(match: re.Match) -> str:
+    return _replace_match_group(
+        match,
+        "refresh_token",
+        _REFRESH_TOKEN_PLACEHOLDER,
+    )
+
+
+def _redact_refresh_tokens(text: str) -> str:
+    return _REFRESH_TOKEN_AFTER_CONTEXT_RE.sub(_redact_refresh_token, text)
+
+
+def _redact_oauth_oidc_authorization_artifacts(text: str) -> str:
+    redacted = _redact_oauth_authorization_codes(text)
+    return _redact_refresh_tokens(redacted)
 
 
 def _redact_saml_form_field(match: re.Match) -> str:
@@ -5272,6 +5343,7 @@ def redact_sensitive_content(text: str) -> str:
     redacted = _redact_private_keys(text)
     redacted = _redact_saml_sso_artifacts(redacted)
     redacted = _redact_oauth_oidc_assignments(redacted)
+    redacted = _redact_oauth_oidc_authorization_artifacts(redacted)
     redacted = _GOOGLE_OAUTH_TOKEN_RE.sub("[REDACTED_GOOGLE_TOKEN]", redacted)
     redacted = _GOOGLE_REFRESH_TOKEN_RE.sub("[REDACTED_GOOGLE_REFRESH_TOKEN]", redacted)
     redacted = _JWT_RE.sub("[REDACTED_JWT]", redacted)
@@ -5287,7 +5359,6 @@ def redact_sensitive_content(text: str) -> str:
     redacted = _redact_password_secrets(redacted)
     redacted = _redact_short_lived_login_credentials(redacted)
     redacted = _redact_mfa_backup_codes(redacted)
-    redacted = _redact_oauth_authorization_codes(redacted)
     redacted = _redact_authenticator_provisioning_uris(redacted)
     redacted = _redact_passkey_webauthn_artifacts(redacted)
     redacted = _redact_credential_query_params(redacted)
@@ -5311,6 +5382,7 @@ def sanitize_untrusted_email_text(text: str) -> str:
 
     sanitized = text.replace("\r\n", "\n").replace("\r", "\n")
     sanitized = _redact_saml_sso_artifacts(sanitized)
+    sanitized = _redact_oauth_oidc_authorization_artifacts(sanitized)
     sanitized = _ROLE_TAG_RE.sub(r"\1[quoted-role \2] ", sanitized)
     sanitized = _INSTRUCTION_PHRASE_RE.sub(r"[quoted-instruction: \1]", sanitized)
     sanitized = _SAFETY_METADATA_DIRECTIVE_RE.sub(
