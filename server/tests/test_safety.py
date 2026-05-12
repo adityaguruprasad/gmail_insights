@@ -1123,6 +1123,54 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(redacted, "Authorization: Bearer [REDACTED_TOKEN]")
         self.assertNotIn("abcdefghijklmnopqrstuvwxyz123456", redacted)
 
+    def test_redaction_removes_contextual_password_secrets(self):
+        cases = [
+            (
+                "Temporary password: CorrectHorseBatteryStaple123!",
+                "CorrectHorseBatteryStaple123!",
+                "Temporary password: [REDACTED_PASSWORD]",
+            ),
+            (
+                'password="Portal-Login-2026"',
+                "Portal-Login-2026",
+                'password="[REDACTED_PASSWORD]"',
+            ),
+            (
+                "CorrectHorseBatteryStaple123 is your login password.",
+                "CorrectHorseBatteryStaple123",
+                "[REDACTED_PASSWORD] is your login password.",
+            ),
+        ]
+
+        for text, secret, expected in cases:
+            with self.subTest(text=text):
+                redacted = redact_sensitive_content(text)
+
+                self.assertEqual(redacted, expected)
+                self.assertNotIn(secret, redacted)
+
+    def test_redaction_preserves_benign_password_policy_and_reset_text(self):
+        long_identifier = f"{'account' * 22}CorrectHorseBatteryStaple123"
+        text = (
+            "Password reset requested on 2026-05-10. "
+            "Password is required for the portal. "
+            "The password policy requires 12 characters. "
+            "Your username is for your password manager. "
+            f"{long_identifier} is your login password."
+        )
+
+        self.assertEqual(redact_sensitive_content(text), text)
+
+    def test_redaction_preserves_existing_password_redaction_placeholders(self):
+        cases = [
+            "Temporary password: [REDACTED_PASSWORD]",
+            "[REDACTED_PASSWORD] is your login password.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                self.assertEqual(redact_sensitive_content(text), text)
+
     def test_redaction_removes_contextual_app_passwords(self):
         app_password = _fixture_secret("abcd", " ", "efgh", " ", "ijkl", " ", "mnop")
         cases = [

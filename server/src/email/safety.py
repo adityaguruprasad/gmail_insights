@@ -103,6 +103,42 @@ _API_TOKEN_RE = re.compile(
     r"(?i)\b((?:api[_-]?key|api[_-]?token|access[_-]?token|auth[_-]?token)"
     r"\s*[:=]\s*)([\"']?)[A-Za-z0-9._~+/=-]{16,}\2"
 )
+_PASSWORD_SECRET_PLACEHOLDER = "[REDACTED_PASSWORD]"
+_PASSWORD_SECRET_CONTEXT = (
+    r"(?:"
+    r"(?:(?:temporary|temp|initial|new|current|account|login|portal|admin|"
+    r"user|database|db|ssh|sftp|ftp|vpn|wi[-\s]?fi)\s+)?"
+    r"(?:password|passphrase)|"
+    r"passwd|pwd"
+    r")"
+)
+_PASSWORD_SECRET_CONTEXT_BOUNDARY = (
+    r"(?!\s+(?:"
+    r"policy|policies|reset|rules?|requirements?|change|manager|protection|"
+    r"metrics?|instructions?|creation|links?|guide|docs?|field|forms?"
+    r")\b)"
+)
+_PASSWORD_SECRET_VALUE = r"[^&;#?\s\"'<>]{6,128}"
+_PASSWORD_SECRET_AFTER_CONTEXT_RE = re.compile(
+    rf"(?<![A-Za-z0-9_])(?P<context>{_PASSWORD_SECRET_CONTEXT})"
+    rf"(?![A-Za-z0-9_]){_PASSWORD_SECRET_CONTEXT_BOUNDARY}"
+    rf"(?P<between>\s*(?:(?:is|are|was)\s+|[:=]\s*|-\s+))"
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<password>{_PASSWORD_SECRET_VALUE})"
+    rf"(?(quote)(?P=quote))",
+    re.IGNORECASE,
+)
+_PASSWORD_SECRET_BEFORE_CONTEXT_RE = re.compile(
+    rf"(?<![A-Za-z0-9_])"
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<password>{_PASSWORD_SECRET_VALUE})"
+    rf"(?(quote)(?P=quote))"
+    rf"(?P<between>\s+(?:is|as|for)\s+(?:your|my|our|the|this|a|an)?\s*)"
+    rf"(?P<context>{_PASSWORD_SECRET_CONTEXT})"
+    rf"(?![A-Za-z0-9_]){_PASSWORD_SECRET_CONTEXT_BOUNDARY}",
+    re.IGNORECASE,
+)
+_PASSWORD_SECRET_TRAILING_PUNCTUATION = ".,;:)]}"
 _APP_PASSWORD_PLACEHOLDER = "[REDACTED_APP_PASSWORD]"
 _APP_PASSWORD_CONTEXT = (
     r"(?:"
@@ -4691,6 +4727,51 @@ def _redact_oauth_authorization_codes(text: str) -> str:
     )
 
 
+def _split_password_trailing_punctuation(password: str) -> Tuple[str, str]:
+    trailing_punctuation = ""
+    while password and password[-1] in _PASSWORD_SECRET_TRAILING_PUNCTUATION:
+        trailing_punctuation = password[-1] + trailing_punctuation
+        password = password[:-1]
+
+    return password, trailing_punctuation
+
+
+def _looks_like_password_secret(password: str) -> bool:
+    if not 6 <= len(password) <= 128:
+        return False
+    if password.startswith("[REDACTED_"):
+        return False
+    if not any(char.isalpha() for char in password):
+        return False
+
+    return any(not char.isalnum() for char in password) or any(
+        char.isdigit() for char in password
+    )
+
+
+def _redact_password_secret(match: re.Match) -> str:
+    password, trailing_punctuation = _split_password_trailing_punctuation(
+        match.group("password"),
+    )
+    if not _looks_like_password_secret(password):
+        return match.group(0)
+
+    return (
+        match.string[match.start() : match.start("password")]
+        + _PASSWORD_SECRET_PLACEHOLDER
+        + trailing_punctuation
+        + match.string[match.end("password") : match.end()]
+    )
+
+
+def _redact_password_secrets(text: str) -> str:
+    redacted = _PASSWORD_SECRET_AFTER_CONTEXT_RE.sub(_redact_password_secret, text)
+    return _PASSWORD_SECRET_BEFORE_CONTEXT_RE.sub(
+        _redact_password_secret,
+        redacted,
+    )
+
+
 def _redact_oauth_client_secret(match: re.Match) -> str:
     return _replace_match_group(
         match,
@@ -4983,6 +5064,7 @@ def redact_sensitive_content(text: str) -> str:
     redacted = _GITHUB_TOKEN_RE.sub("[REDACTED_GITHUB_TOKEN]", redacted)
     redacted = _STRIPE_SECRET_KEY_RE.sub("[REDACTED_STRIPE_KEY]", redacted)
     redacted = _BEARER_TOKEN_RE.sub(r"\1[REDACTED_TOKEN]", redacted)
+    redacted = _redact_password_secrets(redacted)
     redacted = _redact_short_lived_login_credentials(redacted)
     redacted = _redact_mfa_backup_codes(redacted)
     redacted = _redact_oauth_authorization_codes(redacted)
