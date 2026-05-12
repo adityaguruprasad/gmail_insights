@@ -1122,7 +1122,6 @@ class SafetyPolicyTests(unittest.TestCase):
     def test_redaction_redacts_credential_query_parameters_in_standalone_urls(self):
         sensitive_param_names = [
             "token",
-            "code",
             "state",
             "auth",
             "secret",
@@ -1165,6 +1164,183 @@ class SafetyPolicyTests(unittest.TestCase):
                 self.assertIn("next=%2Fhome", redacted)
                 self.assertTrue(redacted.endswith("."))
 
+    def test_redaction_redacts_oauth_authorization_code_query_parameters(self):
+        cases = [
+            (
+                "code",
+                "https://accounts.example.test/oauth/callback",
+                "4%2F0AfJohXabc123",
+            ),
+            (
+                "auth_code",
+                "https://login.example.test/consent/complete",
+                "auth-code-secret-123",
+            ),
+            (
+                "authorization_code",
+                "https://client.example.test/callback",
+                "authorization-code-secret-456",
+            ),
+            (
+                "oauth_code",
+                "https://client.example.test/oidc/redirect",
+                "oauth-code-secret-789",
+            ),
+        ]
+
+        for param_name, base_url, secret in cases:
+            url = (
+                f"{base_url}?client_id=public-client"
+                f"&{param_name}={secret}&next=%2Fhome"
+            )
+
+            with self.subTest(param_name=param_name):
+                redacted = redact_sensitive_content(f"Review URL: {url}.")
+
+                self.assertNotIn(secret, redacted)
+                self.assertIn(base_url, redacted)
+                self.assertIn("client_id=public-client", redacted)
+                self.assertIn(
+                    f"{param_name}=[REDACTED_OAUTH_AUTHORIZATION_CODE]",
+                    redacted,
+                )
+                self.assertIn("next=%2Fhome", redacted)
+                self.assertTrue(redacted.endswith("."))
+
+    def test_redaction_redacts_oauth_authorization_code_with_state_on_generic_url(self):
+        authorization_code = "4%2F0AfJohXgeneric123"
+        state = "oauth-state-secret-456"
+        text = (
+            "Review URL: https://app.example.test/finish"
+            f"?code={authorization_code}&state={state}&next=%2Fhome."
+        )
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(
+            redacted,
+            "Review URL: https://app.example.test/finish"
+            "?code=[REDACTED_OAUTH_AUTHORIZATION_CODE]"
+            "&state=[REDACTED_CREDENTIAL_QUERY_VALUE]&next=%2Fhome.",
+        )
+        self.assertNotIn(authorization_code, redacted)
+        self.assertNotIn(state, redacted)
+
+    def test_redaction_redacts_oauth_authorization_code_assignment_forms(self):
+        cases = [
+            (
+                "authorization code: 4/0AfJohXabc123.",
+                "4/0AfJohXabc123",
+                "authorization code: [REDACTED_OAUTH_AUTHORIZATION_CODE].",
+            ),
+            (
+                "OAuth code is 4/0AfJohXabc123.",
+                "4/0AfJohXabc123",
+                "OAuth code is [REDACTED_OAUTH_AUTHORIZATION_CODE].",
+            ),
+            (
+                "auth_code=auth-code-secret-123&state=public",
+                "auth-code-secret-123",
+                "auth_code=[REDACTED_OAUTH_AUTHORIZATION_CODE]&state=public",
+            ),
+            (
+                "oauth_code='oauth-code-secret-456'",
+                "oauth-code-secret-456",
+                "oauth_code='[REDACTED_OAUTH_AUTHORIZATION_CODE]'",
+            ),
+        ]
+
+        for text, secret, expected in cases:
+            with self.subTest(text=text):
+                redacted = redact_sensitive_content(text)
+
+                self.assertEqual(redacted, expected)
+                self.assertNotIn(secret, redacted)
+
+    def test_redaction_preserves_non_auth_code_false_positives(self):
+        text = (
+            "Promo code SAVE20 is active. "
+            "HTTP status code is 404. "
+            "OAuth code examples are in the developer guide. "
+            "The authorization code grant is documented. "
+            "OAuth code is yes. "
+            "OAuth code is abc. "
+            "Auth code: see docs. "
+            "The auth-code-rotation123 policy is documented. "
+            "Read the authorization-code-grant123 docs. "
+            "Redeem at https://shop.example.test/redeem"
+            "?code=SAVE20&campaign=spring. "
+            "Docs: https://help.example.test/article?status_code=404&topic=oauth."
+        )
+
+        self.assertEqual(redact_sensitive_content(text), text)
+
+    def test_redaction_preserves_non_auth_code_url_parameters(self):
+        text = (
+            "Observed URL: https://notoauthservice.example.com/report"
+            "?code=public-code-123&view=summary. "
+            "Redeem at https://shop.example.test/redeem"
+            "?code=SAVE20&campaign=spring."
+        )
+
+        self.assertEqual(redact_sensitive_content(text), text)
+
+    def test_redaction_redacts_credential_link_code_url_parameters(self):
+        cases = [
+            (
+                "password reset",
+                "https://accounts.example.test/reset",
+                "reset-code-secret-123",
+            ),
+            (
+                "verification",
+                "https://accounts.example.test/email/verification",
+                "verification-code-secret-456",
+            ),
+            (
+                "magic login",
+                "https://login.example.test/magic-login",
+                "magic-login-code-secret-789",
+            ),
+            (
+                "email confirmation",
+                "https://accounts.example.test/confirm-email",
+                "confirmation-code-secret-123",
+            ),
+            (
+                "invitation acceptance",
+                "https://app.example.test/invite/accept",
+                "invite-code-secret-456",
+            ),
+        ]
+
+        for context, base_url, secret in cases:
+            text = f"Observed URL: {base_url}?code={secret}&view=summary."
+
+            with self.subTest(context=context):
+                redacted = redact_sensitive_content(text)
+
+                self.assertNotIn(secret, redacted)
+                self.assertIn(base_url, redacted)
+                self.assertIn(
+                    "code=[REDACTED_CREDENTIAL_QUERY_VALUE]",
+                    redacted,
+                )
+                self.assertIn("view=summary", redacted)
+                self.assertNotIn("[REDACTED_OAUTH_AUTHORIZATION_CODE]", redacted)
+
+        fragment_secret = "fragment-verification-code-secret-123"
+        redacted_fragment = redact_sensitive_content(
+            "Observed URL: https://accounts.example.test/verify"
+            f"#code={fragment_secret}&view=summary."
+        )
+
+        self.assertNotIn(fragment_secret, redacted_fragment)
+        self.assertIn(
+            "#code=[REDACTED_CREDENTIAL_QUERY_VALUE]&view=summary.",
+            redacted_fragment,
+        )
+
     def test_redaction_redacts_credential_fragment_parameters_in_standalone_urls(self):
         access_token = _fixture_secret("fragment", "-", "access", "-", "secret123")
         id_token = _fixture_secret("fragment", "-", "id", "-", "secret456")
@@ -1184,6 +1360,22 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertNotIn(access_token, redacted)
         self.assertNotIn(id_token, redacted)
 
+    def test_redaction_redacts_oauth_authorization_code_fragment_parameters(self):
+        fragment_code = "4%2F0AfJohXfragment123"
+        text = (
+            "Review URL: https://accounts.example.test/oauth/callback"
+            f"#code={fragment_code}&view=summary."
+        )
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(
+            redacted,
+            "Review URL: https://accounts.example.test/oauth/callback"
+            "#code=[REDACTED_OAUTH_AUTHORIZATION_CODE]&view=summary.",
+        )
+        self.assertNotIn(fragment_code, redacted)
+
     def test_redaction_redacts_mixed_query_and_fragment_credentials(self):
         query_code = _fixture_secret("query", "-", "code", "-", "secret123")
         fragment_token = _fixture_secret("fragment", "-", "access", "-", "secret456")
@@ -1199,7 +1391,7 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(
             redacted,
             "Review URL: https://accounts.example.test/oauth/callback"
-            "?client_id=public-client&code=[REDACTED_CREDENTIAL_QUERY_VALUE]"
+            "?client_id=public-client&code=[REDACTED_OAUTH_AUTHORIZATION_CODE]"
             "&next=%2Fhome#view=summary"
             "&access_token=[REDACTED_CREDENTIAL_QUERY_VALUE]"
             "&state=[REDACTED_CREDENTIAL_QUERY_VALUE].",
