@@ -1482,6 +1482,66 @@ class SafetyPolicyTests(unittest.TestCase):
                 self.assertIn("next=%2Fhome", redacted)
                 self.assertTrue(redacted.endswith("."))
 
+    def test_redaction_redacts_url_userinfo_credentials_only(self):
+        cases = [
+            (
+                "IMAP URL: "
+                "imaps://alice@example.com:correct-horse-battery@imap.example.com/INBOX.",
+                "correct-horse-battery",
+                "IMAP URL: "
+                "imaps://alice@example.com:[REDACTED_URL_CREDENTIAL]@imap.example.com/INBOX.",
+            ),
+            (
+                "SMTP URL: smtp://apikey:SG.secret-token-123@smtp.sendgrid.net:587",
+                "SG.secret-token-123",
+                "SMTP URL: smtp://apikey:[REDACTED_URL_CREDENTIAL]@smtp.sendgrid.net:587",
+            ),
+            (
+                "POP3 setup (pop3s://user:app-password@mail.example.com).",
+                "app-password",
+                "POP3 setup (pop3s://user:[REDACTED_URL_CREDENTIAL]@mail.example.com).",
+            ),
+            (
+                "Identity callback: https://user:oauth-token-abc123@example.com/callback"
+                "?next=%2Fhome#done,",
+                "oauth-token-abc123",
+                "Identity callback: https://user:[REDACTED_URL_CREDENTIAL]@example.com/callback"
+                "?next=%2Fhome#done,",
+            ),
+        ]
+
+        for text, secret, expected in cases:
+            with self.subTest(text=text):
+                redacted = redact_sensitive_content(text)
+
+                self.assertEqual(redacted, expected)
+                self.assertNotIn(secret, redacted)
+
+    def test_redaction_redacts_percent_encoded_url_userinfo_credentials(self):
+        text = (
+            "Mailbox URL: imaps://alice%40example.com:p%40ss%3Aword"
+            "@imap.example.com/INBOX?folder=primary#setup."
+        )
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(
+            redacted,
+            "Mailbox URL: imaps://alice%40example.com:[REDACTED_URL_CREDENTIAL]"
+            "@imap.example.com/INBOX?folder=primary#setup.",
+        )
+        self.assertNotIn("p%40ss%3Aword", redacted)
+
+    def test_redaction_preserves_safe_mail_setup_urls_and_prose(self):
+        text = (
+            "Docs: https://docs.example.com/mail/setup and "
+            "imaps://imap.example.com/INBOX and "
+            "smtp://smtp-user@smtp-relay:587. "
+            "SMTP setup prose mentions hostnames, ports, and password policy only."
+        )
+
+        self.assertEqual(redact_sensitive_content(text), text)
+
     def test_redaction_redacts_common_auth_secret_query_parameter_aliases(self):
         cases = [
             ("apikey", "api-key-secret-123"),

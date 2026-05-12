@@ -576,6 +576,17 @@ _PASSKEY_ASSERTION_URL_PLACEHOLDER = "[REDACTED_PASSKEY_ASSERTION_URL]"
 _SAML_RESPONSE_PLACEHOLDER = "[REDACTED_SAML_RESPONSE]"
 _SAML_REQUEST_PLACEHOLDER = "[REDACTED_SAML_REQUEST]"
 _SAML_XML_PLACEHOLDER = "[REDACTED_SAML_XML]"
+_URL_USERINFO_CREDENTIAL_PLACEHOLDER = "[REDACTED_URL_CREDENTIAL]"
+_URL_USERINFO_CREDENTIAL_SCHEMES = {
+    "http",
+    "https",
+    "imap",
+    "imaps",
+    "smtp",
+    "smtps",
+    "pop3",
+    "pop3s",
+}
 
 
 def _normalized_query_param_name(name: str) -> str:
@@ -699,6 +710,10 @@ _CREDENTIAL_QUERY_URL_RE = re.compile(
 )
 _OTPAUTH_URL_RE = re.compile(
     r"(?P<url>otpauth://[^\s<>\"']{1,2048})",
+    re.IGNORECASE,
+)
+_URL_USERINFO_CREDENTIAL_URL_RE = re.compile(
+    r"(?P<url>(?:https?://|imaps?://|smtps?://|pop3s?://)[^\s<>\"']{1,2048})",
     re.IGNORECASE,
 )
 _QUERY_PARAM_SEPARATOR_RE = re.compile(r"([&;])")
@@ -4358,6 +4373,78 @@ def _redact_sensitive_link(match: re.Match) -> str:
     )
 
 
+def _url_authority_end(url: str, authority_start: int) -> int:
+    delimiter_indexes = [
+        index
+        for delimiter in "/?#"
+        if (index := url.find(delimiter, authority_start)) >= 0
+    ]
+    return min(delimiter_indexes, default=len(url))
+
+
+def _redact_url_userinfo_credential_value(url: str) -> Tuple[str, bool]:
+    scheme_end = url.find("://")
+    if scheme_end < 0:
+        return url, False
+
+    scheme = url[:scheme_end].lower()
+    if scheme not in _URL_USERINFO_CREDENTIAL_SCHEMES:
+        return url, False
+
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return url, False
+
+    if parsed.scheme.lower() != scheme or not parsed.netloc:
+        return url, False
+
+    authority_start = scheme_end + 3
+    authority_end = _url_authority_end(url, authority_start)
+    authority = url[authority_start:authority_end]
+    userinfo, at_separator, hostinfo = authority.rpartition("@")
+    if not at_separator or not hostinfo:
+        return url, False
+
+    username, credential_separator, credential = userinfo.partition(":")
+    if (
+        not credential_separator
+        or not credential
+        or credential == _URL_USERINFO_CREDENTIAL_PLACEHOLDER
+    ):
+        return url, False
+
+    redacted_authority = (
+        f"{username}{credential_separator}"
+        f"{_URL_USERINFO_CREDENTIAL_PLACEHOLDER}@{hostinfo}"
+    )
+    return (
+        url[:authority_start] + redacted_authority + url[authority_end:],
+        True,
+    )
+
+
+def _redact_url_userinfo_credentials_in_url(match: re.Match) -> str:
+    url, trailing_punctuation = _split_url_trailing_punctuation(match.group("url"))
+    redacted_url, changed = _redact_url_userinfo_credential_value(url)
+    if not changed:
+        return match.group(0)
+
+    redacted_url = redacted_url + trailing_punctuation
+    return (
+        match.string[match.start() : match.start("url")]
+        + redacted_url
+        + match.string[match.end("url") : match.end()]
+    )
+
+
+def _redact_url_userinfo_credentials(text: str) -> str:
+    return _URL_USERINFO_CREDENTIAL_URL_RE.sub(
+        _redact_url_userinfo_credentials_in_url,
+        text,
+    )
+
+
 def _query_param_names(query: str) -> Set[str]:
     names = set()
 
@@ -5124,6 +5211,44 @@ def _redact_payment_card(match: re.Match) -> str:
     return candidate
 
 
+def _is_redacted_url_userinfo_email_username(match: re.Match) -> bool:
+    suffix = f":{_URL_USERINFO_CREDENTIAL_PLACEHOLDER}@"
+    if not match.string.startswith(suffix, match.end()):
+        return False
+
+    scheme_end = match.string.rfind("://", 0, match.start())
+    if scheme_end < 0:
+        return False
+
+    scheme_start = scheme_end
+    while (
+        scheme_start > 0
+        and (
+            match.string[scheme_start - 1].isalnum()
+            or match.string[scheme_start - 1] in "+-."
+        )
+    ):
+        scheme_start -= 1
+
+    scheme = match.string[scheme_start:scheme_end].lower()
+    if scheme not in _URL_USERINFO_CREDENTIAL_SCHEMES:
+        return False
+
+    authority_prefix = match.string[scheme_end + 3 : match.start()]
+    return not any(char in authority_prefix for char in "/?#@ \t\r\n<>\"'")
+
+
+def _redact_email_address(match: re.Match) -> str:
+    if _is_redacted_url_userinfo_email_username(match):
+        return match.group(0)
+
+    return "[REDACTED_EMAIL]"
+
+
+def _redact_email_addresses(text: str) -> str:
+    return _EMAIL_RE.sub(_redact_email_address, text)
+
+
 def redact_sensitive_content(text: str) -> str:
     if not text:
         return ""
@@ -5147,6 +5272,7 @@ def redact_sensitive_content(text: str) -> str:
     redacted = _redact_authenticator_provisioning_uris(redacted)
     redacted = _redact_passkey_webauthn_artifacts(redacted)
     redacted = _redact_credential_query_params(redacted)
+    redacted = _redact_url_userinfo_credentials(redacted)
     redacted = _API_TOKEN_RE.sub(r"\1\2[REDACTED_TOKEN]\2", redacted)
     redacted = _redact_app_passwords(redacted)
     redacted = _redact_wallet_seed_phrases(redacted)
@@ -5154,7 +5280,7 @@ def redact_sensitive_content(text: str) -> str:
     redacted = _PAYMENT_CARD_RE.sub(_redact_payment_card, redacted)
     redacted = _US_SSN_RE.sub("[REDACTED_SSN]", redacted)
     redacted = _redact_identity_document_numbers(redacted)
-    redacted = _EMAIL_RE.sub("[REDACTED_EMAIL]", redacted)
+    redacted = _redact_email_addresses(redacted)
     redacted = _PHONE_RE.sub("[REDACTED_PHONE]", redacted)
     return redacted
 
