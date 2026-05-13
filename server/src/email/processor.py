@@ -6,7 +6,7 @@ from src.config.settings import ANTHROPIC_API_KEY
 from src.email.safety import (
     neutralize_unsafe_action_suggestions,
     neutralize_safety_metadata_misrepresentation,
-    redact_credential_content,
+    redact_response_metadata_content,
     redact_sensitive_content,
     sanitize_untrusted_email_text,
 )
@@ -91,9 +91,9 @@ def _prepare_returned_untrusted_field(value):
     if value is None:
         return None
 
-    # Use credential-only redaction to prevent secret leakage while preserving
-    # ordinary contact metadata and returned API shape before sanitization.
-    return sanitize_untrusted_email_text(redact_credential_content(str(value)))
+    # Preserve ordinary contact metadata while removing credentials and high-risk
+    # identifiers that can appear in subjects or display names.
+    return sanitize_untrusted_email_text(redact_response_metadata_content(str(value)))
 
 
 def _iter_security_warning_values(raw_warnings):

@@ -5796,8 +5796,8 @@ def redact_credential_content(text: str) -> str:
     return redacted
 
 
-def redact_sensitive_content(text: str) -> str:
-    """Redact all supported sensitive content, not only credentials."""
+def redact_response_metadata_content(text: str) -> str:
+    """Redact high-risk API metadata while preserving ordinary contact metadata."""
     if not text:
         return ""
 
@@ -5805,7 +5805,15 @@ def redact_sensitive_content(text: str) -> str:
     redacted = _redact_bank_credentials(redacted)
     redacted = _PAYMENT_CARD_RE.sub(_redact_payment_card, redacted)
     redacted = _US_SSN_RE.sub("[REDACTED_SSN]", redacted)
-    redacted = _redact_identity_document_numbers(redacted)
+    return _redact_identity_document_numbers(redacted)
+
+
+def redact_sensitive_content(text: str) -> str:
+    """Redact all supported sensitive content, not only credentials."""
+    if not text:
+        return ""
+
+    redacted = redact_response_metadata_content(text)
     redacted = _redact_email_addresses(redacted)
     redacted = _PHONE_RE.sub("[REDACTED_PHONE]", redacted)
     return redacted

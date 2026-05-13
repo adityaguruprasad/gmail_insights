@@ -9,6 +9,7 @@ from src.email.safety import (
     neutralize_safety_metadata_misrepresentation,
     neutralize_unsafe_action_suggestions,
     safety_metadata,
+    redact_response_metadata_content,
     redact_sensitive_content,
     sanitize_untrusted_email_text,
 )
@@ -1034,6 +1035,39 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertNotIn("415-555-1212", redacted)
         self.assertIn("[REDACTED_EMAIL]", redacted)
         self.assertIn("[REDACTED_PHONE]", redacted)
+
+    def test_response_metadata_redaction_removes_high_risk_identifiers(self):
+        text = (
+            "Payroll SSN 123-45-6789; card 4242 4242 4242 4242; "
+            "routing number 021000021; passport number X12345678; "
+            "temporary password: Portal-Login-2026"
+        )
+
+        redacted = redact_response_metadata_content(text)
+
+        for sensitive_value in (
+            "123-45-6789",
+            "4242 4242 4242 4242",
+            "021000021",
+            "X12345678",
+            "Portal-Login-2026",
+        ):
+            with self.subTest(sensitive_value=sensitive_value):
+                self.assertNotIn(sensitive_value, redacted)
+
+        self.assertIn("[REDACTED_SSN]", redacted)
+        self.assertIn("[REDACTED_PAYMENT_CARD]", redacted)
+        self.assertIn("[REDACTED_ROUTING_NUMBER]", redacted)
+        self.assertIn("[REDACTED_PASSPORT_NUMBER]", redacted)
+        self.assertIn("[REDACTED_PASSWORD]", redacted)
+
+    def test_response_metadata_redaction_preserves_contact_metadata(self):
+        text = (
+            "Maya Patel <maya@example.com> +1 415-555-0199 "
+            "order 20260420 tracking 1Z999AA10123456784"
+        )
+
+        self.assertEqual(redact_response_metadata_content(text), text)
 
     def test_redaction_removes_pem_private_key_blocks(self):
         key_type = _fixture_secret("PRIVATE", " ", "KEY")

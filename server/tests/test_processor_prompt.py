@@ -858,11 +858,40 @@ class ProcessorPromptTests(unittest.TestCase):
             result["sender"],
         )
 
+    def test_extract_insights_redacts_high_risk_identifiers_from_returned_metadata(self):
+        email = {
+            "id": "metadata-pii-1",
+            "subject": "Payroll SSN 123-45-6789 card 4242 4242 4242 4242",
+            "sender": "Benefits <benefits@example.com> routing number 021000021",
+            "is_archived": False,
+        }
+
+        with patch.object(
+            processor.anthropic.completions,
+            "create",
+            return_value=types.SimpleNamespace(completion="Summary: ok"),
+        ):
+            result = processor.extract_insights(email, redact_sensitive=False)
+
+        self.assertEqual(
+            "Payroll SSN [REDACTED_SSN] card [REDACTED_PAYMENT_CARD]",
+            result["subject"],
+        )
+        self.assertEqual(
+            "Benefits <benefits@example.com> routing number [REDACTED_ROUTING_NUMBER]",
+            result["sender"],
+        )
+        returned_metadata = result["subject"] + " " + result["sender"]
+        self.assertNotIn("123-45-6789", returned_metadata)
+        self.assertNotIn("4242 4242 4242 4242", returned_metadata)
+        self.assertNotIn("021000021", returned_metadata)
+        self.assertIn("benefits@example.com", result["sender"])
+
     def test_extract_insights_preserves_benign_returned_metadata(self):
         email = {
             "id": "metadata-benign-1",
-            "subject": "Authorization code flow and tokenization launch notes",
-            "sender": "Maya Patel <maya@example.com>",
+            "subject": "Authorization code flow and tokenization launch notes for order 20260420",
+            "sender": "Maya Patel <maya@example.com> +1 415-555-0199",
             "is_archived": False,
         }
 
