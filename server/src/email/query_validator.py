@@ -4,7 +4,11 @@ import re
 from collections.abc import Iterable, Mapping
 from typing import Any, Dict, List
 
-from src.email.safety import ALLOWED_ACTIONS, BLOCKED_ACTIONS
+from src.email.safety import (
+    ALLOWED_ACTIONS,
+    BLOCKED_ACTIONS,
+    redact_credential_content,
+)
 
 DEFAULT_QUERY = "in:inbox"
 DEFAULT_MAX_RESULTS = 25
@@ -88,8 +92,9 @@ def _normalize_requested_actions(actions: Any) -> List[str] | None:
 
         action = part.lower()
         if action not in SUPPORTED_ACTIONS:
+            public_action = redact_credential_content(action)
             raise QueryInsightsValidationError(
-                f"Invalid requested_actions: unsupported action '{action}'"
+                f"Invalid requested_actions: unsupported action '{public_action}'"
             )
         if action in seen:
             continue

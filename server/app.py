@@ -8,7 +8,11 @@ from googleapiclient.discovery import build
 
 from src.email.fetcher import get_emails_from_domains, get_emails_by_query
 from src.email.processor import extract_insights
-from src.email.safety import BLOCKED_ACTIONS, safety_metadata
+from src.email.safety import (
+    BLOCKED_ACTIONS,
+    redact_credential_content,
+    safety_metadata,
+)
 from src.email.query_validator import (
     QueryInsightsValidationError,
     validate_query_insights_payload,
@@ -60,10 +64,14 @@ _ASCII_CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 
 def _redact_log_text(text):
-    redacted = text
+    redacted = redact_credential_content(text)
     for pattern, replacement in _LOG_REDACTIONS:
         redacted = pattern.sub(replacement, redacted)
     return redacted
+
+
+def _redact_public_request_text(text):
+    return redact_credential_content(text)
 
 
 def _log_unhandled_api_exception(route):
@@ -197,7 +205,7 @@ def query_insights():
         return jsonify(
             {
                 "mode": "read_only",
-                "query": query,
+                "query": _redact_public_request_text(query),
                 "safety": safety,
                 "count": len(insights),
                 "insights": insights,

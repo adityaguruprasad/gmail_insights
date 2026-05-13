@@ -16,6 +16,23 @@ from src.email.query_validator import (  # noqa: E402
 )
 
 
+def _fixture_secret(*parts):
+    return "".join(parts)
+
+
+def _google_oauth_token_fixture():
+    return _fixture_secret(
+        "ya29.",
+        "a0afh6sm",
+        "abcdefghijklmnopqrstuvwxyz",
+        "_0123456789",
+    )
+
+
+def _access_token_fixture():
+    return _fixture_secret("access", "token", "value", "1234567890")
+
+
 class QueryInsightsValidationTests(unittest.TestCase):
     def setUp(self):
         app_module.app.config["TESTING"] = True
@@ -137,6 +154,28 @@ class QueryInsightsValidationTests(unittest.TestCase):
         self.assertEqual(body["query"], query)
         mock_fetch.assert_called_once_with(service, query=query, max_results=4)
 
+    def test_query_response_redacts_credentials_from_echo_but_fetches_raw_query(self):
+        service = object()
+        secret = _access_token_fixture()
+        query = f'from:alerts subject:"access_token={secret}"'
+
+        with patch("app._gmail_service_from_token", return_value=service), patch(
+            "app.get_emails_by_query", return_value=[]
+        ) as mock_fetch:
+            response = self.client.post(
+                "/query_insights",
+                json={"token": "test-token", "query": query, "max_results": 4},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(
+            body["query"],
+            'from:alerts subject:"access_token=[REDACTED_TOKEN]"',
+        )
+        self.assertNotIn(secret, body["query"])
+        mock_fetch.assert_called_once_with(service, query=query, max_results=4)
+
     def test_query_scope_guard_preserves_safe_negations_and_literals(self):
         service = object()
         cases = [
@@ -175,6 +214,26 @@ class QueryInsightsValidationTests(unittest.TestCase):
         body = response.get_json()
         self.assertIn("requested_actions", body["error"])
         self.assertIn("send_email", body["error"])
+        mock_gmail.assert_not_called()
+
+    def test_unknown_requested_actions_redacts_credential_shaped_name_in_error(self):
+        credential_action = _google_oauth_token_fixture()
+
+        with patch("app._gmail_service_from_token") as mock_gmail:
+            response = self.client.post(
+                "/query_insights",
+                json={
+                    "token": "test-token",
+                    "query": "in:inbox",
+                    "requested_actions": f"read,{credential_action}",
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+        body = response.get_json()
+        self.assertIn("unsupported action", body["error"])
+        self.assertIn("[REDACTED_GOOGLE_TOKEN]", body["error"])
+        self.assertNotIn(credential_action, body["error"])
         mock_gmail.assert_not_called()
 
     def test_structured_requested_actions_rejected_before_gmail(self):
