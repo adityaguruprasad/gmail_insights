@@ -438,6 +438,36 @@ _AWS_SECRET_ACCESS_KEY_AFTER_CONTEXT_RE = re.compile(
     rf"(?(quote)(?P=quote))",
     re.IGNORECASE,
 )
+_WEBHOOK_SIGNING_SECRET_PLACEHOLDER = "[REDACTED_WEBHOOK_SIGNING_SECRET]"
+_WEBHOOK_SIGNING_SECRET_CONTEXT = (
+    r"(?:"
+    r"(?:webhook|request|event|endpoint|slack|stripe)[_\-\s]+signing[_\-\s]+secret|"
+    r"(?:webhook|endpoint)[_\-\s]+secret|"
+    r"signing[_-]+secret"
+    r")"
+)
+_WEBHOOK_SIGNING_SECRET_VALUE = (
+    r"(?=[A-Za-z0-9._~+/%=-]{16,}(?![A-Za-z0-9._~+/%=-]))"
+    r"(?=[A-Za-z0-9._~+/%=-]*(?:\d|[._~+/%=-]))"
+    r"[A-Za-z0-9_~+/%=-][A-Za-z0-9._~+/%=-]*[A-Za-z0-9_~+/%=-]"
+)
+_WEBHOOK_SIGNING_SECRET_BENIGN_HYPHEN_PREFIX = (
+    r"(?:rotation|rotated|rotating|policy|policies|documentation|docs?|documents?|documented)"
+    r"(?=$|[-_\s.]|\b)"
+)
+_WEBHOOK_SIGNING_SECRET_AFTER_CONTEXT_RE = re.compile(
+    rf"(?<![A-Za-z0-9_])"
+    rf"(?P<context_quote>[\"'])?"
+    rf"(?P<context>{_WEBHOOK_SIGNING_SECRET_CONTEXT})"
+    rf"(?(context_quote)(?P=context_quote))"
+    rf"(?![A-Za-z0-9_])"
+    rf"(?P<between>\s*(?:(?:is|are|was)\s+|[:=]\s*|"
+    rf"-\s*(?!{_WEBHOOK_SIGNING_SECRET_BENIGN_HYPHEN_PREFIX})))"
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<webhook_signing_secret>{_WEBHOOK_SIGNING_SECRET_VALUE})"
+    rf"(?(quote)(?P=quote))",
+    re.IGNORECASE,
+)
 _OPENAI_API_KEY_PLACEHOLDER = "[REDACTED_OPENAI_API_KEY]"
 _OPENAI_API_KEY_RE = re.compile(
     r"(?<![A-Za-z0-9_-])"
@@ -5429,6 +5459,21 @@ def _redact_aws_secret_access_keys(text: str) -> str:
     )
 
 
+def _redact_webhook_signing_secret(match: re.Match) -> str:
+    return _replace_match_group(
+        match,
+        "webhook_signing_secret",
+        _WEBHOOK_SIGNING_SECRET_PLACEHOLDER,
+    )
+
+
+def _redact_webhook_signing_secrets(text: str) -> str:
+    return _WEBHOOK_SIGNING_SECRET_AFTER_CONTEXT_RE.sub(
+        _redact_webhook_signing_secret,
+        text,
+    )
+
+
 def _redact_passkey_credential_id(match: re.Match) -> str:
     return _replace_match_group(
         match,
@@ -5724,6 +5769,7 @@ def redact_credential_content(text: str) -> str:
     redacted = _JWT_RE.sub("[REDACTED_JWT]", redacted)
     redacted = _AWS_ACCESS_KEY_ID_RE.sub("[REDACTED_AWS_KEY]", redacted)
     redacted = _redact_aws_secret_access_keys(redacted)
+    redacted = _redact_webhook_signing_secrets(redacted)
     # Provider-shaped keys run before generic api_key redaction to keep specific placeholders.
     redacted = _OPENAI_API_KEY_RE.sub(_OPENAI_API_KEY_PLACEHOLDER, redacted)
     redacted = _ANTHROPIC_API_KEY_RE.sub(_ANTHROPIC_API_KEY_PLACEHOLDER, redacted)

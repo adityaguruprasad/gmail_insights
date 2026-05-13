@@ -149,6 +149,20 @@ def _aws_secret_access_key_fixture():
     )
 
 
+def _webhook_signing_secret_fixture():
+    return _fixture_secret(
+        "wh",
+        "sec",
+        "_",
+        "abCD",
+        "ef12",
+        "ghIJ",
+        "3456",
+        "klMN",
+        "opQR",
+    )
+
+
 def _basic_auth_credential_fixture():
     return _fixture_secret("cmVh", "ZGVy", "OnNh", "bXBs", "ZS1w", "YXNz", "MTIz")
 
@@ -1402,6 +1416,46 @@ class SafetyPolicyTests(unittest.TestCase):
             "AWS secret access key rotation is scheduled. "
             "secret_access_key=short-value. "
             "aws_secret_access_key=not-a-40-character-secret."
+        )
+
+        self.assertEqual(redact_sensitive_content(text), text)
+
+    def test_redaction_removes_webhook_signing_secret_assignment_forms(self):
+        secret = _webhook_signing_secret_fixture()
+        placeholder = "[REDACTED_WEBHOOK_SIGNING_SECRET]"
+        cases = [
+            (
+                f"webhook_signing_secret={secret}",
+                f"webhook_signing_secret={placeholder}",
+            ),
+            (
+                f"'signing_secret': '{secret}', active=true",
+                f"'signing_secret': '{placeholder}', active=true",
+            ),
+            (
+                f"Webhook signing secret is {secret}.",
+                f"Webhook signing secret is {placeholder}.",
+            ),
+            (
+                f"endpoint-secret: {secret}",
+                f"endpoint-secret: {placeholder}",
+            ),
+        ]
+
+        for text, expected in cases:
+            with self.subTest(text=text):
+                redacted = redact_sensitive_content(text)
+
+                self.assertEqual(redacted, expected)
+                self.assertNotIn(secret, redacted)
+
+    def test_redaction_preserves_benign_webhook_secret_prose(self):
+        text = (
+            "Webhook signing secret rotation policy is ready. "
+            "signing_secret=short. "
+            "The signing secret is rotated after deployment. "
+            "The signing secret is rotation-policy-2026. "
+            "endpoint-secret-rotation-policy-2026."
         )
 
         self.assertEqual(redact_sensitive_content(text), text)
