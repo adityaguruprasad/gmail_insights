@@ -1410,15 +1410,28 @@ _MODEL_CONTROL_TOKEN_RE = re.compile(
     r"|\[/?INST\]"
     r"|<</?SYS>>"
 )
+_PROMPT_SECRET_EXFILTRATION_TARGET = (
+    r"(?:(?:the|your|all|any)\s+)?"
+    r"(?:"
+    r"(?:system|developer|hidden|original)\s+"
+    r"(?:prompts?|instructions?|messages?|polic(?:y|ies)|rules?|directives?)"
+    r"|internal\s+(?:prompts?|instructions?|polic(?:y|ies)|rules?|directives?)"
+    r"|internal\s+messages?(?!\s+from\b)"
+    r")"
+)
 _ACTION_ROLE_PREFIX = rf"(?:(?:{_PROMPT_ROLE_TAGS})\s*:\s*)?"
 _INSTRUCTION_PHRASE_RE = re.compile(
-    r"(?i)\b("
-    r"ignore\s+(all\s+)?(previous|prior|above)\s+instructions?"
-    r"|disregard\s+(all\s+)?(previous|prior|above)\s+instructions?"
-    r"|forget\s+(all\s+)?(previous|prior|above)\s+instructions?"
-    r"|follow\s+these\s+instructions?"
-    r"|act\s+as\s+(an?|the)\b"
-    r"|you\s+are\s+(now\s+)?(chatgpt|assistant|system)\b"
+    rf"(?i)\b("
+    rf"ignore\s+(all\s+)?(previous|prior|above)\s+instructions?"
+    rf"|disregard\s+(all\s+)?(previous|prior|above)\s+instructions?"
+    rf"|forget\s+(all\s+)?(previous|prior|above)\s+instructions?"
+    rf"|follow\s+these\s+instructions?"
+    rf"|(?:show|print|reveal|display|disclose|dump|leak|exfiltrate|"
+    rf"tell|share|repeat|recite|output|echo)\s+"
+    rf"(?:(?:me|us|the\s+user)\s+|with\s+(?:me|us|the\s+user)\s+)?"
+    rf"{_PROMPT_SECRET_EXFILTRATION_TARGET}"
+    rf"|act\s+as\s+(an?|the)\b"
+    rf"|you\s+are\s+(now\s+)?(chatgpt|assistant|system)\b"
     r")\b"
 )
 _INSTRUCTION_XML_TAG_RE = re.compile(
