@@ -1215,10 +1215,9 @@ _SENSITIVE_LINK_BEFORE_CONTEXT_RE = re.compile(
     re.IGNORECASE,
 )
 _SENSITIVE_URL_TRAILING_PUNCTUATION = ".,;:!?)]}"
-_ROLE_TAG_RE = re.compile(
-    r"(?im)^(\s*)(system|assistant|user|developer|tool)\s*:\s*"
-)
-_ACTION_ROLE_PREFIX = r"(?:(?:system|assistant|user|developer|tool)\s*:\s*)?"
+_PROMPT_ROLE_TAGS = r"system|assistant|user|developer|tool|human"
+_ROLE_TAG_RE = re.compile(rf"(?im)^(\s*)({_PROMPT_ROLE_TAGS})\s*:\s*")
+_ACTION_ROLE_PREFIX = rf"(?:(?:{_PROMPT_ROLE_TAGS})\s*:\s*)?"
 _INSTRUCTION_PHRASE_RE = re.compile(
     r"(?i)\b("
     r"ignore\s+(all\s+)?(previous|prior|above)\s+instructions?"
