@@ -1134,6 +1134,52 @@ class SafetyPolicyTests(unittest.TestCase):
             with self.subTest(sensitive_value=sensitive_value):
                 self.assertNotIn(sensitive_value, response_metadata_redacted)
 
+    def test_response_metadata_redaction_redacts_contextual_dates_of_birth(self):
+        text = (
+            "Applicant DOB: 1990-01-31; dependent date of birth 01/02/2012; "
+            "member birth date: Jan 2, 1985; 2 Feb 2001 is the date of birth."
+        )
+
+        redacted = redact_response_metadata_content(text)
+
+        for sensitive_value in (
+            "1990-01-31",
+            "01/02/2012",
+            "Jan 2, 1985",
+            "2 Feb 2001",
+        ):
+            with self.subTest(sensitive_value=sensitive_value):
+                self.assertNotIn(sensitive_value, redacted)
+
+        self.assertEqual(redacted.count("[REDACTED_DATE_OF_BIRTH]"), 4)
+
+    def test_redact_sensitive_content_redacts_contextual_dates_of_birth(self):
+        text = (
+            "Member date of birth: 1990-01-31. "
+            "Dependent DOB 01/02/2012 appears in the enrollment form."
+        )
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(
+            redacted,
+            "Member date of birth: [REDACTED_DATE_OF_BIRTH]. "
+            "Dependent DOB [REDACTED_DATE_OF_BIRTH] appears in the enrollment form.",
+        )
+        self.assertNotIn("1990-01-31", redacted)
+        self.assertNotIn("01/02/2012", redacted)
+
+    def test_response_metadata_redaction_preserves_benign_date_prose(self):
+        text = (
+            "DOB format YYYY-MM-DD is documented in the onboarding guide. "
+            "The date of birth field is optional in test fixtures. "
+            "Invoice date 2026-05-13 and order date 05/13/2026 are safe metadata."
+        )
+
+        self.assertEqual(redact_response_metadata_content(text), text)
+        self.assertEqual(redact_sensitive_content(text), text)
+        self.assertNotIn("[REDACTED", redact_response_metadata_content(text))
+
     def test_response_metadata_redaction_preserves_contact_metadata(self):
         text = (
             "Maya Patel <maya@example.com> +1 415-555-0199 "

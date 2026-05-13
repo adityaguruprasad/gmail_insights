@@ -1093,6 +1093,65 @@ class ProcessorPromptTests(unittest.TestCase):
         self.assertNotIn("021000021", returned_metadata)
         self.assertIn("benefits@example.com", result["sender"])
 
+    def test_prompt_summary_warnings_and_public_fields_redact_dates_of_birth(self):
+        subject_dob = "1990-01-31"
+        sender_dob = "01/02/1985"
+        content_dob = "Jan 3, 2012"
+        warning_dob = "4 Feb 2001"
+        summary_dob = "2001-02-04"
+        email = {
+            "id": "metadata-dob-1",
+            "subject": f"Benefits DOB: {subject_dob}",
+            "sender": f"People Ops birth date {sender_dob} <people@example.test>",
+            "date": "2026-05-13",
+            "snippet": f"Dependent date of birth {content_dob}",
+            "security_warnings": [
+                f"Sensitive date of birth value appeared: {warning_dob}",
+            ],
+            "content": f"Member date of birth: {content_dob}",
+            "is_archived": False,
+        }
+
+        prompt = processor._build_prompt(email, redact_sensitive=True)
+        with patch.object(
+            processor.anthropic.completions,
+            "create",
+            return_value=types.SimpleNamespace(
+                completion=f"Summary copied DOB: {summary_dob}."
+            ),
+        ):
+            result = processor.extract_insights(email)
+
+        returned_text = (
+            result["subject"]
+            + " "
+            + result["sender"]
+            + " "
+            + result["summary"]
+            + " "
+            + " ".join(result["security_warnings"])
+        )
+        for sensitive_value in (
+            subject_dob,
+            sender_dob,
+            content_dob,
+            warning_dob,
+            summary_dob,
+        ):
+            with self.subTest(sensitive_value=sensitive_value):
+                self.assertNotIn(sensitive_value, prompt)
+                self.assertNotIn(sensitive_value, returned_text)
+
+        self.assertIn("Subject: Benefits DOB: [REDACTED_DATE_OF_BIRTH]", prompt)
+        self.assertIn("Content:\nMember date of birth: [REDACTED_DATE_OF_BIRTH]", prompt)
+        self.assertEqual("Benefits DOB: [REDACTED_DATE_OF_BIRTH]", result["subject"])
+        self.assertEqual(
+            "People Ops birth date [REDACTED_DATE_OF_BIRTH] <people@example.test>",
+            result["sender"],
+        )
+        self.assertIn("[REDACTED_DATE_OF_BIRTH]", result["summary"])
+        self.assertIn("[REDACTED_DATE_OF_BIRTH]", result["security_warnings"][0])
+
     def test_extract_insights_neutralizes_inline_role_markers_in_returned_metadata(self):
         email = {
             "id": "metadata-inline-role-1",

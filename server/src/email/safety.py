@@ -216,6 +216,7 @@ _BANK_ACCOUNT_PLACEHOLDER = "[REDACTED_BANK_ACCOUNT]"
 _PASSPORT_NUMBER_PLACEHOLDER = "[REDACTED_PASSPORT_NUMBER]"
 _DRIVER_LICENSE_NUMBER_PLACEHOLDER = "[REDACTED_DRIVER_LICENSE_NUMBER]"
 _GOVERNMENT_ID_NUMBER_PLACEHOLDER = "[REDACTED_GOVERNMENT_ID_NUMBER]"
+_DATE_OF_BIRTH_PLACEHOLDER = "[REDACTED_DATE_OF_BIRTH]"
 _BANK_CONTEXT_BOUNDARY = r"(?![A-Za-z0-9_])"
 _BANK_VALUE_AFTER_CONTEXT_SEPARATOR = r"\s*(?:(?:is|are)\s+)?(?:[:,=#-]\s*)?"
 _BANK_VALUE_BEFORE_CONTEXT_SEPARATOR = (
@@ -288,6 +289,43 @@ _GOVERNMENT_ID_NUMBER_CONTEXT = (
     r"government\s+ids?(?:\s+(?:numbers?|nos?\.?|#))?|"
     r"government\s+identification\s+(?:numbers?|nos?\.?|#)"
     r")"
+)
+_DATE_OF_BIRTH_CONTEXT = (
+    r"(?:"
+    r"dates?[-\s]+of[-\s]+birth|"
+    r"birth[-\s]+dates?|"
+    r"dob"
+    r")"
+)
+_DATE_OF_BIRTH_CONTEXT_BOUNDARY = r"(?![A-Za-z0-9_])"
+_DATE_OF_BIRTH_VALUE_AFTER_CONTEXT_SEPARATOR = (
+    r"\s*(?:"
+    r"(?:(?:value|field|metadata|entry)\s+)?(?:is|are|was)\s+|"
+    r"(?:value|field|metadata|entry)\s+appeared\s*[:=#-]\s*|"
+    r"[:,=#-]\s*|"
+    r"\s+"
+    r")"
+)
+_DATE_OF_BIRTH_VALUE_BEFORE_CONTEXT_SEPARATOR = (
+    r"(?:\s+|\s*[-:=,]\s*)"
+    r"(?:(?:is|are|was|as|for)\s+)?"
+    r"(?:(?:your|my|our|the|this|that|a|an)\s+)?"
+)
+_DATE_OF_BIRTH_YEAR = r"(?:19|20)\d{2}"
+_DATE_OF_BIRTH_MONTH_NUMBER = r"(?:0?[1-9]|1[0-2])"
+_DATE_OF_BIRTH_DAY = r"(?:0?[1-9]|[12]\d|3[01])"
+_DATE_OF_BIRTH_MONTH_NAME = (
+    r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|"
+    r"Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|"
+    r"Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
+)
+_DATE_OF_BIRTH_VALUE = (
+    rf"(?<![A-Za-z0-9])(?:"
+    rf"{_DATE_OF_BIRTH_YEAR}[-/]{_DATE_OF_BIRTH_MONTH_NUMBER}[-/]{_DATE_OF_BIRTH_DAY}|"
+    rf"{_DATE_OF_BIRTH_MONTH_NUMBER}[-/]{_DATE_OF_BIRTH_DAY}[-/]{_DATE_OF_BIRTH_YEAR}|"
+    rf"{_DATE_OF_BIRTH_MONTH_NAME}\.?\s+{_DATE_OF_BIRTH_DAY},?\s+{_DATE_OF_BIRTH_YEAR}|"
+    rf"{_DATE_OF_BIRTH_DAY}\s+{_DATE_OF_BIRTH_MONTH_NAME}\.?,?\s+{_DATE_OF_BIRTH_YEAR}"
+    rf")(?![A-Za-z0-9])"
 )
 _BANK_ROUTING_AFTER_CONTEXT_RE = re.compile(
     rf"(?<![A-Za-z0-9_])(?P<context>{_BANK_ROUTING_CONTEXT})"
@@ -377,6 +415,24 @@ _GOVERNMENT_ID_NUMBER_BEFORE_CONTEXT_RE = re.compile(
     rf"(?P<between>{_IDENTITY_DOCUMENT_VALUE_BEFORE_CONTEXT_SEPARATOR})"
     rf"(?P<context>{_GOVERNMENT_ID_NUMBER_CONTEXT})"
     rf"{_IDENTITY_DOCUMENT_CONTEXT_BOUNDARY}",
+    re.IGNORECASE,
+)
+_DATE_OF_BIRTH_AFTER_CONTEXT_RE = re.compile(
+    rf"(?<![A-Za-z0-9_])(?P<context>{_DATE_OF_BIRTH_CONTEXT})"
+    rf"{_DATE_OF_BIRTH_CONTEXT_BOUNDARY}"
+    rf"(?P<between>{_DATE_OF_BIRTH_VALUE_AFTER_CONTEXT_SEPARATOR})"
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<date_of_birth>{_DATE_OF_BIRTH_VALUE})"
+    rf"(?(quote)(?P=quote))",
+    re.IGNORECASE,
+)
+_DATE_OF_BIRTH_BEFORE_CONTEXT_RE = re.compile(
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<date_of_birth>{_DATE_OF_BIRTH_VALUE})"
+    rf"(?(quote)(?P=quote))"
+    rf"(?P<between>{_DATE_OF_BIRTH_VALUE_BEFORE_CONTEXT_SEPARATOR})"
+    rf"(?P<context>{_DATE_OF_BIRTH_CONTEXT})"
+    rf"{_DATE_OF_BIRTH_CONTEXT_BOUNDARY}",
     re.IGNORECASE,
 )
 _GOOGLE_OAUTH_TOKEN_RE = re.compile(r"\bya29\.[A-Za-z0-9._-]+\b")
@@ -5997,6 +6053,14 @@ def _redact_government_id_number(match: re.Match) -> str:
     )
 
 
+def _redact_date_of_birth(match: re.Match) -> str:
+    return _replace_match_group(
+        match,
+        "date_of_birth",
+        _DATE_OF_BIRTH_PLACEHOLDER,
+    )
+
+
 def _redact_identity_document_numbers(text: str) -> str:
     redacted = _PASSPORT_NUMBER_AFTER_CONTEXT_RE.sub(
         _redact_passport_number,
@@ -6022,6 +6086,11 @@ def _redact_identity_document_numbers(text: str) -> str:
         _redact_government_id_number,
         redacted,
     )
+
+
+def _redact_date_of_birth_values(text: str) -> str:
+    redacted = _DATE_OF_BIRTH_AFTER_CONTEXT_RE.sub(_redact_date_of_birth, text)
+    return _DATE_OF_BIRTH_BEFORE_CONTEXT_RE.sub(_redact_date_of_birth, redacted)
 
 
 def _redact_private_key_assignment(match: re.Match) -> str:
@@ -6154,6 +6223,7 @@ def redact_response_metadata_content(text: str) -> str:
     redacted = _redact_bank_credentials(redacted)
     redacted = _PAYMENT_CARD_RE.sub(_redact_payment_card, redacted)
     redacted = _US_SSN_RE.sub("[REDACTED_SSN]", redacted)
+    redacted = _redact_date_of_birth_values(redacted)
     return _redact_identity_document_numbers(redacted)
 
 
