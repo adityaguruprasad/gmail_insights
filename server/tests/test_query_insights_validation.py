@@ -33,6 +33,24 @@ def _access_token_fixture():
     return _fixture_secret("access", "token", "value", "1234567890")
 
 
+def _aws_access_key_id_fixture():
+    return _fixture_secret("AKIA", "IOSFODNN", "7EXAMPLE")
+
+
+def _google_api_key_fixture():
+    return _fixture_secret(
+        "AI",
+        "za",
+        "AbCdE",
+        "fGhIj",
+        "KlMnO",
+        "pQrSt",
+        "UvWxY",
+        "z0123",
+        "45678",
+    )
+
+
 class QueryInsightsValidationTests(unittest.TestCase):
     def setUp(self):
         app_module.app.config["TESTING"] = True
@@ -265,6 +283,7 @@ class QueryInsightsValidationTests(unittest.TestCase):
         body = response.get_json()
         self.assertIn("requested_actions", body["error"])
         self.assertIn("send_email", body["error"])
+        self.assertNotIn("[REDACTED", body["error"])
         mock_gmail.assert_not_called()
 
     def test_unknown_requested_actions_redacts_credential_shaped_name_in_error(self):
@@ -286,6 +305,32 @@ class QueryInsightsValidationTests(unittest.TestCase):
         self.assertIn("[REDACTED_GOOGLE_TOKEN]", body["error"])
         self.assertNotIn(credential_action, body["error"])
         mock_gmail.assert_not_called()
+
+    def test_unknown_requested_actions_redacts_case_sensitive_credential_shaped_names_in_error(self):
+        cases = [
+            (_aws_access_key_id_fixture(), "[REDACTED_AWS_KEY]"),
+            (_google_api_key_fixture(), "[REDACTED_GOOGLE_API_KEY]"),
+        ]
+
+        for credential_action, placeholder in cases:
+            with self.subTest(placeholder=placeholder):
+                with patch("app._gmail_service_from_token") as mock_gmail:
+                    response = self.client.post(
+                        "/query_insights",
+                        json={
+                            "token": "test-token",
+                            "query": "in:inbox",
+                            "requested_actions": ["read", credential_action],
+                        },
+                    )
+
+                self.assertEqual(response.status_code, 400)
+                body = response.get_json()
+                self.assertIn("unsupported action", body["error"])
+                self.assertIn(placeholder, body["error"])
+                self.assertNotIn(credential_action, body["error"])
+                self.assertNotIn(credential_action.lower(), body["error"])
+                mock_gmail.assert_not_called()
 
     def test_structured_requested_actions_rejected_before_gmail(self):
         cases = [

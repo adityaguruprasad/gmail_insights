@@ -92,7 +92,7 @@ def _normalize_requested_actions(actions: Any) -> List[str] | None:
 
         action = part.lower()
         if action not in SUPPORTED_ACTIONS:
-            public_action = redact_credential_content(action)
+            public_action = redact_credential_content(part)
             raise QueryInsightsValidationError(
                 f"Invalid requested_actions: unsupported action '{public_action}'"
             )
