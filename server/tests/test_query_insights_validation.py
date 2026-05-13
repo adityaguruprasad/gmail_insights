@@ -8,6 +8,14 @@ processor_stub.extract_insights = lambda email: email
 sys.modules.setdefault("src.email.processor", processor_stub)
 
 import app as app_module  # noqa: E402
+
+# Keep this app import stub from leaking into tests that need the real processor.
+if sys.modules.get("src.email.processor") is processor_stub:
+    del sys.modules["src.email.processor"]
+    email_package = sys.modules.get("src.email")
+    if getattr(email_package, "processor", None) is processor_stub:
+        delattr(email_package, "processor")
+
 from src.email.query_validator import (  # noqa: E402
     MAX_ACTION_LENGTH,
     MAX_REQUESTED_ACTIONS,
@@ -614,6 +622,31 @@ class QueryInsightsValidationTests(unittest.TestCase):
                 "mode": "read_only",
                 "effective_actions": ["read", "summarize"],
                 "blocked_actions": ["make_payment"],
+            },
+        )
+        mock_gmail.assert_not_called()
+
+    def test_payout_destination_requested_action_is_supported_but_blocked(self):
+        with patch("app._gmail_service_from_token") as mock_gmail:
+            response = self.client.post(
+                "/query_insights",
+                json={
+                    "token": "test-token",
+                    "query": "in:inbox",
+                    "requested_actions": "change_payout_destination",
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+        body = response.get_json()
+        self.assertIn("Blocked actions requested", body["error"])
+        self.assertNotIn("unsupported action", body["error"])
+        self.assertEqual(
+            body["safety"],
+            {
+                "mode": "read_only",
+                "effective_actions": ["read", "summarize"],
+                "blocked_actions": ["change_payout_destination"],
             },
         )
         mock_gmail.assert_not_called()

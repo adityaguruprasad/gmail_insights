@@ -72,6 +72,7 @@ BLOCKED_ACTIONS = {
     "crypto_wallet_action",
     "make_payment",
     "update_payment_method",
+    "change_payout_destination",
     "sign_in",
     "create_external_account",
     "change_password",
@@ -2501,6 +2502,59 @@ _PAYMENT_METHOD_ACTION_SUFFIX = (
     rf"{_PAYMENT_METHOD_DESTINATION})?"
     rf"{_TARGET_END}"
 )
+# Payout destination directives cover payroll/direct-deposit accounts,
+# payout accounts or destinations, and bank/routing details for payouts.
+_PAYOUT_DESTINATION_PURPOSE = (
+    r"(?:payments?|payouts?|pay[-\s]?outs?|direct[-\s]+deposits?|"
+    r"payroll(?:\s+deposits?)?|salary\s+payments?|wage\s+payments?|"
+    r"vendor\s+payments?|ach|transfers?)"
+)
+_PAYOUT_BANK_DETAIL_COMPONENT = r"(?:(?:bank\s+)?account|routing)"
+_PAYOUT_DIRECT_DEPOSIT_TARGET_NOUN = (
+    r"(?:direct[-\s]+deposit|payroll\s+(?:direct[-\s]+deposit|deposit))"
+    r"(?:\s+(?:details|information|info|settings?|accounts?|"
+    r"bank\s+accounts?|destination(?:s)?))?"
+)
+_PAYOUT_ACCOUNT_TARGET_NOUN = (
+    r"(?:(?:payout|pay[-\s]?out)\s+"
+    r"(?:bank\s+)?(?:accounts?|destination(?:s)?|settings?|details|"
+    r"information|info)|payroll\s+(?:bank\s+)?accounts?)"
+)
+_PAYOUT_BANK_DETAIL_TARGET_NOUN = (
+    rf"{_PAYOUT_BANK_DETAIL_COMPONENT}"
+    rf"(?:\s*(?:/|and|or)\s*{_PAYOUT_BANK_DETAIL_COMPONENT}){{0,2}}"
+    rf"\s+(?:numbers?|details|information|info)\s+for\s+"
+    rf"{_PAYOUT_DESTINATION_PURPOSE}"
+)
+_PAYOUT_BANK_ACCOUNT_FOR_PURPOSE_TARGET_NOUN = (
+    rf"(?:bank\s+)?accounts?\s+for\s+{_PAYOUT_DESTINATION_PURPOSE}"
+)
+_PAYOUT_DESTINATION_TARGET = (
+    r"(?:(?:the|this|that|an?|your|my|our|their|employee|new|"
+    r"replacement|updated)\s+){0,4}"
+    rf"(?:{_PAYOUT_DIRECT_DEPOSIT_TARGET_NOUN}|"
+    rf"{_PAYOUT_ACCOUNT_TARGET_NOUN}|"
+    rf"{_PAYOUT_BANK_DETAIL_TARGET_NOUN}|"
+    rf"{_PAYOUT_BANK_ACCOUNT_FOR_PURPOSE_TARGET_NOUN})\b"
+)
+_PAYOUT_DESTINATION_CHANGE_DESTINATION = (
+    r"(?:(?:the|this|that|an?|your|new|replacement|updated)\s+){0,4}"
+    r"(?:bank\s+)?(?:accounts?|routing\s+numbers?|account\s+numbers?|"
+    r"payout\s+accounts?|payroll\s+accounts?|deposit\s+accounts?)\b"
+)
+_PAYOUT_DESTINATION_CHANGE_LOCATION = (
+    r"(?:(?:the|this|that|your|employee|payroll|hr|benefits|vendor|"
+    r"payout|payment)\s+){0,3}"
+    r"(?:accounts?|portals?|sites?|websites?|apps?|applications?|"
+    r"profiles?|settings|forms?)\b"
+)
+_PAYOUT_DESTINATION_ACTION_SUFFIX = (
+    rf"(?:\s+to\s+use\s+{_PAYOUT_DESTINATION_CHANGE_DESTINATION}|"
+    rf"\s+(?:to|into|in|on|through|via|using|with|as)\s+"
+    rf"(?:{_PAYOUT_DESTINATION_CHANGE_DESTINATION}|"
+    rf"{_PAYOUT_DESTINATION_CHANGE_LOCATION}))?"
+    rf"{_TARGET_END}"
+)
 _APP_PASSWORD_CREDENTIAL = (
     r"(?:(?:an?|the|this|that|my|your|our|new)\s+){0,2}"
     r"(?:(?:gmail|google(?:\s+workspace)?)\s+)?app\s+passwords?\b"
@@ -3198,6 +3252,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "crypto_wallet_action",
     "make_payment",
     "update_payment_method",
+    "change_payout_destination",
     "sign_in",
     "create_external_account",
     "change_password",
@@ -3257,6 +3312,7 @@ _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "provide_sensitive_info",
     "crypto_wallet_action",
     "make_payment",
+    "change_payout_destination",
     "create_forwarding_rule",
     "print_email",
     "export_data",
@@ -4266,6 +4322,20 @@ _DIRECTIVE_PATTERNS = {
             rf"{_PAYMENT_METHOD_DETAIL_TARGET}\s+"
             rf"(?:to|into|in|on|through|via|using|with)\s+"
             rf"{_PAYMENT_METHOD_DESTINATION}{_TARGET_END}"
+        ),
+    ],
+    "change_payout_destination": [
+        re.compile(
+            rf"{_ACCOUNT_IDENTITY_ACTION_SUGGESTION_START}"
+            rf"(?:change|update|set|switch|add|replace|use)\s+"
+            rf"{_PAYOUT_DESTINATION_TARGET}"
+            rf"{_PAYOUT_DESTINATION_ACTION_SUFFIX}"
+        ),
+        re.compile(
+            rf"{_ACCOUNT_IDENTITY_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:change|update|set|switch|add|replace|use)\s+"
+            rf"{_PAYOUT_DESTINATION_TARGET}"
+            rf"{_PAYOUT_DESTINATION_ACTION_SUFFIX}"
         ),
     ],
     "sign_in": [

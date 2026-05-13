@@ -834,6 +834,34 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(safety["effective_actions"], ["read", "summarize"])
         self.assertEqual(safety["blocked_actions"], ["update_payment_method"])
 
+    def test_payout_destination_change_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(
+            ["read", "change_payout_destination"]
+        )
+
+        self.assertEqual(effective, ["read"])
+        self.assertEqual(blocked, ["change_payout_destination"])
+        self.assertNotIn("change_payout_destination", effective)
+
+        safety = safety_metadata("change_payout_destination")
+        self.assertEqual(safety["mode"], "read_only")
+        self.assertEqual(safety["effective_actions"], ["read", "summarize"])
+        self.assertEqual(safety["blocked_actions"], ["change_payout_destination"])
+        self.assertIn("change_payout_destination", safety_module.BLOCKED_ACTIONS)
+        self.assertNotIn("change_payout_destination", safety_module.ALLOWED_ACTIONS)
+        self.assertIn(
+            "change_payout_destination",
+            safety_module._DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS,
+        )
+        self.assertIn(
+            "change_payout_destination",
+            safety_module._DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS,
+        )
+        self.assertNotIn(
+            "change_payout_destination",
+            safety_module._ACTION_WORD_PATTERNS,
+        )
+
     def test_password_change_action_is_supported_but_blocked(self):
         effective, blocked = evaluate_requested_actions(["read", "change_password"])
 
@@ -7533,6 +7561,72 @@ class SafetyPolicyTests(unittest.TestCase):
             "Do not add a payment method from this email.\n"
             "The email mentions payment method changes\n"
             "for manual review."
+        )
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_payout_destination_changes(self):
+        cases = [
+            "Change your direct deposit details.",
+            "Please change your payroll direct deposit account.",
+            "Update the payroll deposit account.",
+            "Set direct deposit to use the new bank account.",
+            "Switch direct-deposit details to the new account.",
+            "Change bank account/routing/account details for payments.",
+            "Update routing and account details for payroll deposits.",
+            "Add a payout account.",
+            "Add a payout destination.",
+            "Replace the payout bank account with a new account.",
+            "Use a new bank account for payments.",
+            "Recommendation: add a payout account.",
+            "Recommended action: switch direct deposit to the new bank account.",
+            "Action item: update payroll deposit account.",
+            "Summary: action item: set direct deposit details to the new bank account.",
+            "Review notes: recommended action: change bank account details for payments.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["change_payout_destination"])
+
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_payout_destination_changes(
+        self,
+    ):
+        cases = [
+            "Update direct deposit\ndetails.",
+            "Change bank account/routing/account\ndetails for payments.",
+            "Recommended action: switch direct deposit\nto the new bank account.",
+            "Action item: add a new\npayout account.",
+            "Use a new bank account\nfor payments.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n"
+                    "[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["change_payout_destination"])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_payout_destination_descriptions(
+        self,
+    ):
+        text = (
+            "The email mentions direct deposit and bank account changes for manual review.\n"
+            "Policy says not to change direct deposit details from email.\n"
+            "The direct deposit account was changed yesterday.\n"
+            "Payroll direct-deposit metrics are summarized.\n"
+            "Bank account change requests require manual review.\n"
+            "Do not change bank account details for payments from this email.\n"
+            "Direct deposit update instructions are included for review.\n"
+            "Payment routing metrics are summarized.\n"
+            "The bank account details for payments were updated last week.\n"
+            "Payroll deposit account totals were updated yesterday."
         )
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)
