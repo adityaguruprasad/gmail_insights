@@ -3001,6 +3001,93 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertIn("%5BREDACTED_CREDENTIAL_QUERY_VALUE%5D", redacted)
         self.assertIn("issuer%3DExample", redacted)
 
+    def test_redaction_redacts_authenticator_manual_entry_secrets(self):
+        seed = _totp_seed_fixture()
+        lower_seed = seed.lower()
+        grouped_seed = "JBSW Y3DP EHPK 3PXP"
+        all_letter_grouped_seed = "ABCD EFGH IJKL MNOP"
+        cases = [
+            (
+                f"Authenticator setup key: {seed}",
+                seed,
+                "Authenticator setup key: [REDACTED_AUTHENTICATOR_SECRET]",
+            ),
+            (
+                f'Manual entry key for 2FA is "{grouped_seed}".',
+                grouped_seed,
+                (
+                    'Manual entry key for 2FA is '
+                    '"[REDACTED_AUTHENTICATOR_SECRET]".'
+                ),
+            ),
+            (
+                f"TOTP secret key = {lower_seed}",
+                lower_seed,
+                "TOTP secret key = [REDACTED_AUTHENTICATOR_SECRET]",
+            ),
+            (
+                f"Authenticator setup key: {all_letter_grouped_seed}.",
+                all_letter_grouped_seed,
+                "Authenticator setup key: [REDACTED_AUTHENTICATOR_SECRET].",
+            ),
+            (
+                f"{grouped_seed} is your TOTP secret for manual entry.",
+                grouped_seed,
+                (
+                    "[REDACTED_AUTHENTICATOR_SECRET] is your TOTP secret "
+                    "for manual entry."
+                ),
+            ),
+        ]
+
+        for text, secret, expected in cases:
+            with self.subTest(text=text):
+                redacted = redact_sensitive_content(text)
+
+                self.assertEqual(redacted, expected)
+                self.assertNotIn(secret, redacted)
+
+    def test_response_metadata_redaction_redacts_authenticator_manual_entry_secret(self):
+        seed = _totp_seed_fixture()
+        text = (
+            'from:security@example.test subject:"TOTP secret key='
+            f'{seed}" order 20260513'
+        )
+
+        redacted = redact_response_metadata_content(text)
+
+        self.assertNotIn(seed, redacted)
+        self.assertIn(
+            'subject:"TOTP secret key=[REDACTED_AUTHENTICATOR_SECRET]"',
+            redacted,
+        )
+        self.assertIn("security@example.test", redacted)
+        self.assertIn("order 20260513", redacted)
+
+    def test_sanitize_untrusted_email_text_redacts_authenticator_manual_entry_secret(self):
+        seed = _totp_seed_fixture()
+        text = f"Authenticator setup key: {seed}\nKeep this for manual setup."
+
+        sanitized = sanitize_untrusted_email_text(text)
+
+        self.assertNotIn(seed, sanitized)
+        self.assertIn(
+            "Authenticator setup key: [REDACTED_AUTHENTICATOR_SECRET]",
+            sanitized,
+        )
+        self.assertIn("Keep this for manual setup.", sanitized)
+
+    def test_redaction_preserves_benign_authenticator_setup_key_prose(self):
+        text = (
+            "The authenticator app supports manual entry setup keys in the help center. "
+            "MFA setup key policy version 2 is documented for admin training. "
+            "The setup key for product onboarding is ABCD-EFGH-IJKL-MNOP."
+        )
+
+        self.assertEqual(redact_sensitive_content(text), text)
+        self.assertEqual(redact_response_metadata_content(text), text)
+        self.assertEqual(sanitize_untrusted_email_text(text), text)
+
     def test_redaction_redacts_sensitive_cookie_headers(self):
         session_cookie = _fixture_secret("session", "-", "abc123", "-secret")
         quoted_token_cookie = _fixture_secret("ab", ";", "cd", "-", "123")
@@ -3195,6 +3282,42 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertIn("MFA enrollment link", result["summary"])
         self.assertIn("[REDACTED_CREDENTIAL_QUERY_VALUE]", prompt)
         self.assertIn("[REDACTED_CREDENTIAL_QUERY_VALUE]", result["summary"])
+
+    def test_prompt_summary_and_public_fields_redact_authenticator_manual_entry_secrets(self):
+        processor = _processor_module()
+        seed = _totp_seed_fixture()
+        email = {
+            "id": "mfa-manual-seed-1",
+            "subject": f"MFA setup key: {seed}",
+            "sender": "Security Ops",
+            "date": "2026-05-10",
+            "snippet": f'Manual entry key for 2FA is "{seed}".',
+            "security_warnings": [
+                f"TOTP secret key={seed} was present in the message.",
+            ],
+            "content": f"Authenticator setup key: {seed}",
+            "is_archived": False,
+        }
+
+        prompt = processor._build_prompt(email, redact_sensitive=True)
+        original_create = processor.anthropic.completions.create
+        processor.anthropic.completions.create = (
+            lambda **kwargs: types.SimpleNamespace(
+                completion=f"Summary copied TOTP secret key={seed}."
+            )
+        )
+        try:
+            result = processor.extract_insights(email)
+        finally:
+            processor.anthropic.completions.create = original_create
+
+        self.assertNotIn(seed, prompt)
+        self.assertNotIn(seed, result["summary"])
+        self.assertNotIn(seed, result["subject"])
+        self.assertNotIn(seed, "\n".join(result["security_warnings"]))
+        self.assertIn("[REDACTED_AUTHENTICATOR_SECRET]", prompt)
+        self.assertIn("[REDACTED_AUTHENTICATOR_SECRET]", result["summary"])
+        self.assertIn("[REDACTED_AUTHENTICATOR_SECRET]", result["subject"])
 
     def test_prompt_summary_and_warning_paths_redact_signed_cloud_storage_urls(self):
         processor = _processor_module()

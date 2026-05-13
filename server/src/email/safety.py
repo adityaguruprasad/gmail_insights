@@ -657,6 +657,54 @@ _MFA_BACKUP_CODE_BEFORE_CONTEXT_RE = re.compile(
     rf"(?![A-Za-z0-9_])",
     re.IGNORECASE,
 )
+_AUTHENTICATOR_SECRET_PLACEHOLDER = "[REDACTED_AUTHENTICATOR_SECRET]"
+_AUTHENTICATOR_FACTOR_CONTEXT = (
+    r"(?:"
+    r"totp|hotp|otp|mfa|2fa|two[-\s]?factor|multi[-\s]?factor|"
+    r"authenticator(?:\s+app)?|google\s+authenticator|"
+    r"microsoft\s+authenticator|authy"
+    r")"
+)
+_AUTHENTICATOR_SECRET_CONTEXT = (
+    r"(?:"
+    rf"{_AUTHENTICATOR_FACTOR_CONTEXT}\s+"
+    r"(?:secret(?:\s+key)?|seed|setup\s+(?:key|code)|"
+    r"manual\s+entry\s+(?:key|code))|"
+    r"(?:setup|manual\s+entry|enrollment|provisioning)\s+"
+    r"(?:key|code|secret)\s+for\s+(?:your\s+)?"
+    rf"{_AUTHENTICATOR_FACTOR_CONTEXT}|"
+    r"(?:secret|seed|setup\s+(?:key|code)|manual\s+entry\s+(?:key|code))"
+    r"\s+(?:for|from)\s+(?:your\s+)?"
+    rf"{_AUTHENTICATOR_FACTOR_CONTEXT}"
+    r")"
+)
+_AUTHENTICATOR_SECRET_CONTIGUOUS_VALUE = r"[A-Z2-7]{16,128}={0,6}"
+_AUTHENTICATOR_SECRET_GROUPED_VALUE = (
+    r"[A-Z2-7]{4}(?:[ -]+[A-Z2-7]{4}){3,31}"
+)
+_AUTHENTICATOR_SECRET_VALUE = (
+    rf"(?<![A-Za-z0-9])(?:{_AUTHENTICATOR_SECRET_CONTIGUOUS_VALUE}|"
+    rf"{_AUTHENTICATOR_SECRET_GROUPED_VALUE})(?![A-Za-z0-9])"
+)
+_AUTHENTICATOR_SECRET_AFTER_CONTEXT_RE = re.compile(
+    rf"(?<![A-Za-z0-9_])(?P<context>{_AUTHENTICATOR_SECRET_CONTEXT})"
+    rf"(?![A-Za-z0-9_])"
+    rf"(?P<between>\s*(?:(?:is|are|was)\s+|[:=]\s*|-\s*))"
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<authenticator_secret>{_AUTHENTICATOR_SECRET_VALUE})"
+    rf"(?(quote)(?P=quote))",
+    re.IGNORECASE,
+)
+_AUTHENTICATOR_SECRET_BEFORE_CONTEXT_RE = re.compile(
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<authenticator_secret>{_AUTHENTICATOR_SECRET_VALUE})"
+    rf"(?(quote)(?P=quote))"
+    rf"(?P<between>\s+(?:is|are|as|for)\s+"
+    rf"(?:your|my|our|the|this|that|a|an)?\s*)"
+    rf"(?P<context>{_AUTHENTICATOR_SECRET_CONTEXT})"
+    rf"(?![A-Za-z0-9_])",
+    re.IGNORECASE,
+)
 _SENSITIVE_LINK_URL_TARGET = (
     r"(?:https?://[^\s<>\]\"']{1,2048}|www\.[^\s<>\]\"']{1,2048})"
 )
@@ -5473,6 +5521,25 @@ def _redact_mfa_backup_codes(text: str) -> str:
     )
 
 
+def _redact_authenticator_secret(match: re.Match) -> str:
+    return _replace_match_group(
+        match,
+        "authenticator_secret",
+        _AUTHENTICATOR_SECRET_PLACEHOLDER,
+    )
+
+
+def _redact_authenticator_enrollment_secrets(text: str) -> str:
+    redacted = _AUTHENTICATOR_SECRET_AFTER_CONTEXT_RE.sub(
+        _redact_authenticator_secret,
+        text,
+    )
+    return _AUTHENTICATOR_SECRET_BEFORE_CONTEXT_RE.sub(
+        _redact_authenticator_secret,
+        redacted,
+    )
+
+
 def _redact_oauth_authorization_codes(text: str) -> str:
     redacted = _OAUTH_AUTHORIZATION_CODE_AFTER_CONTEXT_RE.sub(
         _redact_oauth_authorization_code,
@@ -5947,6 +6014,7 @@ def redact_credential_content(text: str) -> str:
     redacted = _redact_password_secrets(redacted)
     redacted = _redact_short_lived_login_credentials(redacted)
     redacted = _redact_mfa_backup_codes(redacted)
+    redacted = _redact_authenticator_enrollment_secrets(redacted)
     redacted = _redact_authenticator_provisioning_uris(redacted)
     redacted = _redact_passkey_webauthn_artifacts(redacted)
     redacted = _redact_credential_query_params(redacted)
@@ -5989,6 +6057,7 @@ def sanitize_untrusted_email_text(text: str) -> str:
     sanitized = _redact_saml_sso_artifacts(sanitized)
     sanitized = _redact_oauth_oidc_authorization_artifacts(sanitized)
     sanitized = _redact_cookie_artifacts(sanitized)
+    sanitized = _redact_authenticator_enrollment_secrets(sanitized)
     sanitized = _PROMPT_BOUNDARY_MARKER_RE.sub(
         "[quoted-prompt-boundary]",
         sanitized,
