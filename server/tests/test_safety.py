@@ -174,6 +174,43 @@ def _webhook_signing_secret_fixture():
     )
 
 
+def _slack_webhook_url_fixture():
+    team = _fixture_secret("T", "1234", "5678")
+    channel = _fixture_secret("B", "2345", "6789")
+    secret = _fixture_secret("abCD", "efGH", "ijKL", "mnOP", "qrST", "uvWX")
+    return (
+        f"https://hooks.slack.com/services/{team}/{channel}/{secret}",
+        (team, channel, secret),
+    )
+
+
+def _discord_webhook_url_fixture(hostname="discord.com"):
+    webhook_id = _fixture_secret("123456", "789012", "345678")
+    token = _fixture_secret("abcDEFghi", "JKLmnopQR", "stuVWxyz12")
+    return (
+        f"https://{hostname}/api/webhooks/{webhook_id}/{token}",
+        (webhook_id, token),
+    )
+
+
+def _office_webhook_url_fixture(hostname="webhook.office.com"):
+    tenant = _fixture_secret("11111111", "-2222", "-3333", "-4444", "-555555555555")
+    group = _fixture_secret(
+        "66666666",
+        "-7777",
+        "-8888",
+        "-9999",
+        "-000000000000",
+        "@",
+        tenant,
+    )
+    secret = _fixture_secret("office", "-hook", "-token", "-1234567890")
+    return (
+        f"https://{hostname}/webhookb2/{group}/IncomingWebhook/{secret}/{tenant}",
+        (group, secret, tenant),
+    )
+
+
 def _basic_auth_credential_fixture():
     return _fixture_secret("cmVh", "ZGVy", "OnNh", "bXBs", "ZS1w", "YXNz", "MTIz")
 
@@ -1609,6 +1646,69 @@ class SafetyPolicyTests(unittest.TestCase):
         )
 
         self.assertEqual(redact_sensitive_content(text), text)
+
+    def test_redact_credential_content_redacts_provider_webhook_urls(self):
+        slack_url, slack_parts = _slack_webhook_url_fixture()
+        discord_url, discord_parts = _discord_webhook_url_fixture()
+        discordapp_url, discordapp_parts = _discord_webhook_url_fixture(
+            "discordapp.com"
+        )
+        office_url, office_parts = _office_webhook_url_fixture()
+        cases = [
+            ("Slack", slack_url, slack_parts),
+            ("Discord", discord_url, discord_parts),
+            ("Discord legacy", discordapp_url, discordapp_parts),
+            ("Office", office_url, office_parts),
+        ]
+
+        for provider, url, secret_parts in cases:
+            with self.subTest(provider=provider):
+                text = f"{provider} callback URL: {url}."
+
+                redacted = redact_credential_content(text)
+
+                self.assertEqual(
+                    redacted,
+                    f"{provider} callback URL: [REDACTED_WEBHOOK_URL].",
+                )
+                self.assertNotIn(url, redacted)
+                for secret_part in secret_parts:
+                    self.assertNotIn(secret_part, redacted)
+
+    def test_sanitize_untrusted_email_text_redacts_provider_webhook_urls(self):
+        slack_url, slack_parts = _slack_webhook_url_fixture()
+        discord_url, discord_parts = _discord_webhook_url_fixture()
+        office_url, office_parts = _office_webhook_url_fixture()
+        text = (
+            f"Slack callback: {slack_url}\n"
+            f"Discord callback: {discord_url}\n"
+            f"Office callback: {office_url}"
+        )
+
+        sanitized = sanitize_untrusted_email_text(text)
+
+        self.assertEqual(sanitized.count("[REDACTED_WEBHOOK_URL]"), 3)
+        for secret_part in (*slack_parts, *discord_parts, *office_parts):
+            self.assertNotIn(secret_part, sanitized)
+        self.assertIn("Slack callback: [REDACTED_WEBHOOK_URL]", sanitized)
+        self.assertIn("Discord callback: [REDACTED_WEBHOOK_URL]", sanitized)
+        self.assertIn("Office callback: [REDACTED_WEBHOOK_URL]", sanitized)
+
+    def test_redaction_preserves_benign_webhook_links_and_prose(self):
+        text = (
+            "Docs: https://api.slack.com/messaging/webhooks and "
+            "Slack endpoint family: https://hooks.slack.com/services. "
+            "Discord docs: https://discord.com/developers/docs/resources/webhook and "
+            "Discord template: https://discord.com/api/webhooks/"
+            "{webhook.id}/{webhook.token}. "
+            "Office connector docs: https://learn.microsoft.com/microsoftteams/"
+            "platform/webhooks-and-connectors/how-to/connectors-using and "
+            "Office host docs: https://webhook.office.com/docs/incoming-webhook. "
+            "Webhook callback URLs should be stored in a vault."
+        )
+
+        self.assertEqual(redact_credential_content(text), text)
+        self.assertEqual(sanitize_untrusted_email_text(text), text)
 
     def test_redaction_preserves_api_key_quotes_and_context(self):
         text = 'config api_key="api_abcdefghijklmnopqrstuvwxyz123456", next=true'
@@ -3463,6 +3563,64 @@ class SafetyPolicyTests(unittest.TestCase):
             "\n".join(result["security_warnings"]),
         )
         self.assertIn("[REDACTED_SESSION_TOKEN]", result["subject"])
+
+    def test_prompt_summary_and_public_fields_redact_provider_webhook_urls(self):
+        processor = _processor_module()
+        slack_url, slack_parts = _slack_webhook_url_fixture()
+        discord_url, discord_parts = _discord_webhook_url_fixture()
+        office_url, office_parts = _office_webhook_url_fixture()
+        email = {
+            "id": "provider-webhook-url-1",
+            "subject": f"Webhook callback {slack_url}",
+            "sender": "Dev Ops",
+            "date": "2026-05-10",
+            "snippet": f"Discord callback: {discord_url}",
+            "security_warnings": [
+                f"Office connector callback was present: {office_url}",
+            ],
+            "content": (
+                f"Slack callback: {slack_url}\n"
+                f"Discord callback: {discord_url}\n"
+                f"Office callback: {office_url}"
+            ),
+            "is_archived": False,
+        }
+
+        prompt = processor._build_prompt(email, redact_sensitive=True)
+        original_create = processor.anthropic.completions.create
+        processor.anthropic.completions.create = (
+            lambda **kwargs: types.SimpleNamespace(
+                completion=(
+                    f"Summary: copied webhooks {slack_url} {discord_url} "
+                    f"{office_url}."
+                )
+            )
+        )
+        try:
+            result = processor.extract_insights(email)
+        finally:
+            processor.anthropic.completions.create = original_create
+
+        public_text = "\n".join(
+            [
+                prompt,
+                result["summary"],
+                result["subject"],
+                "\n".join(result["security_warnings"]),
+            ]
+        )
+        for secret_part in (*slack_parts, *discord_parts, *office_parts):
+            self.assertNotIn(secret_part, public_text)
+        self.assertNotIn(slack_url, public_text)
+        self.assertNotIn(discord_url, public_text)
+        self.assertNotIn(office_url, public_text)
+        self.assertIn("[REDACTED_WEBHOOK_URL]", prompt)
+        self.assertIn("[REDACTED_WEBHOOK_URL]", result["summary"])
+        self.assertIn("[REDACTED_WEBHOOK_URL]", result["subject"])
+        self.assertIn(
+            "[REDACTED_WEBHOOK_URL]",
+            "\n".join(result["security_warnings"]),
+        )
 
     def test_redaction_preserves_benign_fragments(self):
         text = (

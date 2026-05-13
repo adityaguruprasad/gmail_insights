@@ -718,6 +718,7 @@ _PASSKEY_ASSERTION_URL_PLACEHOLDER = "[REDACTED_PASSKEY_ASSERTION_URL]"
 _SAML_RESPONSE_PLACEHOLDER = "[REDACTED_SAML_RESPONSE]"
 _SAML_REQUEST_PLACEHOLDER = "[REDACTED_SAML_REQUEST]"
 _SAML_XML_PLACEHOLDER = "[REDACTED_SAML_XML]"
+_WEBHOOK_URL_PLACEHOLDER = "[REDACTED_WEBHOOK_URL]"
 _URL_USERINFO_CREDENTIAL_PLACEHOLDER = "[REDACTED_URL_CREDENTIAL]"
 _COOKIE_SECRET_PLACEHOLDER = "[REDACTED_COOKIE_SECRET]"
 _SIGNED_CLOUD_STORAGE_SIGNATURE_PLACEHOLDER = (
@@ -1025,6 +1026,7 @@ _URL_USERINFO_CREDENTIAL_URL_RE = re.compile(
     r"[^\s<>\"']{1,2048})",
     re.IGNORECASE,
 )
+_WEBHOOK_URL_SAFE_PATH_SEGMENT_RE = re.compile(r"[A-Za-z0-9._~@%-]+")
 _QUERY_PARAM_SEPARATOR_RE = re.compile(r"([&;])")
 _REDACTION_PLACEHOLDER_SUFFIX_RE = re.compile(r"\[REDACTED_[A-Z0-9_]+\]$")
 _OAUTH_AUTHORIZATION_CODE_URL_CONTEXT_RE = re.compile(
@@ -5720,6 +5722,101 @@ def _redact_webhook_signing_secrets(text: str) -> str:
     )
 
 
+def _webhook_url_path_segments(path: str) -> List[str]:
+    return [unquote(segment) for segment in path.split("/") if segment]
+
+
+def _is_webhook_secret_path_segment(segment: str, min_length: int = 8) -> bool:
+    if len(segment) < min_length:
+        return False
+    if not _WEBHOOK_URL_SAFE_PATH_SEGMENT_RE.fullmatch(segment):
+        return False
+    return any(char.isalnum() for char in segment)
+
+
+def _is_slack_webhook_url(hostname: str, path_segments: List[str]) -> bool:
+    return (
+        hostname == "hooks.slack.com"
+        and len(path_segments) >= 4
+        and path_segments[0].lower() == "services"
+        and _is_webhook_secret_path_segment(path_segments[1])
+        and _is_webhook_secret_path_segment(path_segments[2])
+        and _is_webhook_secret_path_segment(path_segments[3], min_length=12)
+    )
+
+
+def _is_discord_webhook_url(hostname: str, path_segments: List[str]) -> bool:
+    return (
+        hostname in {"discord.com", "discordapp.com"}
+        and len(path_segments) >= 4
+        and [segment.lower() for segment in path_segments[:2]] == ["api", "webhooks"]
+        and path_segments[2].isdigit()
+        and len(path_segments[2]) >= 8
+        and _is_webhook_secret_path_segment(path_segments[3], min_length=16)
+    )
+
+
+def _is_office_webhook_url(hostname: str, path_segments: List[str]) -> bool:
+    if hostname != "webhook.office.com" and not hostname.endswith(
+        ".webhook.office.com"
+    ):
+        return False
+    if len(path_segments) < 4:
+        return False
+
+    lowered_segments = [segment.lower() for segment in path_segments]
+    if lowered_segments[0] not in {"webhook", "webhookb2"}:
+        return False
+    if "incomingwebhook" not in lowered_segments:
+        return False
+
+    incoming_index = lowered_segments.index("incomingwebhook")
+    secret_segments = path_segments[incoming_index + 1 :]
+    return any(
+        _is_webhook_secret_path_segment(segment, min_length=16)
+        for segment in secret_segments
+    )
+
+
+def _is_provider_webhook_url(url: str) -> bool:
+    candidate = url
+    if candidate.lower().startswith("www."):
+        candidate = f"https://{candidate}"
+
+    try:
+        parsed = urlsplit(candidate)
+    except ValueError:
+        return False
+
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        return False
+
+    hostname = (parsed.hostname or "").lower()
+    path_segments = _webhook_url_path_segments(parsed.path)
+    return (
+        _is_slack_webhook_url(hostname, path_segments)
+        or _is_discord_webhook_url(hostname, path_segments)
+        or _is_office_webhook_url(hostname, path_segments)
+    )
+
+
+def _redact_provider_webhook_url(match: re.Match) -> str:
+    url, trailing_punctuation = _split_url_trailing_punctuation(match.group("url"))
+    if not _is_provider_webhook_url(url):
+        return match.group(0)
+
+    return (
+        match.string[match.start() : match.start("url")]
+        + _WEBHOOK_URL_PLACEHOLDER
+        + trailing_punctuation
+        + match.string[match.end("url") : match.end()]
+    )
+
+
+def _redact_provider_webhook_urls(text: str) -> str:
+    return _CREDENTIAL_QUERY_URL_RE.sub(_redact_provider_webhook_url, text)
+
+
 def _redact_passkey_credential_id(match: re.Match) -> str:
     return _replace_match_group(
         match,
@@ -6017,6 +6114,7 @@ def redact_credential_content(text: str) -> str:
     redacted = _redact_aws_secret_access_keys(redacted)
     redacted = _redact_session_tokens(redacted)
     redacted = _redact_webhook_signing_secrets(redacted)
+    redacted = _redact_provider_webhook_urls(redacted)
     # Provider-shaped keys run before generic api_key redaction to keep specific placeholders.
     redacted = _OPENAI_API_KEY_RE.sub(_OPENAI_API_KEY_PLACEHOLDER, redacted)
     redacted = _ANTHROPIC_API_KEY_RE.sub(_ANTHROPIC_API_KEY_PLACEHOLDER, redacted)
@@ -6076,6 +6174,7 @@ def sanitize_untrusted_email_text(text: str) -> str:
     sanitized = _redact_saml_sso_artifacts(sanitized)
     sanitized = _redact_oauth_oidc_authorization_artifacts(sanitized)
     sanitized = _redact_cookie_artifacts(sanitized)
+    sanitized = _redact_provider_webhook_urls(sanitized)
     sanitized = _redact_authenticator_enrollment_secrets(sanitized)
     sanitized = _PROMPT_BOUNDARY_MARKER_RE.sub(
         "[quoted-prompt-boundary]",
