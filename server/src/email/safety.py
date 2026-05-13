@@ -1389,6 +1389,21 @@ _SENSITIVE_LINK_BEFORE_CONTEXT_RE = re.compile(
     re.IGNORECASE,
 )
 _SENSITIVE_URL_TRAILING_PUNCTUATION = ".,;:!?)]}"
+_INVISIBLE_PROMPT_CONTROL_CHARACTERS = (
+    "\u00ad"  # soft hyphen
+    "\u061c"  # Arabic letter mark
+    "\u180e"  # Mongolian vowel separator
+    "\u200b\u200c\u200d\u200e\u200f"  # zero-width and directional marks
+    "\u202a\u202b\u202c\u202d\u202e"  # bidi embedding/override/pop controls
+    "\u2060"  # word joiner
+    "\u2066\u2067\u2068\u2069"  # bidi isolate/pop controls
+    "\ufeff"  # byte-order mark / zero-width no-break space
+)
+_INVISIBLE_PROMPT_CONTROL_TRANSLATION = str.maketrans(
+    "",
+    "",
+    _INVISIBLE_PROMPT_CONTROL_CHARACTERS,
+)
 _PROMPT_ROLE_TAGS = r"system|assistant|user|developer|tool|human"
 _PROMPT_BOUNDARY_MARKER_RE = re.compile(
     r"(?i)\b(?:BEGIN|END)_UNTRUSTED_EMAIL\b"
@@ -6314,6 +6329,7 @@ def sanitize_untrusted_email_text(text: str) -> str:
         return ""
 
     sanitized = text.replace("\r\n", "\n").replace("\r", "\n")
+    sanitized = sanitized.translate(_INVISIBLE_PROMPT_CONTROL_TRANSLATION)
     sanitized = _redact_saml_sso_artifacts(sanitized)
     sanitized = _redact_oauth_oidc_authorization_artifacts(sanitized)
     sanitized = _redact_cookie_artifacts(sanitized)
