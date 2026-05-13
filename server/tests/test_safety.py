@@ -149,6 +149,14 @@ def _aws_secret_access_key_fixture():
     )
 
 
+def _basic_auth_credential_fixture():
+    return _fixture_secret("cmVh", "ZGVy", "OnNh", "bXBs", "ZS1w", "YXNz", "MTIz")
+
+
+def _basic_auth_padded_credential_fixture():
+    return _fixture_secret("cmVh", "ZGVy", "OnNh", "bXBs", "ZQ==")
+
+
 def _private_key_delimiter(label, key_type):
     return _fixture_secret("--", "---", label, " ", key_type, "--", "---")
 
@@ -1409,6 +1417,75 @@ class SafetyPolicyTests(unittest.TestCase):
         redacted = redact_sensitive_content(text)
         self.assertEqual(redacted, "Authorization: Bearer [REDACTED_TOKEN]")
         self.assertNotIn("abcdefghijklmnopqrstuvwxyz123456", redacted)
+
+    def test_redaction_removes_basic_auth_authorization_headers(self):
+        credential = _basic_auth_credential_fixture()
+        cases = [
+            (
+                f"Authorization: Basic {credential}",
+                "Authorization: Basic [REDACTED_BASIC_AUTH]",
+            ),
+            (
+                f"Proxy-Authorization: Basic {credential}",
+                "Proxy-Authorization: Basic [REDACTED_BASIC_AUTH]",
+            ),
+        ]
+
+        for text, expected in cases:
+            with self.subTest(text=text):
+                redacted = redact_sensitive_content(text)
+
+                self.assertEqual(redacted, expected)
+                self.assertNotIn(credential, redacted)
+
+    def test_redaction_removes_basic_auth_case_and_quoted_header_values(self):
+        credential = _basic_auth_padded_credential_fixture()
+        cases = [
+            (
+                f"authorization: bAsIc {credential}; next=true",
+                "authorization: bAsIc [REDACTED_BASIC_AUTH]; next=true",
+            ),
+            (
+                f'"Authorization": "Basic {credential}"',
+                '"Authorization": "Basic [REDACTED_BASIC_AUTH]"',
+            ),
+            (
+                f"Proxy-Authorization: Basic '{credential}'",
+                "Proxy-Authorization: Basic '[REDACTED_BASIC_AUTH]'",
+            ),
+        ]
+
+        for text, expected in cases:
+            with self.subTest(text=text):
+                redacted = redact_sensitive_content(text)
+
+                self.assertEqual(redacted, expected)
+                self.assertNotIn(credential, redacted)
+
+    def test_redaction_removes_basic_auth_header_context_fragments(self):
+        credential = _basic_auth_credential_fixture()
+        text = f"Forwarded auth header: Basic {credential}; rotate it."
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(
+            redacted,
+            "Forwarded auth header: Basic [REDACTED_BASIC_AUTH]; rotate it.",
+        )
+        self.assertNotIn(credential, redacted)
+
+    def test_redaction_preserves_benign_basic_auth_prose_and_short_samples(self):
+        credential = _basic_auth_credential_fixture()
+        cases = [
+            "The Basic auth guide is ready for review.",
+            "Example: Basic dXNlcg== is a short documentation sample.",
+            "Authorization: Basic dXNlcg==",
+            f"Encoded sample Basic {credential} appears without an auth header.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                self.assertEqual(redact_sensitive_content(text), text)
 
     def test_redaction_removes_contextual_password_secrets(self):
         cases = [

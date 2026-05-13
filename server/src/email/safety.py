@@ -99,6 +99,22 @@ _PHONE_RE = re.compile(r"\b(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.
 _BEARER_TOKEN_RE = re.compile(
     r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]{16,}(?=$|[\s,;)\]}>\"'])"
 )
+_BASIC_AUTH_CREDENTIAL_TARGET = (
+    r"(?:[A-Za-z0-9+/]{4}){4,}(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?"
+)
+_BASIC_AUTH_CONTEXT_PREFIX = (
+    r"(?:"
+    r"[\"']?\b(?:proxy-)?authorization\b[\"']?\s*[:=]|"
+    r"\b(?:proxy-)?authorization\s+(?:header|value)\s*[:=]?|"
+    r"\b(?:proxy\s+)?auth(?:entication)?\s+(?:header|value)\s*[:=]?"
+    r")"
+)
+_BASIC_AUTH_RE = re.compile(
+    rf"(?i)(?P<prefix>{_BASIC_AUTH_CONTEXT_PREFIX}\s*[\"']?\s*basic\s+[\"']?)"
+    rf"(?P<credential>{_BASIC_AUTH_CREDENTIAL_TARGET})"
+    r"(?P<suffix>[\"']?)"
+    r"(?=$|[\s,;.!?)\]}>\"'])"
+)
 _API_TOKEN_RE = re.compile(
     r"(?i)\b((?:api[_-]?key|api[_-]?token|access[_-]?token|auth[_-]?token)"
     r"\s*[:=]\s*)([\"']?)[A-Za-z0-9._~+/=-]{16,}\2"
@@ -5716,6 +5732,10 @@ def redact_credential_content(text: str) -> str:
     redacted = _SLACK_TOKEN_RE.sub("[REDACTED_SLACK_TOKEN]", redacted)
     redacted = _GITHUB_TOKEN_RE.sub("[REDACTED_GITHUB_TOKEN]", redacted)
     redacted = _STRIPE_SECRET_KEY_RE.sub("[REDACTED_STRIPE_KEY]", redacted)
+    redacted = _BASIC_AUTH_RE.sub(
+        r"\g<prefix>[REDACTED_BASIC_AUTH]\g<suffix>",
+        redacted,
+    )
     redacted = _BEARER_TOKEN_RE.sub(r"\1[REDACTED_TOKEN]", redacted)
     redacted = _redact_password_secrets(redacted)
     redacted = _redact_short_lived_login_credentials(redacted)
