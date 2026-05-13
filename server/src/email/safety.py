@@ -1603,6 +1603,20 @@ _INSIGHT_SECTION_PREFIX = (
     r"(?:(?:summary|action\s+items?|draft\s+assistance|archive\s+suggestion|"
     r"security\s+warnings?)\s*:?\s*)?"
 )
+_ACCOUNT_IDENTITY_RECOMMENDATION_KEYWORD = (
+    rf"(?:{_RECOMMENDATION_KEYWORD}|recommendations?)"
+)
+_ACCOUNT_IDENTITY_ACTION_SUGGESTION_START = (
+    rf"(?i)^\s*(?:[-*]|\d+[.)])?\s*"
+    rf"{_ACTION_ROLE_PREFIX}"
+    rf"{_INSIGHT_SECTION_PREFIX}"
+    rf"(?:(?:{_ACCOUNT_IDENTITY_RECOMMENDATION_KEYWORD})\s*:?\s*)?"
+    r"(?:(?:please|first|then|next|just|now|also)\s+){0,4}"
+)
+_ACCOUNT_IDENTITY_MIDLINE_ACTION_SUGGESTION_START = (
+    rf"(?i)\b{_ACCOUNT_IDENTITY_RECOMMENDATION_KEYWORD}\b\s*:\s*"
+    r"(?:(?:please|first|then|next|just|now|also)\s+){0,4}"
+)
 _SAFETY_METADATA_DIRECTIVE_LINE_RE = re.compile(
     rf"^\s*(?:[-*]|\d+[.)])?\s*"
     rf"{_ACTION_ROLE_PREFIX}"
@@ -1949,10 +1963,13 @@ _EMAIL_SIGNATURE_TARGET = (
     r"(?:(?:email|gmail|account)\s+)?"
     r"(?:signature(?:s|\s+settings?)?)\b"
 )
-_EMAIL_SIGNATURE_DETAIL_SUFFIX = (
-    r"(?:\s+(?:to\s+(?:include|use|show|display)|with|using|from|for|on|in)\s+"
+_EMAIL_SIGNATURE_DETAIL_TARGET = (
     r"(?:(?:this|that|these|those|the|an?|my|your|our)\s+)?"
-    r"[\w@./:+%#&=?-]+(?:\s+[\w@./:+%#&=?-]+){0,8})?"
+    r"[\w@./:+%#&=?-]+(?:\s+[\w@./:+%#&=?-]+){0,8}"
+)
+_EMAIL_SIGNATURE_DETAIL_SUFFIX = (
+    rf"(?:\s+(?:to(?:\s+(?:include|use|show|display))?|with|using|from|for|on|in)\s+"
+    rf"{_EMAIL_SIGNATURE_DETAIL_TARGET})?"
 )
 _EMAIL_SIGNATURE_ACTION_TARGET = (
     rf"{_EMAIL_SIGNATURE_TARGET}{_EMAIL_SIGNATURE_DETAIL_SUFFIX}{_TARGET_END}"
@@ -1971,6 +1988,15 @@ _SEND_AS_OBJECT_TARGET = (
     r"(?:(?:gmail|google|email|mail|sender)\s+)?"
     r"send[-\s]?as\s+(?:alias(?:es)?|address(?:es)?|settings?)\b"
 )
+_SEND_AS_ALIAS_TARGET = (
+    r"(?:(?:gmail|google|email|mail|send[-\s]?as|from|sender)\s+"
+    r"alias(?:es)?)\b"
+)
+_SEND_AS_ALIAS_OBJECT_TARGET = (
+    r"(?:(?:an?|the|this|that|my|your|our)\s+)?"
+    r"(?:(?:old|new)\s+)?"
+    rf"{_SEND_AS_ALIAS_TARGET}"
+)
 _DEFAULT_FROM_TARGET = (
     r"(?:(?:the|this|that|my|your|our)\s+)?"
     r"default\s+(?:from\s+address|sender(?:\s+address)?)\b"
@@ -1984,7 +2010,8 @@ _SEND_AS_SETTING_ACTION_SUFFIX = (
     rf"{_TARGET_END}"
 )
 _SEND_AS_IDENTITY_SETTING_TARGET = (
-    rf"(?:{_SEND_AS_OBJECT_TARGET}|{_DEFAULT_FROM_TARGET}|{_REPLY_TO_TARGET})"
+    rf"(?:{_SEND_AS_OBJECT_TARGET}|{_SEND_AS_ALIAS_OBJECT_TARGET}|"
+    rf"{_DEFAULT_FROM_TARGET}|{_REPLY_TO_TARGET})"
 )
 # Exclude ambiguous software/client/account-only nouns here so OAuth/app-access
 # directives stay classified under authorize_app unless the phrasing is mailbox-specific.
@@ -3568,74 +3595,104 @@ _DIRECTIVE_PATTERNS = {
     ],
     "update_email_signature": [
         re.compile(
-            rf"{_ACTION_SUGGESTION_START}"
+            rf"{_ACCOUNT_IDENTITY_ACTION_SUGGESTION_START}"
             rf"(?:set|update|change|add|create|remove|delete|enable|disable|"
             rf"modify|configure|replace|edit|reset|append\s+to)\s+"
             rf"{_EMAIL_SIGNATURE_ACTION_TARGET}"
         ),
+        re.compile(
+            rf"{_ACCOUNT_IDENTITY_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:set|update|change|add|create|remove|delete|enable|disable|"
+            rf"modify|configure|replace|edit|reset|append\s+to)\s+"
+            rf"{_EMAIL_SIGNATURE_ACTION_TARGET}"
+        ),
+        re.compile(
+            rf"{_ACCOUNT_IDENTITY_ACTION_SUGGESTION_START}"
+            rf"(?:add|append|insert)\s+{_EMAIL_SIGNATURE_DETAIL_TARGET}\s+"
+            rf"(?:to|into|onto)\s+{_EMAIL_SIGNATURE_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACCOUNT_IDENTITY_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"(?:add|append|insert)\s+{_EMAIL_SIGNATURE_DETAIL_TARGET}\s+"
+            rf"(?:to|into|onto)\s+{_EMAIL_SIGNATURE_TARGET}{_TARGET_END}"
+        ),
     ],
     "change_send_as_settings": [
         re.compile(
-            rf"{_ACTION_SUGGESTION_START}add\s+{_SEND_AS_VALUE_TARGET}\s+"
-            rf"as\s+(?:an?\s+)?send[-\s]?as\s+(?:alias(?:es)?|address(?:es)?)"
+            rf"{_ACCOUNT_IDENTITY_ACTION_SUGGESTION_START}add\s+{_SEND_AS_VALUE_TARGET}\s+"
+            rf"as\s+(?:(?:an?|the)\s+)?"
+            rf"(?:send[-\s]?as\s+(?:alias(?:es)?|address(?:es)?)|"
+            rf"{_SEND_AS_ALIAS_TARGET})"
             rf"{_TARGET_END}"
         ),
         re.compile(
-            rf"{_MIDLINE_ACTION_SUGGESTION_START}add\s+{_SEND_AS_VALUE_TARGET}\s+"
-            rf"as\s+(?:an?\s+)?send[-\s]?as\s+(?:alias(?:es)?|address(?:es)?)"
+            rf"{_ACCOUNT_IDENTITY_MIDLINE_ACTION_SUGGESTION_START}add\s+{_SEND_AS_VALUE_TARGET}\s+"
+            rf"as\s+(?:(?:an?|the)\s+)?"
+            rf"(?:send[-\s]?as\s+(?:alias(?:es)?|address(?:es)?)|"
+            rf"{_SEND_AS_ALIAS_TARGET})"
             rf"{_TARGET_END}"
         ),
         re.compile(
-            rf"{_ACTION_SUGGESTION_START}set\s+{_SEND_AS_VALUE_TARGET}\s+"
+            rf"{_ACCOUNT_IDENTITY_ACTION_SUGGESTION_START}set\s+{_SEND_AS_VALUE_TARGET}\s+"
             rf"as\s+{_DEFAULT_FROM_TARGET}{_TARGET_END}"
         ),
         re.compile(
-            rf"{_MIDLINE_ACTION_SUGGESTION_START}set\s+{_SEND_AS_VALUE_TARGET}\s+"
+            rf"{_ACCOUNT_IDENTITY_MIDLINE_ACTION_SUGGESTION_START}set\s+{_SEND_AS_VALUE_TARGET}\s+"
             rf"as\s+{_DEFAULT_FROM_TARGET}{_TARGET_END}"
         ),
         re.compile(
-            rf"{_ACTION_SUGGESTION_START}make\s+{_SEND_AS_VALUE_TARGET}\s+"
+            rf"{_ACCOUNT_IDENTITY_ACTION_SUGGESTION_START}make\s+{_SEND_AS_VALUE_TARGET}\s+"
             rf"(?:as\s+)?{_DEFAULT_FROM_TARGET}{_TARGET_END}"
         ),
         re.compile(
-            rf"{_MIDLINE_ACTION_SUGGESTION_START}make\s+{_SEND_AS_VALUE_TARGET}\s+"
+            rf"{_ACCOUNT_IDENTITY_MIDLINE_ACTION_SUGGESTION_START}make\s+{_SEND_AS_VALUE_TARGET}\s+"
             rf"(?:as\s+)?{_DEFAULT_FROM_TARGET}{_TARGET_END}"
         ),
         re.compile(
-            rf"{_ACTION_SUGGESTION_START}use\s+{_SEND_AS_VALUE_TARGET}\s+"
+            rf"{_ACCOUNT_IDENTITY_ACTION_SUGGESTION_START}use\s+{_SEND_AS_VALUE_TARGET}\s+"
             rf"as\s+{_REPLY_TO_TARGET}{_TARGET_END}"
         ),
         re.compile(
-            rf"{_MIDLINE_ACTION_SUGGESTION_START}use\s+{_SEND_AS_VALUE_TARGET}\s+"
+            rf"{_ACCOUNT_IDENTITY_MIDLINE_ACTION_SUGGESTION_START}use\s+{_SEND_AS_VALUE_TARGET}\s+"
             rf"as\s+{_REPLY_TO_TARGET}{_TARGET_END}"
         ),
         re.compile(
-            rf"{_ACTION_SUGGESTION_START}(?:set|change|update)\s+"
+            rf"{_ACCOUNT_IDENTITY_ACTION_SUGGESTION_START}(?:set|change|update)\s+"
             rf"{_REPLY_TO_TARGET}\s+to\s+{_SEND_AS_VALUE_TARGET}"
             rf"{_TARGET_END}"
         ),
         re.compile(
-            rf"{_MIDLINE_ACTION_SUGGESTION_START}(?:set|change|update)\s+"
+            rf"{_ACCOUNT_IDENTITY_MIDLINE_ACTION_SUGGESTION_START}(?:set|change|update)\s+"
             rf"{_REPLY_TO_TARGET}\s+to\s+{_SEND_AS_VALUE_TARGET}"
             rf"{_TARGET_END}"
         ),
         re.compile(
-            rf"{_ACTION_SUGGESTION_START}(?:set|change|update|configure)\s+"
+            rf"{_ACCOUNT_IDENTITY_ACTION_SUGGESTION_START}(?:set|change|update|configure)\s+"
             rf"{_SEND_AS_IDENTITY_SETTING_TARGET}"
             rf"{_SEND_AS_SETTING_ACTION_SUFFIX}"
         ),
         re.compile(
-            rf"{_MIDLINE_ACTION_SUGGESTION_START}(?:set|change|update|configure)\s+"
+            rf"{_ACCOUNT_IDENTITY_MIDLINE_ACTION_SUGGESTION_START}(?:set|change|update|configure)\s+"
             rf"{_SEND_AS_IDENTITY_SETTING_TARGET}"
             rf"{_SEND_AS_SETTING_ACTION_SUFFIX}"
         ),
         re.compile(
-            rf"{_ACTION_SUGGESTION_START}(?:remove|delete)\s+"
+            rf"{_ACCOUNT_IDENTITY_ACTION_SUGGESTION_START}(?:remove|delete)\s+"
             rf"{_SEND_AS_OBJECT_TARGET}{_TARGET_END}"
         ),
         re.compile(
-            rf"{_MIDLINE_ACTION_SUGGESTION_START}(?:remove|delete)\s+"
+            rf"{_ACCOUNT_IDENTITY_MIDLINE_ACTION_SUGGESTION_START}(?:remove|delete)\s+"
             rf"{_SEND_AS_OBJECT_TARGET}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACCOUNT_IDENTITY_ACTION_SUGGESTION_START}verify\s+"
+            rf"(?:{_SEND_AS_OBJECT_TARGET}|{_SEND_AS_ALIAS_OBJECT_TARGET})"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACCOUNT_IDENTITY_MIDLINE_ACTION_SUGGESTION_START}verify\s+"
+            rf"(?:{_SEND_AS_OBJECT_TARGET}|{_SEND_AS_ALIAS_OBJECT_TARGET})"
+            rf"{_TARGET_END}"
         ),
     ],
     "unsubscribe": [
