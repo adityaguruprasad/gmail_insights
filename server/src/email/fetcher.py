@@ -201,6 +201,7 @@ _CSS_COLOR_KEYWORDS_TO_IGNORE = {
     "unset",
 }
 _CSS_NAMED_COLOR_ALIASES = {"black": "#000000", "white": "#ffffff"}
+_CSS_CLIPPING_OVERFLOW_VALUES = {"hidden", "clip"}
 
 
 def _html_attrs_by_name(attrs) -> Dict[str, str]:
@@ -231,6 +232,32 @@ def _css_declarations(style: str) -> Dict[str, str]:
 
 def _css_keyword(value: str) -> str:
     return re.sub(r"\s+", " ", _strip_css_important(value).lower())
+
+
+def _css_axis_overflow_value(
+    declarations: Dict[str, str],
+    axis: str,
+) -> str:
+    axis_value = _css_keyword(declarations.get(f"overflow-{axis}", ""))
+    if axis_value:
+        return axis_value
+
+    shorthand_value = _css_keyword(declarations.get("overflow", ""))
+    shorthand_parts = shorthand_value.split()
+    if not shorthand_parts:
+        return ""
+    if len(shorthand_parts) == 1:
+        return shorthand_parts[0]
+    if axis == "x":
+        return shorthand_parts[0]
+    return shorthand_parts[1]
+
+
+def _css_overflow_clips_axis(declarations: Dict[str, str], axis: str) -> bool:
+    return (
+        _css_axis_overflow_value(declarations, axis)
+        in _CSS_CLIPPING_OVERFLOW_VALUES
+    )
 
 
 def _css_zero_value(value: str) -> bool:
@@ -355,6 +382,18 @@ def _html_attrs_hidden_or_suppressed(attrs_by_name: Dict[str, str]) -> bool:
         return True
 
     if _css_zero_value(declarations.get("font-size", "")):
+        return True
+
+    if (
+        _css_zero_value(declarations.get("height", ""))
+        or _css_zero_value(declarations.get("max-height", ""))
+    ) and _css_overflow_clips_axis(declarations, "y"):
+        return True
+
+    if (
+        _css_zero_value(declarations.get("width", ""))
+        or _css_zero_value(declarations.get("max-width", ""))
+    ) and _css_overflow_clips_axis(declarations, "x"):
         return True
 
     text_color = _normalize_css_color(declarations.get("color", ""))
