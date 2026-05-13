@@ -727,6 +727,8 @@ _SIGNED_CLOUD_STORAGE_CREDENTIAL_PLACEHOLDER = (
     "[REDACTED_SIGNED_CLOUD_STORAGE_CREDENTIAL]"
 )
 _URL_USERINFO_CREDENTIAL_SCHEMES = {
+    "ftp",
+    "ftps",
     "http",
     "https",
     "imap",
@@ -735,6 +737,8 @@ _URL_USERINFO_CREDENTIAL_SCHEMES = {
     "smtps",
     "pop3",
     "pop3s",
+    "sftp",
+    "ssh",
 }
 
 
@@ -1016,7 +1020,9 @@ _OTPAUTH_URL_RE = re.compile(
     re.IGNORECASE,
 )
 _URL_USERINFO_CREDENTIAL_URL_RE = re.compile(
-    r"(?P<url>(?:https?://|imaps?://|smtps?://|pop3s?://)[^\s<>\"']{1,2048})",
+    r"(?P<url>"
+    r"(?:https?://|imaps?://|smtps?://|pop3s?://|ftps?://|sftp://|ssh://)"
+    r"[^\s<>\"']{1,2048})",
     re.IGNORECASE,
 )
 _QUERY_PARAM_SEPARATOR_RE = re.compile(r"([&;])")

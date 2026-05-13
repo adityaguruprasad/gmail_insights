@@ -2177,14 +2177,42 @@ class SafetyPolicyTests(unittest.TestCase):
                 "Identity callback: https://user:[REDACTED_URL_CREDENTIAL]@example.com/callback"
                 "?next=%2Fhome#done,",
             ),
+            (
+                "SFTP dropbox: sftp://deploy:release-pass-2026@sftp.example.com"
+                "/incoming/report.csv",
+                "release-pass-2026",
+                "SFTP dropbox: sftp://deploy:[REDACTED_URL_CREDENTIAL]@sftp.example.com"
+                "/incoming/report.csv",
+            ),
+            (
+                "FTP archive: ftp://backup:archive-secret@files.example.com/export.zip",
+                "archive-secret",
+                "FTP archive: ftp://backup:[REDACTED_URL_CREDENTIAL]@files.example.com/export.zip",
+            ),
+            (
+                "FTPS archive: ftps://backup:tls-archive-pass-2026@files.example.com/export.zip",
+                "tls-archive-pass-2026",
+                "FTPS archive: ftps://backup:[REDACTED_URL_CREDENTIAL]@files.example.com/export.zip",
+            ),
+            (
+                "SSH jump host: ssh://ops:jump-secret@bastion.example.com:22",
+                "jump-secret",
+                "SSH jump host: ssh://ops:[REDACTED_URL_CREDENTIAL]@bastion.example.com:22",
+            ),
         ]
 
         for text, secret, expected in cases:
             with self.subTest(text=text):
-                redacted = redact_sensitive_content(text)
+                for redactor in (
+                    redact_credential_content,
+                    redact_response_metadata_content,
+                    redact_sensitive_content,
+                ):
+                    with self.subTest(redactor=redactor.__name__):
+                        redacted = redactor(text)
 
-                self.assertEqual(redacted, expected)
-                self.assertNotIn(secret, redacted)
+                        self.assertEqual(redacted, expected)
+                        self.assertNotIn(secret, redacted)
 
     def test_redaction_redacts_percent_encoded_url_userinfo_credentials(self):
         text = (
@@ -2201,15 +2229,29 @@ class SafetyPolicyTests(unittest.TestCase):
         )
         self.assertNotIn("p%40ss%3Aword", redacted)
 
-    def test_redaction_preserves_safe_mail_setup_urls_and_prose(self):
-        text = (
+    def test_redaction_preserves_safe_mail_and_transfer_urls_and_prose(self):
+        sensitive_text = (
             "Docs: https://docs.example.com/mail/setup and "
             "imaps://imap.example.com/INBOX and "
             "smtp://smtp-user@smtp-relay:587. "
+            "ftp://files.example.com/pub and "
+            "sftp://sftp.example.com:22/incoming. "
             "SMTP setup prose mentions hostnames, ports, and password policy only."
         )
+        credential_text = (
+            f"{sensitive_text} "
+            "Username-only transfer URLs: sftp://deploy@sftp.example.com/incoming "
+            "ftp://backup@files.example.com/pub "
+            "ftps://archive@files.example.com/incoming "
+            "and ssh://git@example.com/repo."
+        )
 
-        self.assertEqual(redact_sensitive_content(text), text)
+        self.assertEqual(redact_sensitive_content(sensitive_text), sensitive_text)
+        self.assertEqual(redact_credential_content(credential_text), credential_text)
+        self.assertEqual(
+            redact_response_metadata_content(credential_text),
+            credential_text,
+        )
 
     def test_redaction_redacts_common_auth_secret_query_parameter_aliases(self):
         cases = [
