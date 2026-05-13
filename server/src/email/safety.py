@@ -1338,6 +1338,9 @@ _PROMPT_BOUNDARY_MARKER_RE = re.compile(
     r"(?i)\b(?:BEGIN|END)_UNTRUSTED_EMAIL\b"
 )
 _ROLE_TAG_RE = re.compile(rf"(?im)^(\s*)({_PROMPT_ROLE_TAGS})\s*:\s*")
+_INLINE_ROLE_TAG_RE = re.compile(
+    rf"(?i)(?<![\w/@.-])({_PROMPT_ROLE_TAGS})\s*:\s*"
+)
 _MARKDOWN_ROLE_HEADING_RE = re.compile(
     rf"(?im)^([ \t]{{0,3}}#{{1,6}}\s*)({_PROMPT_ROLE_TAGS})(\s*:\s*|\s*$)"
 )
@@ -6186,6 +6189,10 @@ def sanitize_untrusted_email_text(text: str) -> str:
     )
     sanitized = _MARKDOWN_ROLE_HEADING_RE.sub(r"\1[quoted-role \2]\3", sanitized)
     sanitized = _ROLE_TAG_RE.sub(r"\1[quoted-role \2] ", sanitized)
+    sanitized = _INLINE_ROLE_TAG_RE.sub(
+        lambda match: f"[quoted-role {match.group(1)}] ",
+        sanitized,
+    )
     sanitized = _INSTRUCTION_PHRASE_RE.sub(r"[quoted-instruction: \1]", sanitized)
     sanitized = _SAFETY_METADATA_DIRECTIVE_RE.sub(
         lambda match: f"[quoted-safety-directive: {match.group(1)}]",
