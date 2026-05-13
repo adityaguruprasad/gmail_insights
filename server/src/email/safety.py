@@ -647,6 +647,12 @@ _SAML_REQUEST_PLACEHOLDER = "[REDACTED_SAML_REQUEST]"
 _SAML_XML_PLACEHOLDER = "[REDACTED_SAML_XML]"
 _URL_USERINFO_CREDENTIAL_PLACEHOLDER = "[REDACTED_URL_CREDENTIAL]"
 _COOKIE_SECRET_PLACEHOLDER = "[REDACTED_COOKIE_SECRET]"
+_SIGNED_CLOUD_STORAGE_SIGNATURE_PLACEHOLDER = (
+    "[REDACTED_SIGNED_CLOUD_STORAGE_SIGNATURE]"
+)
+_SIGNED_CLOUD_STORAGE_CREDENTIAL_PLACEHOLDER = (
+    "[REDACTED_SIGNED_CLOUD_STORAGE_CREDENTIAL]"
+)
 _URL_USERINFO_CREDENTIAL_SCHEMES = {
     "http",
     "https",
@@ -897,6 +903,37 @@ _PASSKEY_CHALLENGE_QUERY_PARAM_NAMES = _expand_query_param_names(
 )
 _SAML_RESPONSE_QUERY_PARAM_NAMES = _expand_query_param_names({"saml_response"})
 _SAML_REQUEST_QUERY_PARAM_NAMES = _expand_query_param_names({"saml_request"})
+_GCS_SIGNED_URL_SIGNATURE_QUERY_PARAM_NAMES = _expand_query_param_names(
+    {"x_goog_signature"}
+)
+_GCS_SIGNED_URL_CREDENTIAL_QUERY_PARAM_NAMES = _expand_query_param_names(
+    {"x_goog_credential", "x_goog_security_token"}
+)
+_AZURE_SAS_SIGNATURE_QUERY_PARAM_NAMES = _expand_query_param_names({"sig"})
+_AZURE_SAS_CONTEXT_PARAM_NAMES = _expand_query_param_names(
+    {
+        "sv",
+        "ss",
+        "srt",
+        "sp",
+        "se",
+        "sr",
+        "st",
+        "spr",
+        "sip",
+        "si",
+        "skoid",
+        "sktid",
+        "skt",
+        "ske",
+        "sks",
+        "skv",
+    }
+)
+_AZURE_STORAGE_HOST_RE = re.compile(
+    r"(?i)(?:^|\.)"
+    r"(?:blob|dfs|file|queue|table)\.core\.windows\.net$"
+)
 _CREDENTIAL_QUERY_URL_RE = re.compile(
     r"(?P<url>(?:https?://|www\.)[^\s<>\"']{1,2048})",
     re.IGNORECASE,
@@ -4947,6 +4984,32 @@ def _has_sensitive_email_link_url_context(url: str) -> bool:
     return bool(_SENSITIVE_EMAIL_LINK_URL_CONTEXT_RE.search(structural_context))
 
 
+def _has_signed_cloud_storage_url_context(url: str) -> bool:
+    candidate = url
+    if candidate.lower().startswith("www."):
+        candidate = f"https://{candidate}"
+
+    try:
+        parsed = urlsplit(candidate)
+    except ValueError:
+        return False
+
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        return False
+
+    hostname = (parsed.hostname or "").lower()
+    if not _AZURE_STORAGE_HOST_RE.search(hostname):
+        return False
+
+    query_param_names = _query_param_names(parsed.query)
+    fragment_param_names = _fragment_query_param_names(parsed.fragment)
+    param_names = query_param_names | fragment_param_names
+    return bool(
+        param_names.intersection(_AZURE_SAS_SIGNATURE_QUERY_PARAM_NAMES)
+        and param_names.intersection(_AZURE_SAS_CONTEXT_PARAM_NAMES)
+    )
+
+
 def _passkey_webauthn_url_components(url: str):
     candidate = url
     if candidate.lower().startswith("www."):
@@ -5052,6 +5115,24 @@ def _saml_query_param_placeholder(name: str):
     return None
 
 
+def _signed_cloud_storage_query_param_placeholder(
+    name: str,
+    signed_cloud_storage_context: bool,
+):
+    normalized_name = _normalized_query_param_name(name)
+    if normalized_name in _GCS_SIGNED_URL_SIGNATURE_QUERY_PARAM_NAMES:
+        return _SIGNED_CLOUD_STORAGE_SIGNATURE_PLACEHOLDER
+    if normalized_name in _GCS_SIGNED_URL_CREDENTIAL_QUERY_PARAM_NAMES:
+        return _SIGNED_CLOUD_STORAGE_CREDENTIAL_PLACEHOLDER
+    if (
+        signed_cloud_storage_context
+        and normalized_name in _AZURE_SAS_SIGNATURE_QUERY_PARAM_NAMES
+    ):
+        return _SIGNED_CLOUD_STORAGE_SIGNATURE_PLACEHOLDER
+
+    return None
+
+
 def _is_redacted_or_raw_jwt(value: str) -> bool:
     decoded_value = unquote_plus(value)
     return decoded_value == "[REDACTED_JWT]" or bool(
@@ -5081,6 +5162,7 @@ def _redact_credential_query_string(
     credential_link_code_context: bool = False,
     passkey_webauthn_context: bool = False,
     sensitive_email_link_context: bool = False,
+    signed_cloud_storage_context: bool = False,
 ) -> Tuple[str, bool]:
     changed = False
     redacted_parts = []
@@ -5100,6 +5182,12 @@ def _redact_credential_query_string(
             _passkey_webauthn_query_param_placeholder(name)
             if passkey_webauthn_context
             else None
+        )
+        signed_cloud_storage_placeholder = (
+            _signed_cloud_storage_query_param_placeholder(
+                name,
+                signed_cloud_storage_context,
+            )
         )
         credential_placeholder = (
             _credential_query_param_placeholder(name, value)
@@ -5132,6 +5220,11 @@ def _redact_credential_query_string(
             changed = True
         elif separator and value and passkey_placeholder:
             redacted_parts.append(f"{name}{separator}{passkey_placeholder}")
+            changed = True
+        elif separator and value and signed_cloud_storage_placeholder:
+            redacted_parts.append(
+                f"{name}{separator}{signed_cloud_storage_placeholder}"
+            )
             changed = True
         elif separator and value and credential_placeholder:
             redacted_parts.append(f"{name}{separator}{credential_placeholder}")
@@ -5167,6 +5260,7 @@ def _redact_credential_fragment(
     credential_link_code_context: bool = False,
     passkey_webauthn_context: bool = False,
     sensitive_email_link_context: bool = False,
+    signed_cloud_storage_context: bool = False,
 ) -> Tuple[str, bool]:
     if "?" not in fragment:
         return _redact_credential_query_string(
@@ -5175,6 +5269,7 @@ def _redact_credential_fragment(
             credential_link_code_context,
             passkey_webauthn_context,
             sensitive_email_link_context,
+            signed_cloud_storage_context,
         )
 
     route, _, query = fragment.partition("?")
@@ -5184,6 +5279,7 @@ def _redact_credential_fragment(
         credential_link_code_context,
         passkey_webauthn_context,
         sensitive_email_link_context,
+        signed_cloud_storage_context,
     )
     return f"{route}?{redacted_query}", changed
 
@@ -5193,6 +5289,7 @@ def _redact_url_query_and_fragment(url: str) -> Tuple[str, bool]:
     credential_link_code_context = _has_credential_link_code_url_context(url)
     passkey_webauthn_context = _has_passkey_webauthn_url_context(url)
     sensitive_email_link_context = _has_sensitive_email_link_url_context(url)
+    signed_cloud_storage_context = _has_signed_cloud_storage_url_context(url)
     query_start = url.find("?")
     if query_start >= 0:
         fragment_start = url.find("#", query_start + 1)
@@ -5204,6 +5301,7 @@ def _redact_url_query_and_fragment(url: str) -> Tuple[str, bool]:
                 credential_link_code_context,
                 passkey_webauthn_context,
                 sensitive_email_link_context,
+                signed_cloud_storage_context,
             )
             redacted_url = url[: query_start + 1] + redacted_query
         else:
@@ -5215,6 +5313,7 @@ def _redact_url_query_and_fragment(url: str) -> Tuple[str, bool]:
                 credential_link_code_context,
                 passkey_webauthn_context,
                 sensitive_email_link_context,
+                signed_cloud_storage_context,
             )
             redacted_fragment, fragment_changed = _redact_credential_fragment(
                 fragment,
@@ -5222,6 +5321,7 @@ def _redact_url_query_and_fragment(url: str) -> Tuple[str, bool]:
                 credential_link_code_context,
                 passkey_webauthn_context,
                 sensitive_email_link_context,
+                signed_cloud_storage_context,
             )
             changed = query_changed or fragment_changed
             redacted_url = (
@@ -5242,6 +5342,7 @@ def _redact_url_query_and_fragment(url: str) -> Tuple[str, bool]:
             credential_link_code_context,
             passkey_webauthn_context,
             sensitive_email_link_context,
+            signed_cloud_storage_context,
         )
         redacted_url = url[: fragment_start + 1] + redacted_fragment
 

@@ -2348,6 +2348,94 @@ class SafetyPolicyTests(unittest.TestCase):
                 )
                 self.assertTrue(redacted.endswith("."))
 
+    def test_redaction_redacts_signed_cloud_storage_url_secrets(self):
+        gcs_credential = (
+            "svc%40example-project.iam.gserviceaccount.com"
+            "%2F20260512%2Fauto%2Fstorage%2Fgoog4_request"
+        )
+        gcs_signature = _fixture_secret(
+            "abcdef1234567890",
+            "fedcba0987654321",
+            "abcdef1234567890",
+        )
+        gcs_security_token = "temporary-gcs-session-token-123"
+        azure_signature = "azureSigSecret123%2Babc%3D"
+        text = (
+            "GCS export link: https://storage.googleapis.com/team-reports/q2.csv"
+            "?X-Goog-Algorithm=GOOG4-RSA-SHA256"
+            f"&X-Goog-Credential={gcs_credential}"
+            f"&X-Goog-Security-Token={gcs_security_token}"
+            "&X-Goog-Date=20260512T120000Z"
+            "&X-Goog-Expires=900"
+            "&X-Goog-SignedHeaders=host"
+            f"&X-Goog-Signature={gcs_signature}. "
+            "Azure attachment link: "
+            "https://acct.blob.core.windows.net/invoices/may.pdf"
+            "?sp=r&st=2026-05-12T12%3A00%3A00Z"
+            "&se=2026-05-12T13%3A00%3A00Z&spr=https"
+            f"&sv=2024-11-04&sr=b&sig={azure_signature}."
+        )
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertNotIn(gcs_credential, redacted)
+        self.assertNotIn(gcs_signature, redacted)
+        self.assertNotIn(gcs_security_token, redacted)
+        self.assertNotIn(azure_signature, redacted)
+        self.assertIn(
+            "X-Goog-Credential=[REDACTED_SIGNED_CLOUD_STORAGE_CREDENTIAL]",
+            redacted,
+        )
+        self.assertIn(
+            "X-Goog-Security-Token=[REDACTED_SIGNED_CLOUD_STORAGE_CREDENTIAL]",
+            redacted,
+        )
+        self.assertIn(
+            "X-Goog-Signature=[REDACTED_SIGNED_CLOUD_STORAGE_SIGNATURE]",
+            redacted,
+        )
+        self.assertIn(
+            "sig=[REDACTED_SIGNED_CLOUD_STORAGE_SIGNATURE]",
+            redacted,
+        )
+        self.assertIn("X-Goog-Date=20260512T120000Z", redacted)
+        self.assertIn("X-Goog-Expires=900", redacted)
+        self.assertIn("sp=r", redacted)
+        self.assertIn("sv=2024-11-04", redacted)
+
+    def test_redaction_preserves_benign_signature_like_cloud_url_metadata(self):
+        text = (
+            "Docs: https://docs.example.test/api"
+            "?sig=example-signature&sv=sample. "
+            "Public blob note: "
+            "https://acct.blob.core.windows.net/public/readme.txt"
+            "?sig=checksum-label. "
+            "GCS signed URL docs: https://storage.googleapis.com/public/readme.txt"
+            "?X-Goog-SignedHeaders=host&example=credential-format."
+        )
+
+        self.assertEqual(redact_sensitive_content(text), text)
+
+    def test_redaction_redacts_only_azure_account_sas_signature(self):
+        azure_signature = "azureAccountSigSecret123%2Babc%3D"
+        text = (
+            "Account SAS blob link: "
+            "https://acct.blob.core.windows.net/invoices/may.pdf"
+            "?ss=b&srt=o&sv=2024-11-04"
+            f"&sig={azure_signature}&report=may."
+        )
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertNotIn(azure_signature, redacted)
+        self.assertEqual(
+            redacted,
+            "Account SAS blob link: "
+            "https://acct.blob.core.windows.net/invoices/may.pdf"
+            "?ss=b&srt=o&sv=2024-11-04"
+            "&sig=[REDACTED_SIGNED_CLOUD_STORAGE_SIGNATURE]&report=may.",
+        )
+
     def test_redaction_redacts_oauth_authorization_code_query_parameters(self):
         cases = [
             (
@@ -2991,6 +3079,69 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertIn("MFA enrollment link", result["summary"])
         self.assertIn("[REDACTED_CREDENTIAL_QUERY_VALUE]", prompt)
         self.assertIn("[REDACTED_CREDENTIAL_QUERY_VALUE]", result["summary"])
+
+    def test_prompt_summary_and_warning_paths_redact_signed_cloud_storage_urls(self):
+        processor = _processor_module()
+        gcs_signature = _fixture_secret(
+            "abcdef1234567890",
+            "fedcba0987654321",
+            "abcdef1234567890",
+        )
+        azure_signature = "azureSigSecret123%2Babc%3D"
+        gcs_link = (
+            "https://storage.googleapis.com/team-reports/q2.csv"
+            "?X-Goog-Algorithm=GOOG4-RSA-SHA256"
+            "&X-Goog-Credential=svc%40example-project.iam.gserviceaccount.com"
+            "%2F20260512%2Fauto%2Fstorage%2Fgoog4_request"
+            "&X-Goog-Date=20260512T120000Z"
+            "&X-Goog-Expires=900"
+            "&X-Goog-SignedHeaders=host"
+            f"&X-Goog-Signature={gcs_signature}"
+        )
+        azure_link = (
+            "https://acct.blob.core.windows.net/invoices/may.pdf"
+            "?sp=r&se=2026-05-12T13%3A00%3A00Z"
+            f"&sv=2024-11-04&sr=b&sig={azure_signature}"
+        )
+        email = {
+            "id": "signed-cloud-link-1",
+            "subject": f"Shared report {gcs_link}",
+            "sender": "Cloud Storage Alerts",
+            "date": "2026-05-10",
+            "snippet": f"Download links: {gcs_link} {azure_link}",
+            "security_warnings": [
+                f"Signed storage URL was present: {azure_link}",
+            ],
+            "content": f"Use these read-only report links: {gcs_link} {azure_link}",
+            "is_archived": False,
+        }
+
+        prompt = processor._build_prompt(email, redact_sensitive=True)
+        original_create = processor.anthropic.completions.create
+        processor.anthropic.completions.create = (
+            lambda **kwargs: types.SimpleNamespace(
+                completion=f"Summary: shared signed links {gcs_link} {azure_link}."
+            )
+        )
+        try:
+            result = processor.extract_insights(email)
+        finally:
+            processor.anthropic.completions.create = original_create
+
+        self.assertNotIn(gcs_signature, prompt)
+        self.assertNotIn(azure_signature, prompt)
+        self.assertNotIn(gcs_signature, result["summary"])
+        self.assertNotIn(azure_signature, result["summary"])
+        self.assertNotIn(azure_signature, "\n".join(result["security_warnings"]))
+        self.assertIn("[REDACTED_SIGNED_CLOUD_STORAGE_SIGNATURE]", prompt)
+        self.assertIn(
+            "[REDACTED_SIGNED_CLOUD_STORAGE_SIGNATURE]",
+            result["summary"],
+        )
+        self.assertIn(
+            "[REDACTED_SIGNED_CLOUD_STORAGE_SIGNATURE]",
+            "\n".join(result["security_warnings"]),
+        )
 
     def test_redaction_preserves_benign_fragments(self):
         text = (
