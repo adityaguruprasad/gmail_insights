@@ -184,6 +184,11 @@ _CSS_ZERO_ALPHA_RE = re.compile(
     r"^[+-]?(?:0+(?:\.0*)?|\.0+)%?$",
     re.IGNORECASE,
 )
+_CSS_NUMERIC_LENGTH_RE = re.compile(
+    r"^([+-]?(?:\d+(?:\.\d*)?|\.\d+))"
+    r"(?:px|em|rem|vh|vw|vmin|vmax|pt|pc|cm|mm|in|%)?$",
+    re.IGNORECASE,
+)
 _CSS_OPAQUE_ALPHA_RE = re.compile(
     r"^\+?(?:1(?:\.0*)?|100(?:\.0*)?%)$",
     re.IGNORECASE,
@@ -202,6 +207,8 @@ _CSS_COLOR_KEYWORDS_TO_IGNORE = {
 }
 _CSS_NAMED_COLOR_ALIASES = {"black": "#000000", "white": "#ffffff"}
 _CSS_CLIPPING_OVERFLOW_VALUES = {"hidden", "clip"}
+_CSS_OFFSCREEN_POSITION_THRESHOLD = 1000
+_CSS_OFFSCREEN_TEXT_INDENT_THRESHOLD = 100
 
 
 def _html_attrs_by_name(attrs) -> Dict[str, str]:
@@ -262,6 +269,38 @@ def _css_overflow_clips_axis(declarations: Dict[str, str], axis: str) -> bool:
 
 def _css_zero_value(value: str) -> bool:
     return bool(_CSS_ZERO_VALUE_RE.fullmatch(_strip_css_important(value).lower()))
+
+
+def _css_numeric_length(value: str) -> Optional[float]:
+    match = _CSS_NUMERIC_LENGTH_RE.fullmatch(
+        _strip_css_important(value).strip().lower()
+    )
+    if not match:
+        return None
+
+    try:
+        return float(match.group(1))
+    except ValueError:
+        return None
+
+
+def _css_large_offscreen_position(property_name: str, value: str) -> bool:
+    length = _css_numeric_length(value)
+    if length is None:
+        return False
+
+    if property_name in {"left", "right", "top", "bottom"}:
+        return abs(length) >= _CSS_OFFSCREEN_POSITION_THRESHOLD
+
+    return False
+
+
+def _css_large_negative_text_indent(value: str) -> bool:
+    length = _css_numeric_length(value)
+    return (
+        length is not None
+        and length <= -_CSS_OFFSCREEN_TEXT_INDENT_THRESHOLD
+    )
 
 
 def _normalize_css_alpha(value: str) -> Optional[str]:
@@ -382,6 +421,19 @@ def _html_attrs_hidden_or_suppressed(attrs_by_name: Dict[str, str]) -> bool:
         return True
 
     if _css_zero_value(declarations.get("font-size", "")):
+        return True
+
+    if _css_keyword(declarations.get("position", "")) in {"absolute", "fixed"}:
+        if any(
+            _css_large_offscreen_position(
+                property_name,
+                declarations.get(property_name, ""),
+            )
+            for property_name in ("left", "right", "top", "bottom")
+        ):
+            return True
+
+    if _css_large_negative_text_indent(declarations.get("text-indent", "")):
         return True
 
     if (
