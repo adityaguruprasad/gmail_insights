@@ -11,6 +11,7 @@ from src.email.processor import extract_insights
 from src.email.safety import (
     BLOCKED_ACTIONS,
     redact_credential_content,
+    redact_response_metadata_content,
     safety_metadata,
 )
 from src.email.query_validator import (
@@ -71,7 +72,7 @@ def _redact_log_text(text):
 
 
 def _redact_public_request_text(text):
-    return redact_credential_content(text)
+    return redact_response_metadata_content(text)
 
 
 def _log_unhandled_api_exception(route):

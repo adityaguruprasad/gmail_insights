@@ -176,6 +176,57 @@ class QueryInsightsValidationTests(unittest.TestCase):
         self.assertNotIn(secret, body["query"])
         mock_fetch.assert_called_once_with(service, query=query, max_results=4)
 
+    def test_query_response_redacts_credentials_and_high_risk_identifiers_from_echo_but_fetches_raw_query(self):
+        service = object()
+        secret = _access_token_fixture()
+        ssn = "123-45-6789"
+        payment_card = "4242 4242 4242 4242"
+        query = (
+            f'from:benefits subject:"SSN {ssn} card {payment_card} '
+            f'access_token={secret}"'
+        )
+
+        with patch("app._gmail_service_from_token", return_value=service), patch(
+            "app.get_emails_by_query", return_value=[]
+        ) as mock_fetch:
+            response = self.client.post(
+                "/query_insights",
+                json={"token": "test-token", "query": query, "max_results": 4},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(
+            body["query"],
+            'from:benefits subject:"SSN [REDACTED_SSN] card '
+            '[REDACTED_PAYMENT_CARD] access_token=[REDACTED_TOKEN]"',
+        )
+        self.assertNotIn(secret, body["query"])
+        self.assertNotIn(ssn, body["query"])
+        self.assertNotIn(payment_card, body["query"])
+        mock_fetch.assert_called_once_with(service, query=query, max_results=4)
+
+    def test_query_response_preserves_benign_contact_and_policy_terms_in_echo(self):
+        service = object()
+        query = (
+            'from:maya@example.com subject:"password reset policy" '
+            "after:2026/05/01 order ref-B42Q"
+        )
+
+        with patch("app._gmail_service_from_token", return_value=service), patch(
+            "app.get_emails_by_query", return_value=[]
+        ) as mock_fetch:
+            response = self.client.post(
+                "/query_insights",
+                json={"token": "test-token", "query": query, "max_results": 4},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(body["query"], query)
+        self.assertNotIn("[REDACTED", body["query"])
+        mock_fetch.assert_called_once_with(service, query=query, max_results=4)
+
     def test_query_scope_guard_preserves_safe_negations_and_literals(self):
         service = object()
         cases = [

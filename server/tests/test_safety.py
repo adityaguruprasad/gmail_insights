@@ -8,6 +8,7 @@ from src.email.safety import (
     evaluate_requested_actions,
     neutralize_safety_metadata_misrepresentation,
     neutralize_unsafe_action_suggestions,
+    redact_credential_content,
     safety_metadata,
     redact_response_metadata_content,
     redact_sensitive_content,
@@ -1070,6 +1071,32 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertIn("[REDACTED_PASSPORT_NUMBER]", redacted)
         self.assertIn("[REDACTED_PASSWORD]", redacted)
 
+    def test_response_metadata_redaction_is_superset_of_credential_redaction(self):
+        access_token = _fixture_secret("metadata-access-token-", "1234567890")
+        api_key = _google_api_key_fixture()
+        ssn = "123-45-6789"
+        payment_card = "4242 4242 4242 4242"
+        text = (
+            f"Query echo access_token={access_token}; api key {api_key}; "
+            f"SSN {ssn}; payment card {payment_card}."
+        )
+
+        credential_redacted = redact_credential_content(text)
+        response_metadata_redacted = redact_response_metadata_content(text)
+
+        self.assertIn("access_token=[REDACTED_TOKEN]", credential_redacted)
+        self.assertIn("[REDACTED_GOOGLE_API_KEY]", credential_redacted)
+        self.assertIn(ssn, credential_redacted)
+        self.assertIn(payment_card, credential_redacted)
+
+        self.assertIn("access_token=[REDACTED_TOKEN]", response_metadata_redacted)
+        self.assertIn("[REDACTED_GOOGLE_API_KEY]", response_metadata_redacted)
+        self.assertIn("[REDACTED_SSN]", response_metadata_redacted)
+        self.assertIn("[REDACTED_PAYMENT_CARD]", response_metadata_redacted)
+        for sensitive_value in (access_token, api_key, ssn, payment_card):
+            with self.subTest(sensitive_value=sensitive_value):
+                self.assertNotIn(sensitive_value, response_metadata_redacted)
+
     def test_response_metadata_redaction_preserves_contact_metadata(self):
         text = (
             "Maya Patel <maya@example.com> +1 415-555-0199 "
@@ -1077,6 +1104,18 @@ class SafetyPolicyTests(unittest.TestCase):
         )
 
         self.assertEqual(redact_response_metadata_content(text), text)
+
+    def test_response_metadata_redaction_preserves_benign_policy_and_order_metadata(self):
+        text = (
+            "Contact Maya Patel <maya@example.com> at +1 415-555-0199 about "
+            "the password reset policy review for order ref-B42Q, invoice 20260420, "
+            "and tracking 1Z999AA10123456784."
+        )
+
+        redacted = redact_response_metadata_content(text)
+
+        self.assertEqual(redacted, text)
+        self.assertNotIn("[REDACTED", redacted)
 
     def test_redaction_removes_pem_private_key_blocks(self):
         key_type = _fixture_secret("PRIVATE", " ", "KEY")
