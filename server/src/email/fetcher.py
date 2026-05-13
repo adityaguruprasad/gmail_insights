@@ -59,6 +59,22 @@ def _decode_base64_urlsafe(data: Optional[str]) -> str:
 
 
 _HTML_CONTENT_TAGS_TO_DROP = {"script", "style", "template", "noscript"}
+_HTML_VOID_TAGS = {
+    "area",
+    "base",
+    "br",
+    "col",
+    "embed",
+    "hr",
+    "img",
+    "input",
+    "link",
+    "meta",
+    "param",
+    "source",
+    "track",
+    "wbr",
+}
 _HTML_BLOCK_TAGS = {
     "address",
     "article",
@@ -103,6 +119,10 @@ _REMOTE_IMAGE_WARNING = (
 )
 _EMBEDDED_FORM_WARNING = (
     "HTML email contains an embedded form that may collect or submit sensitive data."
+)
+_HIDDEN_HTML_CONTENT_WARNING = (
+    "HTML message contains hidden or visually suppressed content; hidden text was "
+    "excluded from extracted text."
 )
 _EXECUTABLE_ATTACHMENT_EXTENSIONS = {
     ".exe",
@@ -156,21 +176,253 @@ _BENIGN_DOCUMENT_MEDIA_ATTACHMENT_EXTENSIONS = {
 }
 _DISPLAY_URL_STRIP_CHARS = " \t\r\n\f\v<>()[]{}\"'`"
 _DISPLAY_URL_TRAILING_PUNCTUATION = ".,;:!?"
+_CSS_ZERO_VALUE_RE = re.compile(
+    r"^[+-]?(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?$",
+    re.IGNORECASE,
+)
+_CSS_ZERO_ALPHA_RE = re.compile(
+    r"^[+-]?(?:0+(?:\.0*)?|\.0+)%?$",
+    re.IGNORECASE,
+)
+_CSS_OPAQUE_ALPHA_RE = re.compile(
+    r"^\+?(?:1(?:\.0*)?|100(?:\.0*)?%)$",
+    re.IGNORECASE,
+)
+_CSS_COLOR_FUNCTION_RE = re.compile(
+    r"^(rgba?|hsla?)\((.*)\)$",
+    re.IGNORECASE | re.DOTALL,
+)
+_CSS_COLOR_KEYWORDS_TO_IGNORE = {
+    "currentcolor",
+    "inherit",
+    "initial",
+    "revert",
+    "revert-layer",
+    "unset",
+}
+_CSS_NAMED_COLOR_ALIASES = {"black": "#000000", "white": "#ffffff"}
+
+
+def _html_attrs_by_name(attrs) -> Dict[str, str]:
+    return {
+        str(name).lower(): str(value or "")
+        for name, value in attrs
+        if name is not None
+    }
+
+
+def _strip_css_important(value: str) -> str:
+    return re.sub(r"\s*!important\s*$", "", value, flags=re.IGNORECASE).strip()
+
+
+def _css_declarations(style: str) -> Dict[str, str]:
+    declarations: Dict[str, str] = {}
+    for declaration in str(style or "").split(";"):
+        property_name, separator, value = declaration.partition(":")
+        if not separator:
+            continue
+
+        property_name = property_name.strip().lower()
+        if property_name:
+            declarations[property_name] = value.strip()
+
+    return declarations
+
+
+def _css_keyword(value: str) -> str:
+    return re.sub(r"\s+", " ", _strip_css_important(value).lower())
+
+
+def _css_zero_value(value: str) -> bool:
+    return bool(_CSS_ZERO_VALUE_RE.fullmatch(_strip_css_important(value).lower()))
+
+
+def _normalize_css_alpha(value: str) -> Optional[str]:
+    alpha = re.sub(r"\s+", "", value.strip().lower())
+    if not alpha:
+        return None
+    if _CSS_ZERO_ALPHA_RE.fullmatch(alpha):
+        return "transparent"
+    if _CSS_OPAQUE_ALPHA_RE.fullmatch(alpha):
+        return ""
+    return alpha
+
+
+def _normalize_css_color_function(function_name: str, args: str) -> Optional[str]:
+    alpha = None
+    if "/" in args:
+        args, separator, alpha = args.partition("/")
+        if separator and "/" in alpha:
+            return None
+
+    if "," in args:
+        parts = [part.strip() for part in args.split(",")]
+        if alpha is None and len(parts) == 4:
+            alpha = parts.pop()
+    else:
+        parts = args.split()
+        if alpha is None and len(parts) == 4:
+            alpha = parts.pop()
+
+    if len(parts) != 3 or any(not part for part in parts):
+        return None
+
+    normalized_alpha = None
+    if alpha is not None:
+        normalized_alpha = _normalize_css_alpha(alpha)
+        if normalized_alpha is None:
+            return None
+        if normalized_alpha == "transparent":
+            return "transparent"
+
+    color_type = "rgb" if function_name.startswith("rgb") else "hsl"
+    normalized_parts = [
+        re.sub(r"\s+", "", part.lower())
+        for part in parts
+    ]
+    normalized_color = f"{color_type}({','.join(normalized_parts)})"
+    if normalized_alpha:
+        return f"{normalized_color}/{normalized_alpha}"
+    return normalized_color
+
+
+def _normalize_css_color(value: str) -> Optional[str]:
+    candidate = _strip_css_important(value).lower()
+    if not candidate or candidate in _CSS_COLOR_KEYWORDS_TO_IGNORE:
+        return None
+    if candidate in _CSS_NAMED_COLOR_ALIASES:
+        return _CSS_NAMED_COLOR_ALIASES[candidate]
+    if candidate == "transparent":
+        return candidate
+
+    function_match = _CSS_COLOR_FUNCTION_RE.fullmatch(candidate)
+    if function_match:
+        return _normalize_css_color_function(
+            function_match.group(1),
+            function_match.group(2),
+        )
+
+    candidate = re.sub(r"\s+", "", candidate)
+
+    if candidate.startswith("#"):
+        hex_value = candidate[1:]
+        if len(hex_value) in {3, 4}:
+            hex_value = "".join(char * 2 for char in hex_value)
+        if len(hex_value) in {6, 8} and not re.fullmatch(
+            r"[0-9a-f]+",
+            hex_value,
+        ):
+            return None
+        if len(hex_value) == 8:
+            alpha = hex_value[6:]
+            if alpha == "00":
+                return "transparent"
+            if alpha == "ff":
+                hex_value = hex_value[:6]
+            else:
+                return f"#{hex_value}"
+        if len(hex_value) == 6:
+            return f"#{hex_value}"
+        return None
+
+    if re.fullmatch(r"[a-z-]+", candidate):
+        return candidate
+
+    return None
+
+
+def _html_attrs_hidden_or_suppressed(attrs_by_name: Dict[str, str]) -> bool:
+    if "hidden" in attrs_by_name:
+        return True
+
+    if attrs_by_name.get("aria-hidden", "").strip().lower() == "true":
+        return True
+
+    declarations = _css_declarations(attrs_by_name.get("style", ""))
+    if not declarations:
+        return False
+
+    if _css_keyword(declarations.get("display", "")) == "none":
+        return True
+
+    if _css_keyword(declarations.get("visibility", "")) in {"hidden", "collapse"}:
+        return True
+
+    if _css_zero_value(declarations.get("opacity", "")):
+        return True
+
+    if _css_zero_value(declarations.get("font-size", "")):
+        return True
+
+    text_color = _normalize_css_color(declarations.get("color", ""))
+    if text_color == "transparent":
+        return True
+
+    background_color = _normalize_css_color(
+        declarations.get("background-color", "")
+    ) or _normalize_css_color(declarations.get("background", ""))
+    if text_color and background_color and text_color == background_color:
+        return True
+
+    return False
+
+
+def _html_tag_suppresses_text(tag: str, attrs_by_name: Dict[str, str]) -> bool:
+    return (
+        tag in _HTML_CONTENT_TAGS_TO_DROP
+        or _html_attrs_hidden_or_suppressed(attrs_by_name)
+    )
+
+
+def _pop_html_tag_stack(tag_stack: List[Tuple], tag: str) -> List[Tuple]:
+    for index in range(len(tag_stack) - 1, -1, -1):
+        if tag_stack[index][0] == tag:
+            popped_tags = tag_stack[index:]
+            del tag_stack[index:]
+            return popped_tags
+
+    return []
 
 
 class _HTMLToPlainTextParser(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self._chunks: List[str] = []
-        self._drop_depth = 0
+        self._suppressed_depth = 0
+        self._tag_stack: List[Tuple[str, bool]] = []
+
+    def _pop_tag(self, tag: str) -> None:
+        for _open_tag, suppresses_text in _pop_html_tag_stack(
+            self._tag_stack, tag
+        ):
+            if suppresses_text and self._suppressed_depth:
+                self._suppressed_depth -= 1
 
     def handle_starttag(self, tag, attrs):
         tag = tag.lower()
-        if tag in _HTML_CONTENT_TAGS_TO_DROP:
-            self._drop_depth += 1
+        attrs_by_name = _html_attrs_by_name(attrs)
+        suppresses_text = _html_tag_suppresses_text(tag, attrs_by_name)
+
+        if tag not in _HTML_VOID_TAGS:
+            self._tag_stack.append((tag, suppresses_text))
+
+        if suppresses_text:
+            if tag not in _HTML_VOID_TAGS:
+                self._suppressed_depth += 1
             return
 
-        if self._drop_depth:
+        if self._suppressed_depth:
+            return
+
+        if tag in _HTML_BLOCK_TAGS:
+            self._chunks.append("\n")
+
+    def handle_startendtag(self, tag, attrs):
+        tag = tag.lower()
+        attrs_by_name = _html_attrs_by_name(attrs)
+        suppresses_text = _html_tag_suppresses_text(tag, attrs_by_name)
+
+        if suppresses_text or self._suppressed_depth:
             return
 
         if tag in _HTML_BLOCK_TAGS:
@@ -178,19 +430,17 @@ class _HTMLToPlainTextParser(HTMLParser):
 
     def handle_endtag(self, tag):
         tag = tag.lower()
-        if tag in _HTML_CONTENT_TAGS_TO_DROP:
-            if self._drop_depth:
-                self._drop_depth -= 1
-            return
+        was_suppressed = bool(self._suppressed_depth)
+        self._pop_tag(tag)
 
-        if self._drop_depth:
+        if was_suppressed or self._suppressed_depth:
             return
 
         if tag in _HTML_BLOCK_TAGS:
             self._chunks.append("\n")
 
     def handle_data(self, data):
-        if not self._drop_depth:
+        if not self._suppressed_depth:
             self._chunks.append(data)
 
     def handle_comment(self, data):
@@ -301,6 +551,8 @@ class _HTMLSafetyParser(HTMLParser):
         self._warnings: List[str] = []
         self._seen_warnings = set()
         self._drop_depth = 0
+        self._hidden_depth = 0
+        self._tag_stack: List[Tuple[str, bool, bool]] = []
         self._anchor_stack: List[Dict] = []
 
     def _add_warning(self, warning: str) -> None:
@@ -309,6 +561,16 @@ class _HTMLSafetyParser(HTMLParser):
 
         self._seen_warnings.add(warning)
         self._warnings.append(warning)
+
+    def _pop_tag(self, tag: str) -> List[Tuple[str, bool, bool]]:
+        popped_tags = _pop_html_tag_stack(self._tag_stack, tag)
+        for _open_tag, drops_content, hides_text in popped_tags:
+            if drops_content and self._drop_depth:
+                self._drop_depth -= 1
+            if hides_text and self._hidden_depth:
+                self._hidden_depth -= 1
+
+        return popped_tags
 
     def _check_anchor(self, anchor: Dict) -> None:
         display_host = _display_url_host("".join(anchor["chunks"]))
@@ -337,21 +599,13 @@ class _HTMLSafetyParser(HTMLParser):
 
         self._add_warning(_EMBEDDED_FORM_WARNING)
 
-    def handle_starttag(self, tag, attrs):
-        tag = tag.lower()
-        if tag in _HTML_CONTENT_TAGS_TO_DROP:
-            self._drop_depth += 1
-            return
-
-        if self._drop_depth:
-            return
-
-        attrs_by_name = {
-            str(name).lower(): (value or "")
-            for name, value in attrs
-            if name is not None
-        }
-
+    def _check_start_tag_security(
+        self,
+        tag: str,
+        attrs_by_name: Dict[str, str],
+        *,
+        collect_anchor_text: bool,
+    ) -> None:
         if tag == "a":
             href = attrs_by_name.get("href", "")
             scheme = _url_scheme(href)
@@ -359,20 +613,71 @@ class _HTMLSafetyParser(HTMLParser):
                 self._add_warning(
                     f"Link uses potentially unsafe {scheme}: URL scheme."
                 )
-            self._anchor_stack.append({"href": href, "chunks": []})
+            if collect_anchor_text:
+                self._anchor_stack.append({"href": href, "chunks": []})
         elif tag == "form":
             self._check_form(attrs_by_name.get("action", ""))
         elif tag == "img" and _http_url_host(attrs_by_name.get("src")):
             self._add_warning(_REMOTE_IMAGE_WARNING)
 
-    def handle_endtag(self, tag):
+    def handle_starttag(self, tag, attrs):
         tag = tag.lower()
+        attrs_by_name = _html_attrs_by_name(attrs)
+        drops_content = tag in _HTML_CONTENT_TAGS_TO_DROP
+        hides_text = (
+            not drops_content and _html_attrs_hidden_or_suppressed(attrs_by_name)
+        )
+
+        if tag not in _HTML_VOID_TAGS:
+            self._tag_stack.append((tag, drops_content, hides_text))
+
         if tag in _HTML_CONTENT_TAGS_TO_DROP:
-            if self._drop_depth:
-                self._drop_depth -= 1
+            if tag not in _HTML_VOID_TAGS:
+                self._drop_depth += 1
             return
 
         if self._drop_depth:
+            return
+
+        if hides_text:
+            self._add_warning(_HIDDEN_HTML_CONTENT_WARNING)
+            if tag not in _HTML_VOID_TAGS:
+                self._hidden_depth += 1
+
+        self._check_start_tag_security(
+            tag,
+            attrs_by_name,
+            collect_anchor_text=True,
+        )
+
+    def handle_startendtag(self, tag, attrs):
+        tag = tag.lower()
+        attrs_by_name = _html_attrs_by_name(attrs)
+        if tag in _HTML_CONTENT_TAGS_TO_DROP or self._drop_depth:
+            return
+
+        hides_text = _html_attrs_hidden_or_suppressed(attrs_by_name)
+        if hides_text:
+            self._add_warning(_HIDDEN_HTML_CONTENT_WARNING)
+
+        self._check_start_tag_security(
+            tag,
+            attrs_by_name,
+            collect_anchor_text=False,
+        )
+
+    def handle_endtag(self, tag):
+        tag = tag.lower()
+        was_dropped = bool(self._drop_depth)
+        was_hidden = bool(self._hidden_depth)
+        popped_tags = self._pop_tag(tag)
+
+        if was_hidden:
+            for open_tag, _drops_content, _hides_text in popped_tags:
+                if open_tag == "a" and self._anchor_stack:
+                    self._anchor_stack.pop()
+
+        if was_dropped or self._drop_depth or was_hidden or self._hidden_depth:
             return
 
         if tag != "a" or not self._anchor_stack:
@@ -381,7 +686,7 @@ class _HTMLSafetyParser(HTMLParser):
         self._check_anchor(self._anchor_stack.pop())
 
     def handle_data(self, data):
-        if self._drop_depth:
+        if self._drop_depth or self._hidden_depth:
             return
 
         for anchor in self._anchor_stack:
