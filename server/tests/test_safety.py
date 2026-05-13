@@ -100,6 +100,19 @@ def _google_api_key_fixture():
     )
 
 
+def _sendgrid_api_key_fixture():
+    return _fixture_secret(
+        "SG.",
+        "AbCdEfGhIjKlMnOpQrStUv",
+        ".",
+        "wXyZ012345",
+        "6789_-AbCd",
+        "EfGhIjKlMn",
+        "OpQrStUvWx",
+        "Yz0",
+    )
+
+
 def _slack_fixture_token(kind="b"):
     return _fixture_secret(
         "xo",
@@ -1204,6 +1217,68 @@ class SafetyPolicyTests(unittest.TestCase):
                 )
                 self.assertNotIn(secret, redacted)
 
+    def test_redaction_removes_unlabeled_sendgrid_api_key(self):
+        secret = _sendgrid_api_key_fixture()
+        text = f"Forwarded credential from SendGrid: {secret}."
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(
+            redacted,
+            "Forwarded credential from SendGrid: [REDACTED_SENDGRID_API_KEY].",
+        )
+        self.assertNotIn(secret, redacted)
+
+    def test_redaction_removes_labeled_sendgrid_api_keys(self):
+        secret = _sendgrid_api_key_fixture()
+        placeholder = "[REDACTED_SENDGRID_API_KEY]"
+        cases = [
+            (
+                f"SendGrid key: {secret}, rotate it after import.",
+                f"SendGrid key: {placeholder}, rotate it after import.",
+            ),
+            (
+                f"api_key='{secret}' on api.sendgrid.com is active.",
+                f"api_key='{placeholder}' on api.sendgrid.com is active.",
+            ),
+        ]
+
+        for text, expected in cases:
+            with self.subTest(text=text):
+                redacted = redact_sensitive_content(text)
+
+                self.assertEqual(redacted, expected)
+                self.assertNotIn(secret, redacted)
+
+    def test_redaction_preserves_benign_sendgrid_key_policy_prose(self):
+        text = (
+            "SendGrid API key rotation policy and api_key naming guidance are "
+            "scheduled for review."
+        )
+
+        self.assertEqual(redact_sensitive_content(text), text)
+
+    def test_sendgrid_redaction_keeps_existing_token_redactions(self):
+        generic_token = _fixture_secret("generic-api-token-", "1234567890")
+        jwt = _oidc_id_token_fixture()
+        sendgrid = _sendgrid_api_key_fixture()
+        slack = _slack_fixture_token()
+        github = _github_classic_fixture_token()
+        text = (
+            f"api_key={generic_token}; JWT {jwt}; SendGrid {sendgrid}; "
+            f"Slack {slack}; GitHub {github}"
+        )
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertIn("api_key=[REDACTED_TOKEN]", redacted)
+        self.assertIn("[REDACTED_JWT]", redacted)
+        self.assertIn("[REDACTED_SENDGRID_API_KEY]", redacted)
+        self.assertIn("[REDACTED_SLACK_TOKEN]", redacted)
+        self.assertIn("[REDACTED_GITHUB_TOKEN]", redacted)
+        for secret in (generic_token, jwt, sendgrid, slack, github):
+            self.assertNotIn(secret, redacted)
+
     def test_redaction_preserves_provider_shaped_false_positives(self):
         cases = [
             "The task-sk-proj-rollout note describes sk-feature prefixes.",
@@ -1212,6 +1287,7 @@ class SafetyPolicyTests(unittest.TestCase):
             "GitHub examples ghp_sample and github_pat_short are placeholders.",
             "Stripe fixtures sk_live_demo and sk_test_short are not credentials.",
             "Google docs mention AIza and AIzaShort, not a real key.",
+            "SendGrid API key rotation policy covers SG prefix handling.",
         ]
 
         for text in cases:

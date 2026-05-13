@@ -436,6 +436,12 @@ _GOOGLE_API_KEY_PLACEHOLDER = "[REDACTED_GOOGLE_API_KEY]"
 _GOOGLE_API_KEY_RE = re.compile(
     r"(?<![A-Za-z0-9_-])AIza[A-Za-z0-9_-]{35}(?![A-Za-z0-9_-])"
 )
+_SENDGRID_API_KEY_PLACEHOLDER = "[REDACTED_SENDGRID_API_KEY]"
+_SENDGRID_API_KEY_RE = re.compile(
+    r"(?<![A-Za-z0-9_-])"
+    r"SG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}"
+    r"(?![A-Za-z0-9_-])"
+)
 _SLACK_TOKEN_RE = re.compile(r"\b(?:xox[abprs]|xapp)-[A-Za-z0-9-]{10,}\b")
 _GITHUB_TOKEN_RE = re.compile(
     r"\b(?:gh[pousr]_[A-Za-z0-9_]{20,255}|github_pat_[A-Za-z0-9_]{22,255})\b"
@@ -5702,9 +5708,11 @@ def redact_credential_content(text: str) -> str:
     redacted = _JWT_RE.sub("[REDACTED_JWT]", redacted)
     redacted = _AWS_ACCESS_KEY_ID_RE.sub("[REDACTED_AWS_KEY]", redacted)
     redacted = _redact_aws_secret_access_keys(redacted)
+    # Provider-shaped keys run before generic api_key redaction to keep specific placeholders.
     redacted = _OPENAI_API_KEY_RE.sub(_OPENAI_API_KEY_PLACEHOLDER, redacted)
     redacted = _ANTHROPIC_API_KEY_RE.sub(_ANTHROPIC_API_KEY_PLACEHOLDER, redacted)
     redacted = _GOOGLE_API_KEY_RE.sub(_GOOGLE_API_KEY_PLACEHOLDER, redacted)
+    redacted = _SENDGRID_API_KEY_RE.sub(_SENDGRID_API_KEY_PLACEHOLDER, redacted)
     redacted = _SLACK_TOKEN_RE.sub("[REDACTED_SLACK_TOKEN]", redacted)
     redacted = _GITHUB_TOKEN_RE.sub("[REDACTED_GITHUB_TOKEN]", redacted)
     redacted = _STRIPE_SECRET_KEY_RE.sub("[REDACTED_STRIPE_KEY]", redacted)
