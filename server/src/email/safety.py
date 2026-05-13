@@ -1330,6 +1330,19 @@ _PROMPT_BOUNDARY_MARKER_RE = re.compile(
     r"(?i)\b(?:BEGIN|END)_UNTRUSTED_EMAIL\b"
 )
 _ROLE_TAG_RE = re.compile(rf"(?im)^(\s*)({_PROMPT_ROLE_TAGS})\s*:\s*")
+_MARKDOWN_ROLE_HEADING_RE = re.compile(
+    rf"(?im)^([ \t]{{0,3}}#{{1,6}}\s*)({_PROMPT_ROLE_TAGS})(\s*:\s*|\s*$)"
+)
+_MODEL_CONTROL_TOKEN_RE = re.compile(
+    rf"(?i)"
+    rf"<\|\s*im_start\s*\|>[ \t]*(?:{_PROMPT_ROLE_TAGS})?"
+    rf"|<\|\s*start_header_id\s*\|>[ \t]*(?:{_PROMPT_ROLE_TAGS})"
+    rf"[ \t]*<\|\s*end_header_id\s*\|>"
+    r"|<\|\s*(?:im_end|end|endoftext|eot_id|start_header_id|end_header_id|"
+    rf"{_PROMPT_ROLE_TAGS})\s*\|>"
+    r"|\[/?INST\]"
+    r"|<</?SYS>>"
+)
 _ACTION_ROLE_PREFIX = rf"(?:(?:{_PROMPT_ROLE_TAGS})\s*:\s*)?"
 _INSTRUCTION_PHRASE_RE = re.compile(
     r"(?i)\b("
@@ -6062,6 +6075,11 @@ def sanitize_untrusted_email_text(text: str) -> str:
         "[quoted-prompt-boundary]",
         sanitized,
     )
+    sanitized = _MODEL_CONTROL_TOKEN_RE.sub(
+        "[quoted-model-control-token]",
+        sanitized,
+    )
+    sanitized = _MARKDOWN_ROLE_HEADING_RE.sub(r"\1[quoted-role \2]\3", sanitized)
     sanitized = _ROLE_TAG_RE.sub(r"\1[quoted-role \2] ", sanitized)
     sanitized = _INSTRUCTION_PHRASE_RE.sub(r"[quoted-instruction: \1]", sanitized)
     sanitized = _SAFETY_METADATA_DIRECTIVE_RE.sub(
