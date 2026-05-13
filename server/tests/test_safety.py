@@ -150,6 +150,15 @@ def _aws_secret_access_key_fixture():
     )
 
 
+def _aws_session_token_fixture():
+    return _fixture_secret(
+        "FwoGZXIvYXdzE",
+        "fakeSession",
+        "Token012345",
+        "+/==",
+    )
+
+
 def _webhook_signing_secret_fixture():
     return _fixture_secret(
         "wh",
@@ -1444,6 +1453,74 @@ class SafetyPolicyTests(unittest.TestCase):
         )
         self.assertNotIn("AKIAIOSFODNN7EXAMPLE", redacted)
         self.assertNotIn(secret, redacted)
+
+    def test_redaction_removes_contextual_session_tokens(self):
+        token = _aws_session_token_fixture()
+        placeholder = "[REDACTED_SESSION_TOKEN]"
+        cases = [
+            (
+                f"aws_session_token={token}",
+                f"aws_session_token={placeholder}",
+            ),
+            (
+                f'AWS session token = "{token}"',
+                f'AWS session token = "{placeholder}"',
+            ),
+            (
+                f"'security_token': '{token}', region=us-west-2",
+                f"'security_token': '{placeholder}', region=us-west-2",
+            ),
+            (
+                f"X-Amz-Security-Token: {token}.",
+                f"X-Amz-Security-Token: {placeholder}.",
+            ),
+        ]
+
+        for text, expected in cases:
+            with self.subTest(text=text):
+                redacted = redact_sensitive_content(text)
+
+                self.assertEqual(redacted, expected)
+                self.assertNotIn(token, redacted)
+
+    def test_redaction_removes_contextual_session_tokens_without_composition_requirements(self):
+        placeholder = "[REDACTED_SESSION_TOKEN]"
+        all_alpha_token = "FwoGZXIvYXdzEFakeSessionTokenOnlyAlpha"
+        all_numeric_token = "123456789012345678901234567890"
+        cases = [
+            (
+                f"aws_session_token={all_alpha_token}",
+                f"aws_session_token={placeholder}",
+                all_alpha_token,
+            ),
+            (
+                f"X-Amz-Security-Token: {all_numeric_token}",
+                f"X-Amz-Security-Token: {placeholder}",
+                all_numeric_token,
+            ),
+        ]
+
+        for text, expected, token in cases:
+            with self.subTest(text=text):
+                redacted = redact_sensitive_content(text)
+
+                self.assertEqual(redacted, expected)
+                self.assertNotIn(token, redacted)
+
+    def test_redaction_preserves_unanchored_session_token_shaped_values(self):
+        token = "FwoGZXIvYXdzEFakeSessionToken0123456789+/=="
+        text = f"Opaque cloud value observed in logs: {token}"
+
+        self.assertEqual(redact_sensitive_content(text), text)
+
+    def test_redaction_preserves_benign_session_token_mentions(self):
+        text = (
+            "Session token rotation is scheduled. "
+            "security_token=short-value. "
+            "X-Amz-Security-Token examples are documented."
+        )
+
+        self.assertEqual(redact_sensitive_content(text), text)
 
     def test_redaction_preserves_non_aws_secret_access_key_mentions(self):
         text = (
@@ -3142,6 +3219,46 @@ class SafetyPolicyTests(unittest.TestCase):
             "[REDACTED_SIGNED_CLOUD_STORAGE_SIGNATURE]",
             "\n".join(result["security_warnings"]),
         )
+
+    def test_prompt_summary_and_warning_paths_redact_session_tokens(self):
+        processor = _processor_module()
+        token = _aws_session_token_fixture()
+        email = {
+            "id": "cloud-session-token-1",
+            "subject": f"Temporary cloud token aws_session_token={token}",
+            "sender": "Cloud Ops",
+            "date": "2026-05-10",
+            "snippet": f"X-Amz-Security-Token: {token}",
+            "security_warnings": [
+                f"Temporary session token was present: security_token={token}",
+            ],
+            "content": f"AWS session token: {token}",
+            "is_archived": False,
+        }
+
+        prompt = processor._build_prompt(email, redact_sensitive=True)
+        original_create = processor.anthropic.completions.create
+        processor.anthropic.completions.create = (
+            lambda **kwargs: types.SimpleNamespace(
+                completion=f"Summary: copied aws_session_token={token}."
+            )
+        )
+        try:
+            result = processor.extract_insights(email)
+        finally:
+            processor.anthropic.completions.create = original_create
+
+        self.assertNotIn(token, prompt)
+        self.assertNotIn(token, result["summary"])
+        self.assertNotIn(token, "\n".join(result["security_warnings"]))
+        self.assertNotIn(token, result["subject"])
+        self.assertIn("[REDACTED_SESSION_TOKEN]", prompt)
+        self.assertIn("[REDACTED_SESSION_TOKEN]", result["summary"])
+        self.assertIn(
+            "[REDACTED_SESSION_TOKEN]",
+            "\n".join(result["security_warnings"]),
+        )
+        self.assertIn("[REDACTED_SESSION_TOKEN]", result["subject"])
 
     def test_redaction_preserves_benign_fragments(self):
         text = (

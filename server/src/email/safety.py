@@ -438,6 +438,31 @@ _AWS_SECRET_ACCESS_KEY_AFTER_CONTEXT_RE = re.compile(
     rf"(?(quote)(?P=quote))",
     re.IGNORECASE,
 )
+_SESSION_TOKEN_PLACEHOLDER = "[REDACTED_SESSION_TOKEN]"
+_SESSION_TOKEN_CONTEXT = (
+    r"(?:"
+    r"aws[_\-\s]*session[_\-\s]*token|"
+    r"x[-_\s]*amz[-_\s]*security[-_\s]*token|"
+    r"session[_\-\s]*token|"
+    r"security[_\-\s]*token"
+    r")"
+)
+_SESSION_TOKEN_VALUE = (
+    r"(?=[A-Za-z0-9._~+/%=-]{16,}(?![A-Za-z0-9._~+/%=-]))"
+    r"[A-Za-z0-9_~+/%=-][A-Za-z0-9._~+/%=-]*[A-Za-z0-9_~+/%=-]"
+)
+_SESSION_TOKEN_AFTER_CONTEXT_RE = re.compile(
+    rf"(?<![A-Za-z0-9_])"
+    rf"(?P<context_quote>[\"'])?"
+    rf"(?P<context>{_SESSION_TOKEN_CONTEXT})"
+    rf"(?(context_quote)(?P=context_quote))"
+    rf"(?![A-Za-z0-9_])"
+    rf"(?P<between>\s*(?:(?:is|are|was)\s+|[:=]\s*|-\s*|\s+))"
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<session_token>{_SESSION_TOKEN_VALUE})"
+    rf"(?(quote)(?P=quote))",
+    re.IGNORECASE,
+)
 _WEBHOOK_SIGNING_SECRET_PLACEHOLDER = "[REDACTED_WEBHOOK_SIGNING_SECRET]"
 _WEBHOOK_SIGNING_SECRET_CONTEXT = (
     r"(?:"
@@ -5579,6 +5604,18 @@ def _redact_aws_secret_access_keys(text: str) -> str:
     )
 
 
+def _redact_session_token(match: re.Match) -> str:
+    return _replace_match_group(
+        match,
+        "session_token",
+        _SESSION_TOKEN_PLACEHOLDER,
+    )
+
+
+def _redact_session_tokens(text: str) -> str:
+    return _SESSION_TOKEN_AFTER_CONTEXT_RE.sub(_redact_session_token, text)
+
+
 def _redact_webhook_signing_secret(match: re.Match) -> str:
     return _replace_match_group(
         match,
@@ -5889,6 +5926,7 @@ def redact_credential_content(text: str) -> str:
     redacted = _JWT_RE.sub("[REDACTED_JWT]", redacted)
     redacted = _AWS_ACCESS_KEY_ID_RE.sub("[REDACTED_AWS_KEY]", redacted)
     redacted = _redact_aws_secret_access_keys(redacted)
+    redacted = _redact_session_tokens(redacted)
     redacted = _redact_webhook_signing_secrets(redacted)
     # Provider-shaped keys run before generic api_key redaction to keep specific placeholders.
     redacted = _OPENAI_API_KEY_RE.sub(_OPENAI_API_KEY_PLACEHOLDER, redacted)
