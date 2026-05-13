@@ -1459,7 +1459,18 @@ _LINK_TARGET = (
     rf"(?:{_EXTERNAL_URL_TARGET}|"
     rf"(?:(?:the|this|that|an?|your)\s+)?(?:[\w-]+\s+){{0,4}}{_LINK_NOUN})"
 )
-_CLICK_LINK_TARGET = rf"(?:here|{_LINK_TARGET})"
+_LINK_BUTTON_NOUN = r"(?:buttons?|cta|call[-\s]?to[-\s]?action(?:\s+buttons?)?)"
+_LINK_BUTTON_TARGET = (
+    rf"(?:(?:the|this|that|an?|your)\s+)?"
+    rf"(?:[\w-]+\s+){{0,4}}{_LINK_BUTTON_NOUN}\b"
+)
+_LINK_ACTION_SUFFIX = (
+    r"(?:\s+(?:in|from|on|within)\s+"
+    r"(?:(?:the|this|that)\s+)?(?:email|message|thread))?"
+    r"(?:\s+(?:to|for|and|with)\s+[\w-]+(?:\s+[\w-]+){0,8})?"
+)
+_LINK_ACTION_END = rf"{_LINK_ACTION_SUFFIX}{_TARGET_END}"
+_CLICK_LINK_TARGET = rf"(?:here|{_LINK_TARGET}|{_LINK_BUTTON_TARGET})"
 _QR_CONTEXT_MODIFIER = (
     r"(?:(?:authenticator|mfa|2fa|two[-\s]?factor|multi[-\s]?factor|"
     r"totp|login|sign[-\s]?in|verification)\s+){0,3}"
@@ -3430,13 +3441,22 @@ _DIRECTIVE_PATTERNS = {
     ],
     "click_link": [
         re.compile(
-            rf"{_ACTION_SUGGESTION_START}(?:click|follow)\s+(?:on\s+)?"
-            rf"{_CLICK_LINK_TARGET}\b"
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"(?:click|follow|tap|press|select|choose)\s+(?:on\s+)?"
+            rf"{_CLICK_LINK_TARGET}\b{_LINK_ACTION_END}"
         ),
     ],
     "open_link": [
         re.compile(
             rf"{_ACTION_SUGGESTION_START}(?:open|visit)\s+{_LINK_TARGET}\b"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:navigate|browse|go)\s+to\s+"
+            rf"{_LINK_TARGET}\b{_LINK_ACTION_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}launch\s+{_LINK_TARGET}\b"
+            rf"{_LINK_ACTION_END}"
         ),
     ],
     "open_attachment": [

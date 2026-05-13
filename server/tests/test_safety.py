@@ -3663,7 +3663,19 @@ class SafetyPolicyTests(unittest.TestCase):
             ("Open the URL.", "open_link"),
             ("Visit https://example.com.", "open_link"),
             ("Visit example.com.", "open_link"),
+            ("Click the link with care.", "click_link"),
             ("Follow the reset link.", "click_link"),
+            ("Follow the reset link with care.", "click_link"),
+            ("Follow the reset link and continue.", "click_link"),
+            ("Tap the sign-in link.", "click_link"),
+            ("Press the reset link to verify.", "click_link"),
+            ("Select the verification button.", "click_link"),
+            ("Choose the call-to-action button to continue.", "click_link"),
+            ("Click the CTA in this email.", "click_link"),
+            ("Navigate to https://example.com.", "open_link"),
+            ("Browse to the website.", "open_link"),
+            ("Go to the reset page.", "open_link"),
+            ("Launch the URL.", "open_link"),
             ("Download the attachment.", "download_attachment"),
             ("Open the attached PDF.", "open_attachment"),
             ("Open the attached PDF carefully.", "open_attachment"),
@@ -3808,6 +3820,9 @@ class SafetyPolicyTests(unittest.TestCase):
             ("Open the\nURL.", "open_link"),
             ("Visit\nhttps://example.com.", "open_link"),
             ("Follow the reset\nlink.", "click_link"),
+            ("Tap the\nsign-in link.", "click_link"),
+            ("Choose the reset\nbutton.", "click_link"),
+            ("Navigate to the\nwebsite.", "open_link"),
             ("Download the\nattachment.", "download_attachment"),
             ("Open the attached\nPDF.", "open_attachment"),
             ("Open the\nPDF.", "open_attachment"),
@@ -6607,6 +6622,13 @@ class SafetyPolicyTests(unittest.TestCase):
             "PDF review is needed before any user action.\n"
             "The report mentions a download link but does not request opening it.\n"
             "Link review is needed before any user action.\n"
+            "The sender mentions a verification button for manual review.\n"
+            "Button text is included in the message.\n"
+            "Select your communication preferences during setup.\n"
+            "Choose the premium plan when comparing options.\n"
+            "The primary button text is Continue.\n"
+            "The reset link text is included for reference.\n"
+            "The email asks the user to tap a link, but no automated action is required.\n"
             "Draft assistance: mention the attachment without opening it."
         )
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
