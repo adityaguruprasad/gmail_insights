@@ -73,6 +73,21 @@ def _fixture_google_oauth_token():
     )
 
 
+def _fixture_npm_access_token():
+    return _fixture_secret(
+        "a1b2",
+        "c3d4",
+        "e5f6",
+        "A7B8",
+        "C9D0",
+        "e1f2",
+        "a3b4",
+        "c5d6",
+        "E7F8",
+        "a9b0",
+    )
+
+
 def _fixture_phone():
     return _fixture_secret("415", "-", "555", "-", "0199")
 
@@ -1329,6 +1344,47 @@ class ProcessorPromptTests(unittest.TestCase):
         )
         self.assertIn("[REDACTED_DATE_OF_BIRTH]", result["summary"])
         self.assertIn("[REDACTED_DATE_OF_BIRTH]", result["security_warnings"][0])
+
+    def test_prompt_summary_warnings_and_public_fields_redact_npm_access_tokens(self):
+        token = _fixture_npm_access_token()
+        npmrc_line = f"//registry.npmjs.org/:_authToken={token}"
+        email = {
+            "id": "metadata-npm-token-1",
+            "subject": f"Publish token NPM_TOKEN={token}",
+            "sender": f"Build Ops NODE_AUTH_TOKEN={token} <build@example.test>",
+            "date": "2026-05-13",
+            "snippet": f"Registry config: {npmrc_line}",
+            "security_warnings": [
+                f"npm auth token is {token} in forwarded output.",
+            ],
+            "content": f"Use this read-only package log: {npmrc_line}",
+            "is_archived": False,
+        }
+
+        prompt = processor._build_prompt(email, redact_sensitive=True)
+        with patch.object(
+            processor.anthropic.completions,
+            "create",
+            return_value=types.SimpleNamespace(
+                completion=f"Summary copied npm token {npmrc_line}."
+            ),
+        ):
+            result = processor.extract_insights(email)
+
+        returned_text = (
+            result["subject"]
+            + " "
+            + result["sender"]
+            + " "
+            + result["summary"]
+            + " "
+            + " ".join(result["security_warnings"])
+        )
+        self.assertNotIn(token, prompt)
+        self.assertNotIn(token, returned_text)
+        self.assertIn("[REDACTED_NPM_TOKEN]", prompt)
+        self.assertIn("[REDACTED_NPM_TOKEN]", returned_text)
+        self.assertIn("build@example.test", result["sender"])
 
     def test_extract_insights_neutralizes_inline_role_markers_in_returned_metadata(self):
         email = {

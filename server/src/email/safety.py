@@ -570,6 +570,36 @@ _SENDGRID_API_KEY_RE = re.compile(
     r"SG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}"
     r"(?![A-Za-z0-9_-])"
 )
+_NPM_ACCESS_TOKEN_PLACEHOLDER = "[REDACTED_NPM_TOKEN]"
+# After a strong npm auth-token context, accept long hex/UUID-shaped values to
+# avoid leaking registry tokens, even if artifact-like hashes may be redacted.
+_NPM_ACCESS_TOKEN_VALUE = (
+    r"(?<![A-Za-z0-9_-])(?:"
+    r"npm_[A-Za-z0-9]{20,}|"
+    r"[A-Fa-f0-9]{32,128}|"
+    r"[A-Fa-f0-9]{8}(?:-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}"
+    r")(?![A-Za-z0-9_-])"
+)
+_NPM_ACCESS_TOKEN_RE = re.compile(
+    r"(?<![A-Za-z0-9_-])npm_[A-Za-z0-9]{20,}(?![A-Za-z0-9_-])"
+)
+_NPM_AUTH_TOKEN_CONTEXT = (
+    r"(?:"
+    r"npm[_\-\s]*(?:auth[_\-\s]*)?token|"
+    r"node[_\-\s]*auth[_\-\s]*token|"
+    r"_authToken|"
+    r"_auth[_-]?token"
+    r")"
+)
+_NPM_AUTH_TOKEN_AFTER_CONTEXT_RE = re.compile(
+    rf"(?<![A-Za-z0-9_])(?P<context>{_NPM_AUTH_TOKEN_CONTEXT})"
+    rf"(?![A-Za-z0-9_])"
+    rf"(?P<between>\s*(?:(?:is|are|was)\s+|[:=]\s*|-\s*))"
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<npm_token>{_NPM_ACCESS_TOKEN_VALUE})"
+    rf"(?(quote)(?P=quote))",
+    re.IGNORECASE,
+)
 _SLACK_TOKEN_RE = re.compile(r"\b(?:xox[abprs]|xapp)-[A-Za-z0-9-]{10,}\b")
 _GITHUB_TOKEN_RE = re.compile(
     r"\b(?:gh[pousr]_[A-Za-z0-9_]{20,255}|github_pat_[A-Za-z0-9_]{22,255})\b"
@@ -5936,6 +5966,22 @@ def _redact_webhook_signing_secrets(text: str) -> str:
     )
 
 
+def _redact_npm_access_token(match: re.Match) -> str:
+    return _replace_match_group(
+        match,
+        "npm_token",
+        _NPM_ACCESS_TOKEN_PLACEHOLDER,
+    )
+
+
+def _redact_npm_access_tokens(text: str) -> str:
+    redacted = _NPM_AUTH_TOKEN_AFTER_CONTEXT_RE.sub(
+        _redact_npm_access_token,
+        text,
+    )
+    return _NPM_ACCESS_TOKEN_RE.sub(_NPM_ACCESS_TOKEN_PLACEHOLDER, redacted)
+
+
 def _webhook_url_path_segments(path: str) -> List[str]:
     return [unquote(segment) for segment in path.split("/") if segment]
 
@@ -6341,6 +6387,7 @@ def redact_credential_content(text: str) -> str:
     redacted = _redact_aws_secret_access_keys(redacted)
     redacted = _redact_session_tokens(redacted)
     redacted = _redact_webhook_signing_secrets(redacted)
+    redacted = _redact_npm_access_tokens(redacted)
     redacted = _redact_provider_webhook_urls(redacted)
     # Provider-shaped keys run before generic api_key redaction to keep specific placeholders.
     redacted = _OPENAI_API_KEY_RE.sub(_OPENAI_API_KEY_PLACEHOLDER, redacted)
@@ -6405,6 +6452,7 @@ def sanitize_untrusted_email_text(text: str) -> str:
     sanitized = _redact_cookie_artifacts(sanitized)
     sanitized = _redact_provider_webhook_urls(sanitized)
     sanitized = _redact_authenticator_enrollment_secrets(sanitized)
+    sanitized = _redact_npm_access_tokens(sanitized)
     sanitized = _PROMPT_BOUNDARY_MARKER_RE.sub(
         "[quoted-prompt-boundary]",
         sanitized,

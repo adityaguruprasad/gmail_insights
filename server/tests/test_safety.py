@@ -127,6 +127,32 @@ def _sendgrid_api_key_fixture():
     )
 
 
+def _npm_access_token_fixture():
+    return _fixture_secret(
+        "a1b2",
+        "c3d4",
+        "e5f6",
+        "A7B8",
+        "C9D0",
+        "e1f2",
+        "a3b4",
+        "c5d6",
+        "E7F8",
+        "a9b0",
+    )
+
+
+def _npm_prefixed_token_fixture():
+    return _fixture_secret(
+        "npm",
+        "_",
+        "AbCdEfGhIj",
+        "KlMnOpQrSt",
+        "UvWxYz0123",
+        "456789",
+    )
+
+
 def _slack_fixture_token(kind="b"):
     return _fixture_secret(
         "xo",
@@ -1506,6 +1532,123 @@ class SafetyPolicyTests(unittest.TestCase):
         for secret in (generic_token, jwt, sendgrid, slack, github):
             self.assertNotIn(secret, redacted)
 
+    def test_redaction_removes_contextual_npm_access_tokens(self):
+        token = _npm_access_token_fixture()
+        prefixed_token = _npm_prefixed_token_fixture()
+        uuid_token = _fixture_secret(
+            "f47ac10b",
+            "-",
+            "58cc",
+            "-",
+            "4372",
+            "-",
+            "a567",
+            "-",
+            "0e02b2c3d479",
+        )
+        cases = [
+            (
+                f"//registry.npmjs.org/:_authToken={token}",
+                "//registry.npmjs.org/:_authToken=[REDACTED_NPM_TOKEN]",
+                token,
+            ),
+            (
+                f'NPM_TOKEN="{token}"',
+                'NPM_TOKEN="[REDACTED_NPM_TOKEN]"',
+                token,
+            ),
+            (
+                f"NODE_AUTH_TOKEN: {token}",
+                "NODE_AUTH_TOKEN: [REDACTED_NPM_TOKEN]",
+                token,
+            ),
+            (
+                f"npm auth token is {token}.",
+                "npm auth token is [REDACTED_NPM_TOKEN].",
+                token,
+            ),
+            (
+                f"npm auth token is {uuid_token}.",
+                "npm auth token is [REDACTED_NPM_TOKEN].",
+                uuid_token,
+            ),
+            (
+                f"Forwarded npm credential {prefixed_token}.",
+                "Forwarded npm credential [REDACTED_NPM_TOKEN].",
+                prefixed_token,
+            ),
+        ]
+
+        for text, expected, secret in cases:
+            with self.subTest(text=text):
+                for redactor in (
+                    redact_credential_content,
+                    redact_response_metadata_content,
+                    redact_sensitive_content,
+                ):
+                    with self.subTest(redactor=redactor.__name__):
+                        redacted = redactor(text)
+
+                        self.assertEqual(redacted, expected)
+                        self.assertNotIn(secret, redacted)
+
+    def test_sanitize_untrusted_email_text_redacts_npm_access_tokens(self):
+        token = _npm_access_token_fixture()
+        text = (
+            f"Registry config: //registry.npmjs.org/:_authToken={token}\n"
+            "Keep package metadata visible."
+        )
+
+        sanitized = sanitize_untrusted_email_text(text)
+
+        self.assertNotIn(token, sanitized)
+        self.assertIn(
+            "//registry.npmjs.org/:_authToken=[REDACTED_NPM_TOKEN]",
+            sanitized,
+        )
+        self.assertIn("Keep package metadata visible.", sanitized)
+
+    def test_redaction_preserves_contextless_hex_uuid_shaped_values(self):
+        cases = [
+            (
+                "Release artifact id "
+                "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0 "
+                "is referenced in the changelog."
+            ),
+            (
+                "Trace correlation id "
+                "f47ac10b-58cc-4372-a567-0e02b2c3d479 "
+                "remained stable across retries."
+            ),
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                for redactor in (
+                    redact_credential_content,
+                    redact_response_metadata_content,
+                    redact_sensitive_content,
+                    sanitize_untrusted_email_text,
+                ):
+                    with self.subTest(redactor=redactor.__name__):
+                        redacted = redactor(text)
+
+                        self.assertEqual(redacted, text)
+                        self.assertNotIn("[REDACTED_NPM_TOKEN]", redacted)
+
+    def test_redaction_preserves_benign_npm_token_prose_and_placeholders(self):
+        text = (
+            "npm token rotation policy is ready. "
+            "NPM_TOKEN=${NPM_TOKEN} is an env placeholder. "
+            "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN} is documented. "
+            "npm token: abc123 is a short sample."
+        )
+
+        self.assertEqual(redact_credential_content(text), text)
+        self.assertEqual(redact_response_metadata_content(text), text)
+        self.assertEqual(redact_sensitive_content(text), text)
+        self.assertEqual(sanitize_untrusted_email_text(text), text)
+
     def test_redaction_preserves_provider_shaped_false_positives(self):
         cases = [
             "The task-sk-proj-rollout note describes sk-feature prefixes.",
@@ -1515,6 +1658,7 @@ class SafetyPolicyTests(unittest.TestCase):
             "Stripe fixtures sk_live_demo and sk_test_short are not credentials.",
             "Google docs mention AIza and AIzaShort, not a real key.",
             "SendGrid API key rotation policy covers SG prefix handling.",
+            "npm examples mention npm_ prefixes and NPM_TOKEN placeholders.",
         ]
 
         for text in cases:
