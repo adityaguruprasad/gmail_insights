@@ -342,6 +342,9 @@ def _html_attrs_hidden_or_suppressed(attrs_by_name: Dict[str, str]) -> bool:
     if not declarations:
         return False
 
+    if _css_keyword(declarations.get("mso-hide", "")) == "all":
+        return True
+
     if _css_keyword(declarations.get("display", "")) == "none":
         return True
 
