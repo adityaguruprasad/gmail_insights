@@ -23,6 +23,7 @@ app = Flask(__name__)
 # Form-submission requests often mean "summarize the form workflow"; keep serving
 # read-only summaries while reporting that the requested side effect is blocked.
 READ_THROUGH_BLOCKED_ACTIONS = {"submit_form"}
+MAX_REQUEST_TOKEN_LENGTH = 8192
 if not READ_THROUGH_BLOCKED_ACTIONS <= BLOCKED_ACTIONS:
     raise RuntimeError("READ_THROUGH_BLOCKED_ACTIONS must be blocked actions")
 
@@ -55,6 +56,7 @@ _LOG_REDACTIONS = (
         "[REDACTED:auth-error]",
     ),
 )
+_ASCII_CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 
 def _redact_log_text(text):
@@ -86,6 +88,12 @@ def _validation_error_response(exc):
     return jsonify({"error": exc.public_message}), 400
 
 
+class RequestTokenValidationError(ValueError):
+    def __init__(self, message):
+        super().__init__(message)
+        self.public_message = message
+
+
 def _token_scope_error_response():
     return (
         jsonify({"error": "Token is not authorized for read-only Gmail access."}),
@@ -97,12 +105,32 @@ def _validate_gmail_token_scope(token):
     validate_gmail_readonly_token(token, expected_audience=GMAIL_CLIENT_ID)
 
 
+def _validate_request_token(payload):
+    token = payload.get("token")
+    if token is None:
+        raise RequestTokenValidationError("No token provided")
+    if not isinstance(token, str):
+        raise RequestTokenValidationError("Token type must be a valid string.")
+    if len(token) > MAX_REQUEST_TOKEN_LENGTH:
+        raise RequestTokenValidationError(
+            f"Token exceeds max length of {MAX_REQUEST_TOKEN_LENGTH} characters."
+        )
+    if _ASCII_CONTROL_CHAR_RE.search(token):
+        raise RequestTokenValidationError(
+            "Token must not contain control characters."
+        )
+    if not token.strip():
+        raise RequestTokenValidationError("No token provided")
+    return token
+
+
 @app.route("/get_insights", methods=["POST"])
 def get_insights():
     payload = request.json or {}
-    token = payload.get("token")
-    if not token:
-        return jsonify({"error": "No token provided"}), 400
+    try:
+        token = _validate_request_token(payload)
+    except RequestTokenValidationError as exc:
+        return _validation_error_response(exc)
 
     try:
         _validate_gmail_token_scope(token)
@@ -129,10 +157,10 @@ def get_insights():
 @app.route("/query_insights", methods=["POST"])
 def query_insights():
     payload = request.json or {}
-    token = payload.get("token")
-
-    if not token:
-        return jsonify({"error": "No token provided"}), 400
+    try:
+        token = _validate_request_token(payload)
+    except RequestTokenValidationError as exc:
+        return _validation_error_response(exc)
 
     try:
         validated_payload = validate_query_insights_payload(payload)
