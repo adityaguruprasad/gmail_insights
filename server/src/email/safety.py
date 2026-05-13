@@ -1278,6 +1278,9 @@ _SENSITIVE_LINK_BEFORE_CONTEXT_RE = re.compile(
 )
 _SENSITIVE_URL_TRAILING_PUNCTUATION = ".,;:!?)]}"
 _PROMPT_ROLE_TAGS = r"system|assistant|user|developer|tool|human"
+_PROMPT_BOUNDARY_MARKER_RE = re.compile(
+    r"(?i)\b(?:BEGIN|END)_UNTRUSTED_EMAIL\b"
+)
 _ROLE_TAG_RE = re.compile(rf"(?im)^(\s*)({_PROMPT_ROLE_TAGS})\s*:\s*")
 _ACTION_ROLE_PREFIX = rf"(?:(?:{_PROMPT_ROLE_TAGS})\s*:\s*)?"
 _INSTRUCTION_PHRASE_RE = re.compile(
@@ -5986,6 +5989,10 @@ def sanitize_untrusted_email_text(text: str) -> str:
     sanitized = _redact_saml_sso_artifacts(sanitized)
     sanitized = _redact_oauth_oidc_authorization_artifacts(sanitized)
     sanitized = _redact_cookie_artifacts(sanitized)
+    sanitized = _PROMPT_BOUNDARY_MARKER_RE.sub(
+        "[quoted-prompt-boundary]",
+        sanitized,
+    )
     sanitized = _ROLE_TAG_RE.sub(r"\1[quoted-role \2] ", sanitized)
     sanitized = _INSTRUCTION_PHRASE_RE.sub(r"[quoted-instruction: \1]", sanitized)
     sanitized = _SAFETY_METADATA_DIRECTIVE_RE.sub(
