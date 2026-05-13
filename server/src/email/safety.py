@@ -5687,7 +5687,8 @@ def _redact_email_addresses(text: str) -> str:
     return _EMAIL_RE.sub(_redact_email_address, text)
 
 
-def redact_sensitive_content(text: str) -> str:
+def redact_credential_content(text: str) -> str:
+    """Redact credential-like secrets while preserving ordinary contact metadata."""
     if not text:
         return ""
 
@@ -5718,6 +5719,15 @@ def redact_sensitive_content(text: str) -> str:
     redacted = _API_TOKEN_RE.sub(r"\1\2[REDACTED_TOKEN]\2", redacted)
     redacted = _redact_app_passwords(redacted)
     redacted = _redact_wallet_seed_phrases(redacted)
+    return redacted
+
+
+def redact_sensitive_content(text: str) -> str:
+    """Redact all supported sensitive content, not only credentials."""
+    if not text:
+        return ""
+
+    redacted = redact_credential_content(text)
     redacted = _redact_bank_credentials(redacted)
     redacted = _PAYMENT_CARD_RE.sub(_redact_payment_card, redacted)
     redacted = _US_SSN_RE.sub("[REDACTED_SSN]", redacted)

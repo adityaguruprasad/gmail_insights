@@ -830,6 +830,54 @@ class ProcessorPromptTests(unittest.TestCase):
         )
         self.assertLessEqual(len(summary), processor.SUMMARY_MAX_RETURNED_LENGTH)
 
+    def test_extract_insights_redacts_credentials_from_returned_metadata(self):
+        google_token = _fixture_google_oauth_token()
+        api_token = _fixture_secret("metadata", "api", "token", "1234567890")
+        email = {
+            "id": "metadata-secret-1",
+            "subject": f"Credential review {google_token}",
+            "sender": f"Security Ops <security@example.com> api_key={api_token}",
+            "is_archived": False,
+        }
+
+        with patch.object(
+            processor.anthropic.completions,
+            "create",
+            return_value=types.SimpleNamespace(completion="Summary: ok"),
+        ):
+            result = processor.extract_insights(email, redact_sensitive=False)
+
+        self.assertNotIn(google_token, result["subject"])
+        self.assertNotIn(api_token, result["sender"])
+        self.assertEqual(
+            "Credential review [REDACTED_GOOGLE_TOKEN]",
+            result["subject"],
+        )
+        self.assertEqual(
+            "Security Ops <security@example.com> api_key=[REDACTED_TOKEN]",
+            result["sender"],
+        )
+
+    def test_extract_insights_preserves_benign_returned_metadata(self):
+        email = {
+            "id": "metadata-benign-1",
+            "subject": "Authorization code flow and tokenization launch notes",
+            "sender": "Maya Patel <maya@example.com>",
+            "is_archived": False,
+        }
+
+        with patch.object(
+            processor.anthropic.completions,
+            "create",
+            return_value=types.SimpleNamespace(completion="Summary: ok"),
+        ):
+            result = processor.extract_insights(email, redact_sensitive=False)
+
+        self.assertEqual(email["subject"], result["subject"])
+        self.assertEqual(email["sender"], result["sender"])
+        self.assertNotIn("[REDACTED", result["subject"])
+        self.assertNotIn("[REDACTED", result["sender"])
+
     def test_extract_insights_leaves_short_completion_unchanged(self):
         email = {
             "id": "email-1",
