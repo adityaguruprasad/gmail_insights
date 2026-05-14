@@ -2085,6 +2085,82 @@ class ProcessorPromptTests(unittest.TestCase):
         self.assertIn("[REDACTED_DATE_OF_BIRTH]", result["summary"])
         self.assertIn("[REDACTED_DATE_OF_BIRTH]", result["security_warnings"][0])
 
+    def test_prompt_summary_warnings_and_public_fields_redact_tax_identifiers(self):
+        subject_tax_id = "12-3456789"
+        sender_tax_id = "987654321"
+        snippet_tax_id = "98-7654321"
+        warning_tax_id = "11-1111111"
+        content_tax_id = "22 3333333"
+        summary_tax_id = "44-5555555"
+        email = {
+            "id": "metadata-tax-id-1",
+            "subject": f"Vendor tax ID: {subject_tax_id}",
+            "sender": f"Payroll EIN {sender_tax_id} <payroll@example.test>",
+            "date": "2026-05-13",
+            "snippet": f"Employer identification number is {snippet_tax_id}",
+            "security_warnings": [
+                f"Taxpayer identification number: {warning_tax_id}",
+            ],
+            "content": (
+                f"Federal tax identification number {content_tax_id} is in the form."
+            ),
+            "is_archived": False,
+        }
+        captured_prompt = {}
+
+        def fake_create(**kwargs):
+            captured_prompt["prompt"] = kwargs["prompt"]
+            return types.SimpleNamespace(
+                completion=f"Summary copied EIN {summary_tax_id}."
+            )
+
+        with patch.object(
+            processor.anthropic.completions,
+            "create",
+            side_effect=fake_create,
+        ):
+            result = processor.extract_insights(email)
+
+        prompt = captured_prompt["prompt"]
+        returned_text = (
+            result["subject"]
+            + " "
+            + result["sender"]
+            + " "
+            + result["summary"]
+            + " "
+            + " ".join(result["security_warnings"])
+        )
+        for sensitive_value in (
+            subject_tax_id,
+            sender_tax_id,
+            snippet_tax_id,
+            warning_tax_id,
+            content_tax_id,
+            summary_tax_id,
+        ):
+            with self.subTest(sensitive_value=sensitive_value):
+                self.assertNotIn(sensitive_value, prompt)
+                self.assertNotIn(sensitive_value, returned_text)
+
+        self.assertIn("Subject: Vendor tax ID: [REDACTED_TAX_ID]", prompt)
+        self.assertIn("Snippet: Employer identification number is [REDACTED_TAX_ID]", prompt)
+        self.assertIn(
+            "Content:\nFederal tax identification number [REDACTED_TAX_ID] "
+            "is in the form.",
+            prompt,
+        )
+        self.assertEqual("Vendor tax ID: [REDACTED_TAX_ID]", result["subject"])
+        self.assertEqual(
+            "Payroll EIN [REDACTED_TAX_ID] <payroll@example.test>",
+            result["sender"],
+        )
+        self.assertIn("[REDACTED_TAX_ID]", result["summary"])
+        self.assertEqual(
+            ["Taxpayer identification number: [REDACTED_TAX_ID]"],
+            result["security_warnings"],
+        )
+
     def test_prompt_summary_warnings_and_public_fields_redact_npm_access_tokens(self):
         token = _fixture_npm_access_token()
         npmrc_line = f"//registry.npmjs.org/:_authToken={token}"

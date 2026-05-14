@@ -1219,6 +1219,35 @@ class SafetyPolicyTests(unittest.TestCase):
 
         self.assertEqual(redacted.count("[REDACTED_DATE_OF_BIRTH]"), 4)
 
+    def test_response_metadata_redaction_redacts_contextual_tax_identifiers(self):
+        text = (
+            "Vendor tax ID: 12-3456789; employer identification number 987654321; "
+            '"123-45-6789" is the taxpayer identification number on file.'
+        )
+
+        redacted = redact_response_metadata_content(text)
+
+        for sensitive_value in ("12-3456789", "987654321", "123-45-6789"):
+            with self.subTest(sensitive_value=sensitive_value):
+                self.assertNotIn(sensitive_value, redacted)
+
+        self.assertIn(
+            '"[REDACTED_TAX_ID]" is the taxpayer identification number',
+            redacted,
+        )
+        self.assertEqual(redacted.count("[REDACTED_TAX_ID]"), 3)
+
+    def test_redact_sensitive_content_redacts_contextual_tax_identifier(self):
+        text = "Taxpayer identification number: 123-45-6789."
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(
+            redacted,
+            "Taxpayer identification number: [REDACTED_TAX_ID].",
+        )
+        self.assertNotIn("123-45-6789", redacted)
+
     def test_redact_sensitive_content_redacts_contextual_dates_of_birth(self):
         text = (
             "Member date of birth: 1990-01-31. "
@@ -1240,6 +1269,17 @@ class SafetyPolicyTests(unittest.TestCase):
             "DOB format YYYY-MM-DD is documented in the onboarding guide. "
             "The date of birth field is optional in test fixtures. "
             "Invoice date 2026-05-13 and order date 05/13/2026 are safe metadata."
+        )
+
+        self.assertEqual(redact_response_metadata_content(text), text)
+        self.assertEqual(redact_sensitive_content(text), text)
+        self.assertNotIn("[REDACTED", redact_response_metadata_content(text))
+
+    def test_response_metadata_redaction_preserves_benign_tax_prose(self):
+        text = (
+            "Tax ID format NN-NNNNNNN is documented in onboarding. "
+            "The EIN field is optional for sole proprietors. "
+            "Invoice 123456789 and order 12-3456789 remain searchable."
         )
 
         self.assertEqual(redact_response_metadata_content(text), text)

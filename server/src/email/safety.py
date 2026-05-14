@@ -223,6 +223,7 @@ _PASSPORT_NUMBER_PLACEHOLDER = "[REDACTED_PASSPORT_NUMBER]"
 _DRIVER_LICENSE_NUMBER_PLACEHOLDER = "[REDACTED_DRIVER_LICENSE_NUMBER]"
 _GOVERNMENT_ID_NUMBER_PLACEHOLDER = "[REDACTED_GOVERNMENT_ID_NUMBER]"
 _DATE_OF_BIRTH_PLACEHOLDER = "[REDACTED_DATE_OF_BIRTH]"
+_TAX_ID_PLACEHOLDER = "[REDACTED_TAX_ID]"
 _BANK_CONTEXT_BOUNDARY = r"(?![A-Za-z0-9_])"
 _BANK_VALUE_AFTER_CONTEXT_SEPARATOR = r"\s*(?:(?:is|are)\s+)?(?:[:,=#-]\s*)?"
 _BANK_VALUE_BEFORE_CONTEXT_SEPARATOR = (
@@ -333,6 +334,30 @@ _DATE_OF_BIRTH_VALUE = (
     rf"{_DATE_OF_BIRTH_DAY}\s+{_DATE_OF_BIRTH_MONTH_NAME}\.?,?\s+{_DATE_OF_BIRTH_YEAR}"
     rf")(?![A-Za-z0-9])"
 )
+_TAX_ID_CONTEXT = (
+    r"(?:"
+    r"(?:federal\s+)?tax\s+(?:ids?|identification\s+numbers?)|"
+    r"taxpayer\s+(?:ids?|identification\s+numbers?)|"
+    r"employer\s+(?:ids?|identification\s+numbers?)|"
+    r"individual\s+taxpayer\s+identification\s+numbers?|"
+    r"ein"
+    r")"
+)
+_TAX_ID_VALUE_AFTER_CONTEXT_SEPARATOR = (
+    r"\s*(?:(?:is|are|was)\s+)?(?:[:,=#-]\s*)?"
+)
+_TAX_ID_VALUE_BEFORE_CONTEXT_SEPARATOR = (
+    r"(?:\s+|\s*[-:=,]\s*)"
+    r"(?:(?:is|are|was|as|for)\s+)?"
+    r"(?:(?:your|my|our|the|this|that|a|an)\s+)?"
+)
+_TAX_ID_VALUE = (
+    r"(?<![A-Za-z0-9])(?:"
+    r"\d{2}[- ]?\d{7}|"
+    r"\d{3}[- ]?\d{2}[- ]?\d{4}|"
+    r"\d{9}"
+    r")(?![A-Za-z0-9])"
+)
 _BANK_ROUTING_AFTER_CONTEXT_RE = re.compile(
     rf"(?<![A-Za-z0-9_])(?P<context>{_BANK_ROUTING_CONTEXT})"
     rf"{_BANK_CONTEXT_BOUNDARY}"
@@ -439,6 +464,24 @@ _DATE_OF_BIRTH_BEFORE_CONTEXT_RE = re.compile(
     rf"(?P<between>{_DATE_OF_BIRTH_VALUE_BEFORE_CONTEXT_SEPARATOR})"
     rf"(?P<context>{_DATE_OF_BIRTH_CONTEXT})"
     rf"{_DATE_OF_BIRTH_CONTEXT_BOUNDARY}",
+    re.IGNORECASE,
+)
+_TAX_ID_AFTER_CONTEXT_RE = re.compile(
+    rf"(?<![A-Za-z0-9_])(?P<context>{_TAX_ID_CONTEXT})"
+    rf"{_IDENTITY_DOCUMENT_CONTEXT_BOUNDARY}"
+    rf"(?P<between>{_TAX_ID_VALUE_AFTER_CONTEXT_SEPARATOR})"
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<tax_id>{_TAX_ID_VALUE})"
+    rf"(?(quote)(?P=quote))",
+    re.IGNORECASE,
+)
+_TAX_ID_BEFORE_CONTEXT_RE = re.compile(
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<tax_id>{_TAX_ID_VALUE})"
+    rf"(?(quote)(?P=quote))"
+    rf"(?P<between>{_TAX_ID_VALUE_BEFORE_CONTEXT_SEPARATOR})"
+    rf"(?P<context>{_TAX_ID_CONTEXT})"
+    rf"{_IDENTITY_DOCUMENT_CONTEXT_BOUNDARY}",
     re.IGNORECASE,
 )
 _GOOGLE_OAUTH_TOKEN_RE = re.compile(r"\bya29\.[A-Za-z0-9._-]+\b")
@@ -6311,6 +6354,10 @@ def _redact_date_of_birth(match: re.Match) -> str:
     )
 
 
+def _redact_tax_id(match: re.Match) -> str:
+    return _replace_match_group(match, "tax_id", _TAX_ID_PLACEHOLDER)
+
+
 def _redact_identity_document_numbers(text: str) -> str:
     redacted = _PASSPORT_NUMBER_AFTER_CONTEXT_RE.sub(
         _redact_passport_number,
@@ -6341,6 +6388,11 @@ def _redact_identity_document_numbers(text: str) -> str:
 def _redact_date_of_birth_values(text: str) -> str:
     redacted = _DATE_OF_BIRTH_AFTER_CONTEXT_RE.sub(_redact_date_of_birth, text)
     return _DATE_OF_BIRTH_BEFORE_CONTEXT_RE.sub(_redact_date_of_birth, redacted)
+
+
+def _redact_tax_identifiers(text: str) -> str:
+    redacted = _TAX_ID_AFTER_CONTEXT_RE.sub(_redact_tax_id, text)
+    return _TAX_ID_BEFORE_CONTEXT_RE.sub(_redact_tax_id, redacted)
 
 
 def _redact_private_key_assignment(match: re.Match) -> str:
@@ -6475,6 +6527,7 @@ def redact_response_metadata_content(text: str) -> str:
 
     redacted = redact_credential_content(text)
     redacted = _redact_bank_credentials(redacted)
+    redacted = _redact_tax_identifiers(redacted)
     redacted = _PAYMENT_CARD_RE.sub(_redact_payment_card, redacted)
     redacted = _US_SSN_RE.sub("[REDACTED_SSN]", redacted)
     redacted = _redact_date_of_birth_values(redacted)
