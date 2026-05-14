@@ -1633,10 +1633,12 @@ _REPORT_SPAM_TARGET = (
     rf"\b{_TARGET_END}"
 )
 _MARK_REPORT_PHISHING_TARGET = (
-    rf"(?:{_MAILBOX_OBJECT}\s+)?(?:as|for)\s+{_REPORT_PHISHING_TERM}\b{_TARGET_END}"
+    rf"(?:{_MAILBOX_OBJECT}\s+(?:(?:as|for)\s+)?{_REPORT_PHISHING_TERM}"
+    rf"|(?:as|for)\s+{_REPORT_PHISHING_TERM})\b{_TARGET_END}"
 )
 _MARK_REPORT_SPAM_TARGET = (
-    rf"(?:{_MAILBOX_OBJECT}\s+)?(?:as|for)\s+{_REPORT_SPAM_TERM}\b{_TARGET_END}"
+    rf"(?:{_MAILBOX_OBJECT}\s+(?:(?:as|for)\s+)?{_REPORT_SPAM_TERM}"
+    rf"|(?:as|for)\s+{_REPORT_SPAM_TERM})\b{_TARGET_END}"
 )
 _IMPORTANCE_MARKER_TARGET = (
     rf"(?:(?:{_MAILBOX_OBJECT}\s+(?:as\s+)?)?"

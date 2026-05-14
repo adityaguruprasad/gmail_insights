@@ -4925,14 +4925,20 @@ class SafetyPolicyTests(unittest.TestCase):
             ("Report the thread as junk.", "report_spam"),
             ("Report this email as abuse.", "report_spam"),
             ("Mark this email as phishing.", "report_phishing"),
+            ("Mark this email phishing.", "report_phishing"),
             ("Mark the message as spam.", "report_spam"),
+            ("Mark the message spam.", "report_spam"),
             ("Flag this email as phishing.", "report_phishing"),
+            ("Flag this email phishing.", "report_phishing"),
             ("Mark as phishing.", "report_phishing"),
             ("Flag as spam.", "report_spam"),
             ("Flag this email as spam.", "report_spam"),
+            ("Flag this email spam.", "report_spam"),
             ("Report these emails as phishing.", "report_phishing"),
             ("Mark those threads as junk.", "report_spam"),
+            ("Mark those threads junk.", "report_spam"),
             ("Flag these messages as spam.", "report_spam"),
+            ("Flag these messages spam.", "report_spam"),
             (
                 "Recommended action: report this email as phishing.",
                 "report_phishing",
@@ -4968,6 +4974,9 @@ class SafetyPolicyTests(unittest.TestCase):
             "The email appears to be phishing.\n"
             "The message looks like spam.\n"
             "Spam indicators are present for manual review.\n"
+            "Mark spam indicators for manual review.\n"
+            "Flag phishing risk for manual review.\n"
+            "Mark this email phishing risk for manual review.\n"
             "Phishing risk is high; review carefully.\n"
             "These emails show phishing indicators for manual review.\n"
             "Those threads look like spam but require manual review.\n"

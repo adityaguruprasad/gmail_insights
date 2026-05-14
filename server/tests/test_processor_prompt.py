@@ -1564,6 +1564,49 @@ class ProcessorPromptTests(unittest.TestCase):
         self.assertIn("Archive suggestion: No, still active.", result["summary"])
         self.assertNotIn("blocked_suggestions", result)
 
+    def test_extract_insights_blocks_report_abuse_suggestions_without_as(self):
+        email = {
+            "id": "email-1",
+            "subject": "Suspicious message",
+            "sender": "ops@example.com",
+            "is_archived": False,
+        }
+        completion = (
+            "Summary: Suspicious message.\n"
+            "Action items:\n"
+            "- Mark this message spam.\n"
+            "- Flag this email phishing.\n"
+            "Draft assistance: No reply draft needed.\n"
+            "Archive suggestion: No, keep it visible."
+        )
+
+        with patch.object(
+            processor.anthropic.completions,
+            "create",
+            return_value=types.SimpleNamespace(completion=completion),
+        ):
+            result = processor.extract_insights(email, redact_sensitive=False)
+
+        self.assertEqual(
+            2,
+            result["summary"].count("[Unsafe action suggestion removed]"),
+        )
+        self.assertNotIn("Mark this message spam", result["summary"])
+        self.assertNotIn("Flag this email phishing", result["summary"])
+        self.assertIn("Draft assistance: No reply draft needed.", result["summary"])
+        self.assertIn("Archive suggestion: No, keep it visible.", result["summary"])
+        self.assertEqual(
+            {
+                "id",
+                "subject",
+                "sender",
+                "is_archived",
+                "security_warnings",
+                "summary",
+            },
+            set(result),
+        )
+
     def test_extract_insights_clips_long_completion_with_marker(self):
         email = {
             "id": "email-1",
