@@ -2095,10 +2095,15 @@ _MAILBOX_ACCESS_PERMISSION = (
 _MAILBOX_ACCESS_CONTEXT_SUFFIX = (
     rf"(?:\s+(?:for|in|on|within)\s+{_MAILBOX_ACCESS_RESOURCE})?"
 )
+_BOX_FILE_UPLOAD_DESTINATION = (
+    r"(?:(?:app\.|www\.)?box\.com|"
+    r"box\s+(?:account|drive|cloud\s+storage|cloud|storage|folder))"
+)
 _FILE_UPLOAD_DESTINATION = (
     r"(?:(?:the|this|that|your)\s+)?"
     r"(?:google\s+drive|drive|dropbox|one\s*drive|onedrive|sharepoint|"
-    r"icloud|client\s+portal|customer\s+portal|vendor\s+portal|"
+    rf"icloud|{_BOX_FILE_UPLOAD_DESTINATION}|client\s+portal|"
+    r"customer\s+portal|vendor\s+portal|"
     r"accounting\s+portal|portal|file\s+sharing\s+(?:site|service|platform)|"
     r"cloud\s+(?:storage|folder))\b"
 )
