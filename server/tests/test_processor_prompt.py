@@ -96,6 +96,29 @@ def _gmail_b64(text):
     return base64.urlsafe_b64encode(text.encode("utf-8")).decode("ascii").rstrip("=")
 
 
+def _body_part(mime_type, text, *, filename="", headers=None):
+    return {
+        "mimeType": mime_type,
+        "filename": filename,
+        "headers": headers or [],
+        "body": {"data": _gmail_b64(text)},
+    }
+
+
+def _attachment_part(filename, mime_type="application/octet-stream"):
+    return {
+        "mimeType": mime_type,
+        "filename": filename,
+        "headers": [
+            {
+                "name": "Content-Disposition",
+                "value": f'attachment; filename="{filename}"',
+            }
+        ],
+        "body": {},
+    }
+
+
 def _mime_b64_header(text):
     encoded = base64.b64encode(text.encode("utf-8")).decode("ascii")
     return f"=?UTF-8?B?{encoded}?="
@@ -134,16 +157,22 @@ class _GmailService:
 
 
 def _fetched_email_from_headers(headers):
+    return _fetched_email_from_payload(
+        {
+            "mimeType": "text/plain",
+            "headers": headers,
+            "body": {"data": _gmail_b64("Visible body")},
+        }
+    )
+
+
+def _fetched_email_from_payload(payload):
     message = {
         "id": "msg-1",
         "threadId": "thread-1",
         "labelIds": ["INBOX"],
         "snippet": "Visible snippet",
-        "payload": {
-            "mimeType": "text/plain",
-            "headers": headers,
-            "body": {"data": _gmail_b64("Visible body")},
-        },
+        "payload": payload,
     }
     service = _GmailService({"msg-1": message})
     return fetcher.get_emails_by_query(service, query="from:encoded@example.test")[0]
@@ -1449,6 +1478,53 @@ class ProcessorPromptTests(unittest.TestCase):
         self.assertIn(
             "You may propose a safe draft outline and archive recommendation only.",
             prompt,
+        )
+
+    def test_active_web_content_attachment_warning_reaches_prompt_and_public_warnings(self):
+        email = _fetched_email_from_payload(
+            {
+                "mimeType": "multipart/mixed",
+                "headers": [
+                    {"name": "Subject", "value": "Invoice review"},
+                    {"name": "From", "value": "Billing <billing@example.test>"},
+                    {"name": "Date", "value": "Thu, 14 May 2026 09:30:00 -0700"},
+                ],
+                "parts": [
+                    _body_part("text/plain", "Please review the invoice notes."),
+                    _attachment_part("invoice.html", "text/html"),
+                ],
+            }
+        )
+        captured_prompt = {}
+
+        def fake_create(**kwargs):
+            captured_prompt["prompt"] = kwargs["prompt"]
+            return types.SimpleNamespace(completion="Summary: ok")
+
+        with patch.object(
+            processor.anthropic.completions,
+            "create",
+            side_effect=fake_create,
+        ):
+            result = processor.extract_insights(email, redact_sensitive=False)
+
+        warning = (
+            "Attachment invoice.html is active web content and may contain "
+            "scripts or credential collection pages."
+        )
+        prompt = captured_prompt["prompt"]
+
+        self.assertIn(
+            f"Security warnings (read-only): {warning}",
+            prompt,
+        )
+        self.assertEqual([warning], result["security_warnings"])
+        self.assertIn("Please review the invoice notes.", prompt)
+        self.assertNotIn("blocked_actions", result)
+        self.assertNotIn("effective_actions", result)
+        self.assertEqual(
+            {"id", "subject", "sender", "is_archived", "security_warnings", "summary"},
+            set(result),
         )
 
     def test_prompt_includes_sanitized_security_warnings_as_read_only_context(self):

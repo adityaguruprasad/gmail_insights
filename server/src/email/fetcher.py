@@ -145,6 +145,16 @@ _EXECUTABLE_ATTACHMENT_EXTENSIONS = {
     ".sh",
 }
 _MACRO_ENABLED_ATTACHMENT_EXTENSIONS = {".docm", ".xlsm", ".pptm"}
+_ACTIVE_WEB_CONTENT_ATTACHMENT_EXTENSIONS = {
+    ".html",
+    ".htm",
+    ".xhtml",
+    ".hta",
+    ".svg",
+    ".mhtml",
+    ".mht",
+    ".shtml",
+}
 _ARCHIVE_ATTACHMENT_EXTENSIONS = {
     ".zip",
     ".rar",
@@ -1301,6 +1311,7 @@ def _deceptive_double_attachment_extensions(
     if (
         extension not in _EXECUTABLE_ATTACHMENT_EXTENSIONS
         and extension not in _MACRO_ENABLED_ATTACHMENT_EXTENSIONS
+        and extension not in _ACTIVE_WEB_CONTENT_ATTACHMENT_EXTENSIONS
     ):
         return None
 
@@ -1335,6 +1346,12 @@ def _attachment_security_warning(filename: str) -> Optional[str]:
             return (
                 f"Attachment {filename} uses executable or script file extension "
                 f"{extension} and may contain active content."
+            )
+
+        if extension in _ACTIVE_WEB_CONTENT_ATTACHMENT_EXTENSIONS:
+            return (
+                f"Attachment {filename} is active web content and may contain "
+                "scripts or credential collection pages."
             )
 
         if extension in _ARCHIVE_ATTACHMENT_EXTENSIONS:

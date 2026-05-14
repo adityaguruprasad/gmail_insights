@@ -530,6 +530,66 @@ class FetcherAttachmentSecurityWarningTests(unittest.TestCase):
             ["Attachment logs.tgz is an archive file and may conceal other files."],
         )
 
+    def test_get_emails_by_query_warns_for_new_active_web_content_attachment_extension(
+        self,
+    ):
+        email = _email_from_payload(
+            {
+                "mimeType": "multipart/mixed",
+                "headers": _headers(),
+                "parts": [
+                    _body_part("text/plain", "Diagram attached."),
+                    _attachment_part("diagram.svg", "image/svg+xml"),
+                ],
+            }
+        )
+
+        self.assertEqual(
+            email["security_warnings"],
+            [
+                "Attachment diagram.svg is active web content and may contain "
+                "scripts or credential collection pages."
+            ],
+        )
+
+    def test_get_emails_by_query_warns_for_active_web_content_double_extension_attachment(
+        self,
+    ):
+        email = _email_from_payload(
+            {
+                "mimeType": "multipart/mixed",
+                "headers": _headers(),
+                "parts": [
+                    _body_part("text/plain", "Invoice attached."),
+                    _attachment_part("invoice.pdf.html", "text/html"),
+                ],
+            }
+        )
+
+        self.assertEqual(
+            email["security_warnings"],
+            [
+                "Attachment invoice.pdf.html uses a deceptive double extension "
+                "(.pdf.html) and may contain active content."
+            ],
+        )
+
+    def test_get_emails_by_query_does_not_warn_for_html_extension_near_miss_text_file(
+        self,
+    ):
+        email = _email_from_payload(
+            {
+                "mimeType": "multipart/mixed",
+                "headers": _headers(),
+                "parts": [
+                    _body_part("text/plain", "Export attached."),
+                    _attachment_part("report.html.txt", "text/plain"),
+                ],
+            }
+        )
+
+        self.assertEqual(email["security_warnings"], [])
+
     def test_get_emails_by_query_dedupes_duplicate_attachment_warnings(self):
         email = _email_from_payload(
             {
@@ -2037,7 +2097,11 @@ class FetcherHtmlSecurityWarningTests(unittest.TestCase):
 
         self.assertEqual(
             email["security_warnings"],
-            ["Link text host example.com points to different host evil.test."],
+            [
+                "Link text host example.com points to different host evil.test.",
+                "Attachment attachment.html is active web content and may contain "
+                "scripts or credential collection pages.",
+            ],
         )
         warnings_text = "\n".join(email["security_warnings"])
         self.assertNotIn("javascript", warnings_text)
