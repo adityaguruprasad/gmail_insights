@@ -1476,11 +1476,16 @@ _PROMPT_SECRET_EXFILTRATION_TARGET = (
 )
 _ACTION_ROLE_PREFIX = rf"(?:(?:{_PROMPT_ROLE_TAGS})\s*:\s*)?"
 _PROMPT_INSTRUCTION_REFERENCE = r"(?:all\s+)?(?:the\s+)?(?:previous|prior|above)"
+_PROMPT_PROTECTED_INSTRUCTION_REFERENCE = (
+    r"(?:(?:all|any)\s+)?(?:(?:the|your)\s+)?"
+    r"(?:system|developer|hidden|internal|original)\s+"
+    r"(?:prompts?|instructions?|messages?|polic(?:y|ies)|rules?|directives?)"
+)
 _INSTRUCTION_PHRASE_RE = re.compile(
     rf"(?i)\b("
-    rf"ignore\s+{_PROMPT_INSTRUCTION_REFERENCE}\s+instructions?"
-    rf"|disregard\s+{_PROMPT_INSTRUCTION_REFERENCE}\s+instructions?"
-    rf"|forget\s+{_PROMPT_INSTRUCTION_REFERENCE}\s+instructions?"
+    rf"(?:ignore|disregard|forget)\s+"
+    rf"(?:{_PROMPT_INSTRUCTION_REFERENCE}\s+instructions?"
+    rf"|{_PROMPT_PROTECTED_INSTRUCTION_REFERENCE})"
     rf"|follow\s+these\s+instructions?"
     rf"|(?:show|print|reveal|display|disclose|dump|leak|exfiltrate|"
     rf"tell|share|repeat|recite|output|echo)\s+"
