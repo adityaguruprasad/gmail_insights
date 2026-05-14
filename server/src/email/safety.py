@@ -1558,15 +1558,24 @@ _ACTION_ROLE_PREFIX = (
     rf"(?:(?:{_PROMPT_ROLE_TAGS})\s*{_PROMPT_ROLE_SEPARATOR}\s*)?"
 )
 _PROMPT_INSTRUCTION_REFERENCE = r"(?:all\s+)?(?:the\s+)?(?:previous|prior|above|earlier)"
+# Keep bare previous/prior/above/earlier "messages" out of the unprotected
+# matcher; that phrasing is common benign email-thread prose. Messages only
+# match protected references such as system/developer/internal/original messages.
+_PROMPT_INSTRUCTION_OBJECT = (
+    r"(?:prompts?|instructions?|polic(?:y|ies)|rules?|directives?)"
+)
+_PROMPT_PROTECTED_INSTRUCTION_OBJECT = (
+    r"(?:prompts?|instructions?|messages?|polic(?:y|ies)|rules?|directives?)"
+)
 _PROMPT_PROTECTED_INSTRUCTION_REFERENCE = (
     r"(?:(?:all|any)\s+)?(?:(?:the|your)\s+)?"
     r"(?:system|developer|hidden|internal|original)\s+"
-    r"(?:prompts?|instructions?|messages?|polic(?:y|ies)|rules?|directives?)"
+    rf"{_PROMPT_PROTECTED_INSTRUCTION_OBJECT}"
 )
 _INSTRUCTION_PHRASE_RE = re.compile(
     rf"(?i)\b("
     rf"(?:ignore|disregard|forget)\s+"
-    rf"(?:{_PROMPT_INSTRUCTION_REFERENCE}\s+instructions?"
+    rf"(?:{_PROMPT_INSTRUCTION_REFERENCE}\s+{_PROMPT_INSTRUCTION_OBJECT}"
     rf"|{_PROMPT_PROTECTED_INSTRUCTION_REFERENCE})"
     rf"|follow\s+these\s+instructions?"
     rf"|(?:show|print|reveal|display|disclose|dump|leak|exfiltrate|"
