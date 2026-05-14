@@ -197,6 +197,22 @@ _CSS_COLOR_FUNCTION_RE = re.compile(
     r"^(rgba?|hsla?)\((.*)\)$",
     re.IGNORECASE | re.DOTALL,
 )
+_CSS_RECT_FUNCTION_RE = re.compile(
+    r"^rect\((.*)\)$",
+    re.IGNORECASE | re.DOTALL,
+)
+_CSS_INSET_FUNCTION_RE = re.compile(
+    r"^inset\((.*)\)$",
+    re.IGNORECASE | re.DOTALL,
+)
+_CSS_CIRCLE_FUNCTION_RE = re.compile(
+    r"^circle\((.*)\)$",
+    re.IGNORECASE | re.DOTALL,
+)
+_CSS_ELLIPSE_FUNCTION_RE = re.compile(
+    r"^ellipse\((.*)\)$",
+    re.IGNORECASE | re.DOTALL,
+)
 _CSS_COLOR_KEYWORDS_TO_IGNORE = {
     "currentcolor",
     "inherit",
@@ -437,6 +453,130 @@ def _normalize_css_color(value: str) -> Optional[str]:
     return None
 
 
+def _css_rect_clips_all_text(value: str) -> bool:
+    candidate = _css_keyword(value)
+    match = _CSS_RECT_FUNCTION_RE.fullmatch(candidate)
+    if not match:
+        return False
+
+    args = match.group(1).strip()
+    if "," in args:
+        parts = [part.strip() for part in args.split(",")]
+    else:
+        parts = args.split()
+    if len(parts) != 4:
+        return False
+
+    lengths: List[Optional[float]] = []
+    for part in parts:
+        if part.strip().lower() == "auto":
+            lengths.append(None)
+            continue
+
+        length = _css_numeric_length(part)
+        if length is None:
+            return False
+        lengths.append(length)
+
+    top, right, bottom, left = lengths
+    height_clipped = top is not None and bottom is not None and bottom <= top
+    width_clipped = left is not None and right is not None and right <= left
+    return height_clipped or width_clipped
+
+
+def _css_percentage(value: str) -> Optional[float]:
+    candidate = _strip_css_important(value).strip().lower()
+    if not candidate.endswith("%"):
+        return None
+
+    try:
+        return float(candidate[:-1])
+    except ValueError:
+        return None
+
+
+def _css_inset_clips_all_text(value: str) -> bool:
+    candidate = _css_keyword(value)
+    match = _CSS_INSET_FUNCTION_RE.fullmatch(candidate)
+    if not match:
+        return False
+
+    args = re.split(r"\s+round\s+", match.group(1).strip(), maxsplit=1)[0]
+    if not args or "," in args:
+        return False
+
+    parts = args.split()
+    if len(parts) == 1:
+        top = right = bottom = left = parts[0]
+    elif len(parts) == 2:
+        top = bottom = parts[0]
+        right = left = parts[1]
+    elif len(parts) == 3:
+        top = parts[0]
+        right = left = parts[1]
+        bottom = parts[2]
+    elif len(parts) == 4:
+        top, right, bottom, left = parts
+    else:
+        return False
+
+    top_percent = _css_percentage(top)
+    right_percent = _css_percentage(right)
+    bottom_percent = _css_percentage(bottom)
+    left_percent = _css_percentage(left)
+    return (
+        top_percent is not None
+        and bottom_percent is not None
+        and top_percent + bottom_percent >= 100
+    ) or (
+        right_percent is not None
+        and left_percent is not None
+        and right_percent + left_percent >= 100
+    )
+
+
+def _css_circle_clips_all_text(value: str) -> bool:
+    candidate = _css_keyword(value)
+    match = _CSS_CIRCLE_FUNCTION_RE.fullmatch(candidate)
+    if not match:
+        return False
+
+    radius = re.split(r"\s+at\s+", match.group(1).strip(), maxsplit=1)[0]
+    radius_parts = radius.split()
+    if len(radius_parts) != 1:
+        return False
+
+    length = _css_numeric_length(radius_parts[0])
+    return length is not None and length == 0
+
+
+def _css_ellipse_clips_all_text(value: str) -> bool:
+    candidate = _css_keyword(value)
+    match = _CSS_ELLIPSE_FUNCTION_RE.fullmatch(candidate)
+    if not match:
+        return False
+
+    radii = re.split(r"\s+at\s+", match.group(1).strip(), maxsplit=1)[0]
+    radius_parts = radii.split()
+    if len(radius_parts) != 2:
+        return False
+
+    for part in radius_parts:
+        length = _css_numeric_length(part)
+        if length is not None and length == 0:
+            return True
+
+    return False
+
+
+def _css_clip_path_clips_all_text(value: str) -> bool:
+    return (
+        _css_inset_clips_all_text(value)
+        or _css_circle_clips_all_text(value)
+        or _css_ellipse_clips_all_text(value)
+    )
+
+
 def _html_attrs_hidden_or_suppressed(attrs_by_name: Dict[str, str]) -> bool:
     if "hidden" in attrs_by_name:
         return True
@@ -474,6 +614,15 @@ def _html_attrs_hidden_or_suppressed(attrs_by_name: Dict[str, str]) -> bool:
             return True
 
     if _css_large_negative_text_indent(declarations.get("text-indent", "")):
+        return True
+
+    if _css_rect_clips_all_text(declarations.get("clip", "")):
+        return True
+
+    if any(
+        _css_clip_path_clips_all_text(declarations.get(property_name, ""))
+        for property_name in ("clip-path", "-webkit-clip-path")
+    ):
         return True
 
     if (
