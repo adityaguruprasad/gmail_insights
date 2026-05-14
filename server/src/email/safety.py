@@ -1631,6 +1631,24 @@ _LABEL_TARGET = r"(?:(?:the|an|a)\s+)?(?:(?:[\w-]+\s+){0,5})?labels?"
 _LABEL_MUTATION_VERB = r"(?:add|remove|apply|change|modify)"
 _DELETE_TARGET = rf"delete\s+{_MAILBOX_OBJECT}\b"
 _PERMANENT_DELETE_TARGET = rf"\bpermanent(?:ly)?\s+{_DELETE_TARGET}"
+_DESTRUCTIVE_MAILBOX_FOLDER_NOUN = (
+    r"(?:trash|deleted\s+(?:items|messages|emails)|spam|junk)"
+    r"(?:\s+(?:folder|mailbox|label|messages|emails|bin))?"
+)
+_DESTRUCTIVE_MAILBOX_BIN_TARGET = (
+    r"(?:(?:the|your|my|our)\s+bin|"
+    r"(?:(?:the|your|my|our)\s+)?bin\s+(?:folder|mailbox|label|messages|emails))"
+)
+_DESTRUCTIVE_MAILBOX_FOLDER_TARGET = (
+    rf"(?:"
+    rf"(?:(?:the|your|my|our)\s+)?{_DESTRUCTIVE_MAILBOX_FOLDER_NOUN}"
+    rf"|{_DESTRUCTIVE_MAILBOX_BIN_TARGET}"
+    rf")"
+)
+_DESTRUCTIVE_MAILBOX_FOLDER_ACTION = (
+    rf"(?:empty(?:\s+out)?|clear|purge)\s+"
+    rf"{_DESTRUCTIVE_MAILBOX_FOLDER_TARGET}(?:\s+completely)?"
+)
 # Keep generic delete from also matching the delete verb inside a permanent-delete directive.
 _GENERIC_DELETE_RECOMMENDATION_LEAD_IN = rf"(?:(?!{_PERMANENT_DELETE_TARGET}).)*"
 _URGENCY_SUFFIX = (
@@ -3575,6 +3593,14 @@ _DIRECTIVE_PATTERNS = {
         re.compile(
             rf"{_RECOMMENDATION_PREFIX}{_PERMANENT_DELETE_TARGET}"
         ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}"
+            rf"{_DESTRUCTIVE_MAILBOX_FOLDER_ACTION}{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_MIDLINE_ACTION_SUGGESTION_START}"
+            rf"{_DESTRUCTIVE_MAILBOX_FOLDER_ACTION}{_TARGET_END}"
+        ),
     ],
     "trash": [
         re.compile(rf"{_DIRECTIVE_START}trash\s+{_MAILBOX_OBJECT}\b"),
@@ -5029,7 +5055,12 @@ _ACTION_WORD_PATTERNS = {
     "send": re.compile(r"(?i)\bsend\b"),
     "reply": re.compile(r"(?i)\breply\b"),
     "delete": re.compile(r"(?i)\bdelete\b"),
-    "permanent_delete": re.compile(r"(?i)\bpermanent(?:ly)?\s+delete\b"),
+    # Emptying destructive mailbox folders is irreversible enough to share the
+    # permanent_delete safety bucket even when the text does not say "delete".
+    "permanent_delete": re.compile(
+        rf"(?i)\b(?:permanent(?:ly)?\s+delete|"
+        rf"{_DESTRUCTIVE_MAILBOX_FOLDER_ACTION})\b"
+    ),
     "trash": re.compile(r"(?i)\btrash\b"),
     "forward": re.compile(r"(?i)\bforward\b"),
     "mark_read": re.compile(r"(?i)\bmark\b.*\bread\b"),

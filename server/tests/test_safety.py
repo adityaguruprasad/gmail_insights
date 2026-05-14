@@ -8874,12 +8874,54 @@ class SafetyPolicyTests(unittest.TestCase):
                 self.assertEqual(guarded, "[Unsafe action suggestion removed]")
                 self.assertEqual(blocked, ["permanent_delete"])
 
+    def test_neutralize_unsafe_action_suggestions_blocks_empty_trash_or_spam(self):
+        cases = [
+            "- Empty the trash folder.",
+            "- Empty out the trash.",
+            "Action items: Empty the trash completely.",
+            "Action items: Empty the trash bin.",
+            "Action items: clear spam now.",
+            "Recommended action: purge deleted messages immediately.",
+            "Next steps: empty your junk mailbox as soon as possible.",
+            "Action items: empty the bin.",
+            "Action items: clear bin folder.",
+            "The next step is clear: recommended action: empty trash.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["permanent_delete"])
+
     def test_neutralize_unsafe_action_suggestions_preserves_permanent_delete_descriptions(self):
         text = (
             "Summary: The permanent delete option is disabled by policy.\n"
             "Summary: Permanently deleted messages cannot be restored.\n"
             "Summary: Users may ask why impermanent delete this thread is unclear."
         )
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_empty_trash_descriptions(self):
+        text = (
+            "Summary: The trash folder is empty.\n"
+            "Summary: Empty trash folder policy is disabled by admin.\n"
+            "Archive suggestion: No, keep the inbox copy while trash is reviewed."
+        )
+
+        guarded, blocked = neutralize_unsafe_action_suggestions(text)
+        self.assertEqual(guarded, text)
+        self.assertEqual(blocked, [])
+
+    def test_neutralize_unsafe_action_suggestions_preserves_generic_empty_folder_phrases(self):
+        text = (
+            "Action items: Empty out the temporary folder.\n"
+            "Action items: Empty the reports folder completely.\n"
+            "Action items: Clear bin directory permissions."
+        )
+
         guarded, blocked = neutralize_unsafe_action_suggestions(text)
         self.assertEqual(guarded, text)
         self.assertEqual(blocked, [])

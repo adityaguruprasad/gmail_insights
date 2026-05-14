@@ -2039,6 +2039,49 @@ class ProcessorPromptTests(unittest.TestCase):
         self.assertIn("Archive suggestion: No, still active.", result["summary"])
         self.assertNotIn("blocked_suggestions", result)
 
+    def test_extract_insights_blocks_empty_trash_suggestions_without_mutation_surface(self):
+        email = {
+            "id": "email-1",
+            "subject": "Mailbox cleanup note",
+            "sender": "ops@example.com",
+            "is_archived": False,
+        }
+        completion = (
+            "Summary: Cleanup request was mentioned.\n"
+            "Action items: Empty the trash folder now.\n"
+            "Draft assistance: Prepare a neutral draft outline.\n"
+            "Archive suggestion: No, keep it visible."
+        )
+
+        with patch.object(
+            processor.anthropic.completions,
+            "create",
+            return_value=types.SimpleNamespace(completion=completion),
+        ):
+            result = processor.extract_insights(email, redact_sensitive=False)
+
+        self.assertIn("[Unsafe action suggestion removed]", result["summary"])
+        self.assertNotIn("Empty the trash folder", result["summary"])
+        self.assertIn(
+            "Draft assistance: Prepare a neutral draft outline.",
+            result["summary"],
+        )
+        self.assertIn("Archive suggestion: No, keep it visible.", result["summary"])
+        self.assertEqual(
+            {
+                "id",
+                "subject",
+                "sender",
+                "is_archived",
+                "security_warnings",
+                "summary",
+            },
+            set(result),
+        )
+        self.assertFalse(result["is_archived"])
+        self.assertNotIn("blocked_actions", result)
+        self.assertNotIn("effective_actions", result)
+
     def test_extract_insights_blocks_report_abuse_suggestions_without_as(self):
         email = {
             "id": "email-1",
