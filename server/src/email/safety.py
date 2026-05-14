@@ -1493,15 +1493,20 @@ _INVISIBLE_PROMPT_CONTROL_TRANSLATION = str.maketrans(
     _INVISIBLE_PROMPT_CONTROL_CHARACTERS,
 )
 _PROMPT_ROLE_TAGS = r"system|assistant|user|developer|tool|human"
+_PROMPT_ROLE_SEPARATOR = r"[:\ufe13\ufe55\uff1a]"
 _PROMPT_BOUNDARY_MARKER_RE = re.compile(
     r"(?i)\b(?:BEGIN|END)_UNTRUSTED_EMAIL\b"
 )
-_ROLE_TAG_RE = re.compile(rf"(?im)^(\s*)({_PROMPT_ROLE_TAGS})\s*:\s*")
+_ROLE_TAG_RE = re.compile(
+    rf"(?im)^(\s*)({_PROMPT_ROLE_TAGS})\s*{_PROMPT_ROLE_SEPARATOR}\s*"
+)
 _INLINE_ROLE_TAG_RE = re.compile(
-    rf"(?i)(?<![\w/@.-])({_PROMPT_ROLE_TAGS})\s*:\s*"
+    rf"(?i)(?<![\w/@.-])({_PROMPT_ROLE_TAGS})"
+    rf"\s*{_PROMPT_ROLE_SEPARATOR}\s*"
 )
 _MARKDOWN_ROLE_HEADING_RE = re.compile(
-    rf"(?im)^([ \t]{{0,3}}#{{1,6}}\s*)({_PROMPT_ROLE_TAGS})(\s*:\s*|\s*$)"
+    rf"(?im)^([ \t]{{0,3}}#{{1,6}}\s*)({_PROMPT_ROLE_TAGS})"
+    rf"(\s*{_PROMPT_ROLE_SEPARATOR}\s*|\s*$)"
 )
 _MODEL_CONTROL_TOKEN_RE = re.compile(
     rf"(?i)"
@@ -1533,7 +1538,9 @@ _PROMPT_SECRET_EXFILTRATION_TARGET = (
     r"|internal\s+messages?(?!\s+from\b)"
     r")"
 )
-_ACTION_ROLE_PREFIX = rf"(?:(?:{_PROMPT_ROLE_TAGS})\s*:\s*)?"
+_ACTION_ROLE_PREFIX = (
+    rf"(?:(?:{_PROMPT_ROLE_TAGS})\s*{_PROMPT_ROLE_SEPARATOR}\s*)?"
+)
 _PROMPT_INSTRUCTION_REFERENCE = r"(?:all\s+)?(?:the\s+)?(?:previous|prior|above)"
 _PROMPT_PROTECTED_INSTRUCTION_REFERENCE = (
     r"(?:(?:all|any)\s+)?(?:(?:the|your)\s+)?"
@@ -3521,7 +3528,7 @@ _DIRECTIVE_PATTERNS = {
     ],
     "send": [
         re.compile(
-            rf"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?send\s+"
+            rf"{_ACTION_SUGGESTION_START}send\s+"
             rf"{_NON_VERIFICATION_CODE_SEND_TARGET_START}"
         ),
         re.compile(
@@ -3534,7 +3541,7 @@ _DIRECTIVE_PATTERNS = {
         ),
     ],
     "reply": [
-        re.compile(r"(?i)^\s*(?:[-*]|\d+[.)])?\s*(?:please\s+)?reply\s+to\b"),
+        re.compile(rf"{_ACTION_SUGGESTION_START}reply\s+to\b"),
         re.compile(
             r"(?i)\b(?:you\s+should|you\s+must|next\s+step(?:s)?|action\s+item(?:s)?|recommended\s+action(?:s)?)\b"
             r".*\breply\s+to\b"
