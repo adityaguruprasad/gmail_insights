@@ -1,6 +1,7 @@
 import base64
 import re
 from email import policy
+from email.header import decode_header
 from email.parser import Parser
 from html.parser import HTMLParser
 from typing import Dict, List, Optional, Tuple
@@ -1410,6 +1411,38 @@ def _header_value(headers: List[Dict], key: str, default: str = "") -> str:
     return default
 
 
+_ASCII_HEADER_DISPLAY_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _normalize_header_display_controls(value: str) -> str:
+    return _ASCII_HEADER_DISPLAY_CONTROL_RE.sub(" ", value)
+
+
+def _decode_mime_header_value(value: str) -> str:
+    unfolded_value = str(value or "").replace("\r", " ").replace("\n", " ")
+    try:
+        decoded_parts = decode_header(unfolded_value)
+    except Exception:
+        return _normalize_header_display_controls(unfolded_value)
+
+    chunks = []
+    for chunk, charset in decoded_parts:
+        if isinstance(chunk, bytes):
+            encoding = charset or "utf-8"
+            try:
+                chunks.append(chunk.decode(encoding, errors="replace"))
+            except LookupError:
+                chunks.append(chunk.decode("utf-8", errors="replace"))
+        else:
+            chunks.append(str(chunk))
+
+    return _normalize_header_display_controls("".join(chunks))
+
+
+def _display_header_value(headers: List[Dict], key: str, default: str = "") -> str:
+    return _decode_mime_header_value(_header_value(headers, key, default))
+
+
 def _header_values(headers: List[Dict], key: str) -> List[str]:
     return [
         str(item.get("value", ""))
@@ -1597,9 +1630,9 @@ def get_emails_by_query(service, query: str, max_results: int = 100) -> List[Dic
             {
                 "id": msg.get("id"),
                 "thread_id": msg.get("threadId"),
-                "subject": _header_value(headers, "Subject", "(No Subject)"),
-                "sender": _header_value(headers, "From", "Unknown Sender"),
-                "date": _header_value(headers, "Date", ""),
+                "subject": _display_header_value(headers, "Subject", "(No Subject)"),
+                "sender": _display_header_value(headers, "From", "Unknown Sender"),
+                "date": _display_header_value(headers, "Date", ""),
                 "snippet": msg.get("snippet", ""),
                 "label_ids": label_ids,
                 "is_archived": "INBOX" not in label_ids,
