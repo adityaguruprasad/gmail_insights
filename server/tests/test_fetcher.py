@@ -366,6 +366,133 @@ class FetcherAttachmentSecurityWarningTests(unittest.TestCase):
             ],
         )
 
+    def test_get_emails_by_query_decodes_rfc2047_attachment_filename_for_warning(self):
+        email = _email_from_payload(
+            {
+                "mimeType": "multipart/mixed",
+                "headers": _headers(),
+                "parts": [
+                    _body_part("text/plain", "Invoice attached."),
+                    {
+                        "mimeType": "application/octet-stream",
+                        "filename": "=?UTF-8?B?aW52b2ljZS5wZGYuZXhl?=",
+                        "headers": [
+                            {"name": "Content-Disposition", "value": "attachment"}
+                        ],
+                        "body": {},
+                    },
+                ],
+            }
+        )
+
+        self.assertEqual(
+            email["security_warnings"],
+            [
+                "Attachment invoice.pdf.exe uses a deceptive double extension "
+                "(.pdf.exe) and may contain active content."
+            ],
+        )
+
+    def test_get_emails_by_query_decodes_rfc2047_header_parameter_filename_warning(
+        self,
+    ):
+        email = _email_from_payload(
+            {
+                "mimeType": "multipart/mixed",
+                "headers": _headers(),
+                "parts": [
+                    _body_part("text/plain", "Invoice attached."),
+                    {
+                        "mimeType": "application/octet-stream",
+                        "filename": "",
+                        "headers": [
+                            {
+                                "name": "Content-Disposition",
+                                "value": (
+                                    'attachment; filename='
+                                    '"=?UTF-8?B?aW52b2ljZS5wZGYuZXhl?="'
+                                ),
+                            }
+                        ],
+                        "body": {},
+                    },
+                ],
+            }
+        )
+
+        self.assertEqual(
+            email["security_warnings"],
+            [
+                "Attachment invoice.pdf.exe uses a deceptive double extension "
+                "(.pdf.exe) and may contain active content."
+            ],
+        )
+
+    def test_get_emails_by_query_folds_control_chars_in_attachment_warning(self):
+        email = _email_from_payload(
+            {
+                "mimeType": "multipart/mixed",
+                "headers": _headers(),
+                "parts": [
+                    _body_part("text/plain", "System package attached."),
+                    _attachment_part("payload.exe\r\nAttachment safe.pdf\x00ignore\x7f"),
+                ],
+            }
+        )
+
+        self.assertEqual(
+            email["security_warnings"],
+            [
+                "Attachment payload.exe Attachment safe.pdf ignore uses executable "
+                "or script file extension .exe and may contain active content."
+            ],
+        )
+        self.assertNotIn("\n", email["security_warnings"][0])
+        self.assertNotIn("\r", email["security_warnings"][0])
+
+    def test_get_emails_by_query_strips_attachment_path_components(self):
+        for filename in (
+            "C:\\Users\\alice\\Downloads\\payload.js",
+            "../../payload.js",
+        ):
+            with self.subTest(filename=filename):
+                email = _email_from_payload(
+                    {
+                        "mimeType": "multipart/mixed",
+                        "headers": _headers(),
+                        "parts": [
+                            _body_part("text/plain", "Script attached."),
+                            _attachment_part(filename),
+                        ],
+                    }
+                )
+
+                self.assertEqual(
+                    email["security_warnings"],
+                    [
+                        "Attachment payload.js uses executable or script file "
+                        "extension .js and may contain active content."
+                    ],
+                )
+
+    def test_get_emails_by_query_preserves_benign_unicode_attachment_filename(self):
+        part = _attachment_part("r\u00e9sum\u00e9.pdf", "application/pdf")
+
+        self.assertEqual(fetcher._attachment_filename(part), "r\u00e9sum\u00e9.pdf")
+
+        email = _email_from_payload(
+            {
+                "mimeType": "multipart/mixed",
+                "headers": _headers(),
+                "parts": [
+                    _body_part("text/plain", "Resume attached."),
+                    part,
+                ],
+            }
+        )
+
+        self.assertEqual(email["security_warnings"], [])
+
     def test_get_emails_by_query_normalizes_double_extension_case_and_trailing_dot(self):
         email = _email_from_payload(
             {
@@ -381,8 +508,8 @@ class FetcherAttachmentSecurityWarningTests(unittest.TestCase):
         self.assertEqual(
             email["security_warnings"],
             [
-                "Attachment Uploads/Invoice.PDF.EXE. uses a deceptive double "
-                "extension (.pdf.exe) and may contain active content."
+                "Attachment Invoice.PDF.EXE. uses a deceptive double extension "
+                "(.pdf.exe) and may contain active content."
             ],
         )
 

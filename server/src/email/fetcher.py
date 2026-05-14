@@ -1238,14 +1238,39 @@ def _header_parameter(headers: List[Dict], key: str, parameter: str) -> str:
     return str(params.get(parameter, "") or "")
 
 
+def _decode_attachment_filename(filename: str) -> str:
+    return _decode_mime_header_value(filename)
+
+
+def _canonical_attachment_filename(filename: str) -> str:
+    normalized = _normalize_header_display_controls(str(filename or ""))
+    basename = re.split(r"[\\/]+", normalized)[-1]
+    return " ".join(basename.split())
+
+
 def _attachment_filename(part: Dict) -> str:
     headers = part.get("headers", []) or []
-    filename = (
-        str(part.get("filename") or "")
-        or _header_parameter(headers, "Content-Disposition", "filename")
-        or _header_parameter(headers, "Content-Type", "name")
+    part_filename = str(part.get("filename") or "")
+    if part_filename:
+        return _canonical_attachment_filename(
+            _decode_attachment_filename(part_filename)
+        )
+
+    filename = _header_parameter(
+        headers, "Content-Disposition", "filename"
+    ) or _header_parameter(headers, "Content-Type", "name")
+    return _canonical_attachment_filename(_decode_attachment_filename(filename))
+
+
+def _attachment_extension_candidates(filename: str) -> List[str]:
+    basename = re.split(r"[\\/]+", filename.strip().lower().rstrip(" ."))[-1]
+    candidates = [basename]
+    # After control-character folding, line-forged text can trail a filename;
+    # test each token so forged text cannot hide a dangerous extension.
+    candidates.extend(part.rstrip(" .") for part in basename.split())
+    return _dedupe_preserving_order(
+        [candidate for candidate in candidates if candidate]
     )
-    return " ".join(filename.replace("\r", " ").replace("\n", " ").split())
 
 
 def _attachment_extensions(filename: str) -> List[str]:
@@ -1289,30 +1314,33 @@ def _deceptive_double_attachment_extensions(
 
 
 def _attachment_security_warning(filename: str) -> Optional[str]:
-    double_extensions = _deceptive_double_attachment_extensions(filename)
-    if double_extensions:
-        previous_extension, extension = double_extensions
-        return (
-            f"Attachment {filename} uses a deceptive double extension "
-            f"({previous_extension}{extension}) and may contain active content."
-        )
+    extension_candidates = _attachment_extension_candidates(filename)
+    for extension_filename in extension_candidates:
+        double_extensions = _deceptive_double_attachment_extensions(extension_filename)
+        if double_extensions:
+            previous_extension, extension = double_extensions
+            return (
+                f"Attachment {filename} uses a deceptive double extension "
+                f"({previous_extension}{extension}) and may contain active content."
+            )
 
-    extension = _attachment_extension(filename)
-    if extension in _MACRO_ENABLED_ATTACHMENT_EXTENSIONS:
-        return (
-            f"Attachment {filename} is macro-enabled and may contain active content."
-        )
+    for extension_filename in extension_candidates:
+        extension = _attachment_extension(extension_filename)
+        if extension in _MACRO_ENABLED_ATTACHMENT_EXTENSIONS:
+            return (
+                f"Attachment {filename} is macro-enabled and may contain active content."
+            )
 
-    if extension in _EXECUTABLE_ATTACHMENT_EXTENSIONS:
-        return (
-            f"Attachment {filename} uses executable or script file extension "
-            f"{extension} and may contain active content."
-        )
+        if extension in _EXECUTABLE_ATTACHMENT_EXTENSIONS:
+            return (
+                f"Attachment {filename} uses executable or script file extension "
+                f"{extension} and may contain active content."
+            )
 
-    if extension in _ARCHIVE_ATTACHMENT_EXTENSIONS:
-        return (
-            f"Attachment {filename} is an archive file and may conceal other files."
-        )
+        if extension in _ARCHIVE_ATTACHMENT_EXTENSIONS:
+            return (
+                f"Attachment {filename} is an archive file and may conceal other files."
+            )
 
     return None
 
