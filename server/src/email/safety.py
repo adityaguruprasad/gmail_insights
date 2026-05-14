@@ -1541,7 +1541,7 @@ _PROMPT_SECRET_EXFILTRATION_TARGET = (
 _ACTION_ROLE_PREFIX = (
     rf"(?:(?:{_PROMPT_ROLE_TAGS})\s*{_PROMPT_ROLE_SEPARATOR}\s*)?"
 )
-_PROMPT_INSTRUCTION_REFERENCE = r"(?:all\s+)?(?:the\s+)?(?:previous|prior|above)"
+_PROMPT_INSTRUCTION_REFERENCE = r"(?:all\s+)?(?:the\s+)?(?:previous|prior|above|earlier)"
 _PROMPT_PROTECTED_INSTRUCTION_REFERENCE = (
     r"(?:(?:all|any)\s+)?(?:(?:the|your)\s+)?"
     r"(?:system|developer|hidden|internal|original)\s+"
