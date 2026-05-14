@@ -267,6 +267,7 @@ def extract_insights(email, redact_sensitive: bool = True):
             has_security_warnings=bool(returned_security_warnings),
         )
     )
+    guarded_summary = sanitize_untrusted_email_text(guarded_summary)
     guarded_summary = redact_sensitive_content(guarded_summary)
     guarded_summary = _clip_generated_summary(guarded_summary)
 

@@ -1470,6 +1470,17 @@ _MODEL_CONTROL_TOKEN_RE = re.compile(
     r"|\[/?INST\]"
     r"|<</?SYS>>"
 )
+_AGENT_TOOL_INVOCATION_MARKER_RE = re.compile(
+    r"(?im)"
+    r"</?\s*(?:tool[_-]?(?:calls?|uses?|invocations?|results?|responses?)|"
+    r"function[_-]?(?:calls?|results?|responses?))\b[^>]*>"
+    r"|<\|\s*(?:tool[_-]?(?:calls?|uses?|invocations?|results?|responses?)|"
+    r"function[_-]?(?:calls?|results?|responses?))\s*\|>"
+    r"|^[ \t]*(?:tool[_-]?(?:calls?|uses?|invocations?|results?|responses?)|"
+    r"function[_-]?(?:calls?|results?|responses?))[ \t]*:[ \t]*"
+    r"|^[ \t]*(?:assistant|tool)[ \t]+(?:to|recipient)[ \t]*=[ \t]*"
+    r"[A-Za-z0-9_.:/@-]+(?:[ \t]+[\w.-]+)?[ \t]*:?[ \t]*"
+)
 _PROMPT_SECRET_EXFILTRATION_TARGET = (
     r"(?:(?:the|your|all|any)\s+)?"
     r"(?:"
@@ -5036,6 +5047,12 @@ def _redact_oauth_authorization_code(match: re.Match) -> str:
     )
 
 
+def _quote_agent_tool_invocation_marker(match: re.Match) -> str:
+    marker = match.group(0)
+    indentation = marker[: len(marker) - len(marker.lstrip())]
+    return f"{indentation}[quoted-agent-tool-call] "
+
+
 def _split_url_trailing_punctuation(url: str) -> Tuple[str, str]:
     trailing_punctuation = ""
     while url and url[-1] in _SENSITIVE_URL_TRAILING_PUNCTUATION:
@@ -6492,6 +6509,10 @@ def sanitize_untrusted_email_text(text: str) -> str:
     )
     sanitized = _MODEL_CONTROL_TOKEN_RE.sub(
         "[quoted-model-control-token]",
+        sanitized,
+    )
+    sanitized = _AGENT_TOOL_INVOCATION_MARKER_RE.sub(
+        _quote_agent_tool_invocation_marker,
         sanitized,
     )
     sanitized = _MARKDOWN_ROLE_HEADING_RE.sub(r"\1[quoted-role \2]\3", sanitized)
