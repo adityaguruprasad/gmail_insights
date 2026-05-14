@@ -855,6 +855,84 @@ class ProcessorPromptTests(unittest.TestCase):
         )
         self.assertIn("Content:\nCall back at [REDACTED_PHONE]", prompt)
 
+    def test_prompt_and_returned_metadata_redact_quoted_key_generic_tokens(self):
+        subject_token = _fixture_secret("json", "Subject", "Token", "0123456789")
+        sender_token = _fixture_secret("json", "Sender", "Token", "0123456789")
+        snippet_token = _fixture_secret("json", "Snippet", "Token", "0123456789")
+        content_token = _fixture_secret("json", "Content", "Token", "0123456789")
+        warning_token = _fixture_secret("json", "Warning", "Token", "0123456789")
+        email = {
+            "id": "quoted-json-token-1",
+            "subject": f'Credential payload {{"api_key": "{subject_token}"}}',
+            "sender": (
+                f"Build Bot <build@example.test> "
+                f"{{'access_token': '{sender_token}'}}"
+            ),
+            "date": "2026-05-13",
+            "snippet": f'Webhook payload {{"auth-token": "{snippet_token}"}}',
+            "security_warnings": [
+                f'Scanned payload {{"api_token": "{warning_token}"}}',
+            ],
+            "content": (
+                f'Worker config {{"api_token": "{content_token}"}}\n'
+                'Docs example {"api_key": "short-sample"} stays visible.'
+            ),
+            "is_archived": False,
+        }
+        captured_prompt = {}
+
+        def fake_create(**kwargs):
+            captured_prompt["prompt"] = kwargs["prompt"]
+            return types.SimpleNamespace(completion="Summary: ok")
+
+        with patch.object(
+            processor.anthropic.completions,
+            "create",
+            side_effect=fake_create,
+        ):
+            result = processor.extract_insights(email)
+
+        prompt = captured_prompt["prompt"]
+        returned_text = (
+            result["subject"]
+            + " "
+            + result["sender"]
+            + " "
+            + " ".join(result["security_warnings"])
+        )
+        for sensitive_value in (
+            subject_token,
+            sender_token,
+            snippet_token,
+            content_token,
+            warning_token,
+        ):
+            with self.subTest(sensitive_value=sensitive_value):
+                self.assertNotIn(sensitive_value, prompt)
+                self.assertNotIn(sensitive_value, returned_text)
+
+        self.assertIn('"api_key": "[REDACTED_TOKEN]"', prompt)
+        self.assertIn("'access_token': '[REDACTED_TOKEN]'", prompt)
+        self.assertIn('"auth-token": "[REDACTED_TOKEN]"', prompt)
+        self.assertIn('"api_token": "[REDACTED_TOKEN]"', prompt)
+        self.assertIn(
+            'Docs example {"api_key": "short-sample"} stays visible.',
+            prompt,
+        )
+        self.assertEqual(
+            'Credential payload {"api_key": "[REDACTED_TOKEN]"}',
+            result["subject"],
+        )
+        self.assertEqual(
+            "Build Bot <build@example.test> "
+            "{'access_token': '[REDACTED_TOKEN]'}",
+            result["sender"],
+        )
+        self.assertEqual(
+            ['Scanned payload {"api_token": "[REDACTED_TOKEN]"}'],
+            result["security_warnings"],
+        )
+
     def test_prompt_redacts_login_codes_and_reset_links(self):
         reset_link = "https://accounts.example.test/reset?token=secret123"
         magic_link = "https://auth.example.test/magic?code=A1B2C3"

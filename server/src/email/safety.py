@@ -116,9 +116,14 @@ _BASIC_AUTH_RE = re.compile(
     r"(?P<suffix>[\"']?)"
     r"(?=$|[\s,;.!?)\]}>\"'])"
 )
+# The conditional key quote backreference supports quoted JSON/Python-style
+# keys while requiring matching key quotes.
 _API_TOKEN_RE = re.compile(
-    r"(?i)\b((?:api[_-]?key|api[_-]?token|access[_-]?token|auth[_-]?token)"
-    r"\s*[:=]\s*)([\"']?)[A-Za-z0-9._~+/=-]{16,}\2"
+    r"(?i)(?<![A-Za-z0-9_])(?P<prefix>"
+    r"(?P<key_quote>[\"'])?"
+    r"(?:api[_-]?key|api[_-]?token|access[_-]?token|auth[_-]?token)"
+    r"(?(key_quote)(?P=key_quote))\s*[:=]\s*)"
+    r"(?P<value_quote>[\"']?)[A-Za-z0-9._~+/=-]{16,}(?P=value_quote)"
 )
 _PASSWORD_SECRET_PLACEHOLDER = "[REDACTED_PASSWORD]"
 _PASSWORD_SECRET_CONTEXT = (
@@ -6435,7 +6440,10 @@ def redact_credential_content(text: str) -> str:
     redacted = _redact_passkey_webauthn_artifacts(redacted)
     redacted = _redact_credential_query_params(redacted)
     redacted = _redact_url_userinfo_credentials(redacted)
-    redacted = _API_TOKEN_RE.sub(r"\1\2[REDACTED_TOKEN]\2", redacted)
+    redacted = _API_TOKEN_RE.sub(
+        r"\g<prefix>\g<value_quote>[REDACTED_TOKEN]\g<value_quote>",
+        redacted,
+    )
     redacted = _redact_app_passwords(redacted)
     redacted = _redact_wallet_seed_phrases(redacted)
     return redacted

@@ -1946,6 +1946,65 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(redacted, 'config api_key="[REDACTED_TOKEN]", next=true')
         self.assertNotIn("api_abcdefghijklmnopqrstuvwxyz123456", redacted)
 
+    def test_redaction_removes_quoted_key_generic_token_assignments(self):
+        cases = [
+            (
+                '{"api_key": "jsonGenericToken0123456789"}',
+                '{"api_key": "[REDACTED_TOKEN]"}',
+                "jsonGenericToken0123456789",
+            ),
+            (
+                "{'access_token': 'jsonAccessToken0123456789'}",
+                "{'access_token': '[REDACTED_TOKEN]'}",
+                "jsonAccessToken0123456789",
+            ),
+            (
+                '{"auth-token": "authToken0123456789"}',
+                '{"auth-token": "[REDACTED_TOKEN]"}',
+                "authToken0123456789",
+            ),
+        ]
+
+        for text, expected, secret in cases:
+            with self.subTest(text=text):
+                for redactor in (
+                    redact_credential_content,
+                    redact_response_metadata_content,
+                    redact_sensitive_content,
+                ):
+                    with self.subTest(redactor=redactor.__name__):
+                        redacted = redactor(text)
+
+                        self.assertEqual(redacted, expected)
+                        self.assertNotIn(secret, redacted)
+
+    def test_redaction_preserves_benign_quoted_key_token_metadata(self):
+        cases = [
+            '{"api_key": "short-sample"}',
+            '{"access_token": "${ACCESS_TOKEN}"}',
+            '{"api_key_policy": "rotation-policy-2026"}',
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                self.assertEqual(redact_credential_content(text), text)
+                self.assertEqual(redact_response_metadata_content(text), text)
+                self.assertEqual(redact_sensitive_content(text), text)
+
+    def test_redaction_preserves_mismatched_or_embedded_generic_token_keys(self):
+        cases = [
+            "{\"api_key': \"jsonGenericToken0123456789\"}",
+            "{'access_token\": 'jsonAccessToken0123456789'}",
+            '{"customer_api_key": "jsonGenericToken0123456789"}',
+            '{"metadata_access_token": "jsonAccessToken0123456789"}',
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                self.assertEqual(redact_credential_content(text), text)
+                self.assertEqual(redact_response_metadata_content(text), text)
+                self.assertEqual(redact_sensitive_content(text), text)
+
     def test_redaction_preserves_bearer_prefix(self):
         text = "Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456"
         redacted = redact_sensitive_content(text)
