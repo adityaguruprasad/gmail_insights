@@ -1508,6 +1508,16 @@ _MARKDOWN_ROLE_HEADING_RE = re.compile(
     rf"(?im)^([ \t]{{0,3}}#{{1,6}}\s*)({_PROMPT_ROLE_TAGS})"
     rf"(\s*{_PROMPT_ROLE_SEPARATOR}\s*|\s*$)"
 )
+_SERIALIZED_ROLE_FIELD_RE = re.compile(
+    rf"(?i)"
+    rf"(?P<prefix>(?<![\w-])(?P<key_quote>[\"'])?"
+    rf"role(?(key_quote)(?P=key_quote))"
+    rf"\s*(?:{_PROMPT_ROLE_SEPARATOR}|=)\s*)"
+    rf"(?:"
+    rf"(?P<value_quote>[\"'])(?P<quoted_role>{_PROMPT_ROLE_TAGS})(?P=value_quote)"
+    rf"|(?P<bare_role>{_PROMPT_ROLE_TAGS})(?=\s*(?:$|[\n\r,;.!?:}}\]\)>|<#]))"
+    rf")"
+)
 _MODEL_CONTROL_TOKEN_RE = re.compile(
     rf"(?i)"
     rf"<\|\s*im_start\s*\|>[ \t]*(?:{_PROMPT_ROLE_TAGS})?"
@@ -5111,6 +5121,12 @@ def _quote_agent_tool_invocation_marker(match: re.Match) -> str:
     return f"{indentation}[quoted-agent-tool-call] "
 
 
+def _quote_serialized_role_field(match: re.Match) -> str:
+    role = match.group("quoted_role") or match.group("bare_role")
+    value_quote = match.group("value_quote") or ""
+    return f"{match.group('prefix')}{value_quote}[quoted-role {role}]{value_quote}"
+
+
 def _split_url_trailing_punctuation(url: str) -> Tuple[str, str]:
     trailing_punctuation = ""
     while url and url[-1] in _SENSITIVE_URL_TRAILING_PUNCTUATION:
@@ -6581,6 +6597,10 @@ def sanitize_untrusted_email_text(text: str) -> str:
     )
     sanitized = _AGENT_TOOL_INVOCATION_MARKER_RE.sub(
         _quote_agent_tool_invocation_marker,
+        sanitized,
+    )
+    sanitized = _SERIALIZED_ROLE_FIELD_RE.sub(
+        _quote_serialized_role_field,
         sanitized,
     )
     sanitized = _MARKDOWN_ROLE_HEADING_RE.sub(r"\1[quoted-role \2]\3", sanitized)
