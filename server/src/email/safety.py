@@ -1518,14 +1518,20 @@ _MODEL_CONTROL_TOKEN_RE = re.compile(
     r"|\[/?INST\]"
     r"|<</?SYS>>"
 )
+# 32 spaces/tabs is generous for padded markers but finite for predictable matching.
+_AGENT_TOOL_MARKER_SEPARATOR = r"(?:[_-]|[ \t]{1,32})?"
+_AGENT_TOOL_MARKER_NOUN = (
+    rf"tool{_AGENT_TOOL_MARKER_SEPARATOR}"
+    r"(?:calls?|uses?|invocations?|results?|responses?)"
+    r"|"
+    rf"function{_AGENT_TOOL_MARKER_SEPARATOR}"
+    r"(?:calls?|results?|responses?)"
+)
 _AGENT_TOOL_INVOCATION_MARKER_RE = re.compile(
     r"(?im)"
-    r"</?\s*(?:tool[_-]?(?:calls?|uses?|invocations?|results?|responses?)|"
-    r"function[_-]?(?:calls?|results?|responses?))\b[^>]*>"
-    r"|<\|\s*(?:tool[_-]?(?:calls?|uses?|invocations?|results?|responses?)|"
-    r"function[_-]?(?:calls?|results?|responses?))\s*\|>"
-    r"|^[ \t]*(?:tool[_-]?(?:calls?|uses?|invocations?|results?|responses?)|"
-    r"function[_-]?(?:calls?|results?|responses?))[ \t]*:[ \t]*"
+    rf"</?\s*(?:{_AGENT_TOOL_MARKER_NOUN})\b[^>]*>"
+    rf"|<\|\s*(?:{_AGENT_TOOL_MARKER_NOUN})\s*\|>"
+    rf"|^[ \t]*(?:{_AGENT_TOOL_MARKER_NOUN})[ \t]*:[ \t]*"
     r"|^[ \t]*(?:assistant|tool)[ \t]+(?:to|recipient)[ \t]*=[ \t]*"
     r"[A-Za-z0-9_.:/@-]+(?:[ \t]+[\w.-]+)?[ \t]*:?[ \t]*"
 )
