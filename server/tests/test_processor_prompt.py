@@ -892,6 +892,25 @@ class ProcessorPromptTests(unittest.TestCase):
         self.assertIn("[REDACTED_OTP] is your password reset code.", prompt)
         self.assertIn("Docs: https://help.example.test/reset-faq", prompt)
 
+    def test_prompt_redacts_standalone_sensitive_path_token_links(self):
+        path_token = _fixture_secret("AbCd", "1234", "EfGh", "5678", "IjKl")
+        reset_link = f"https://accounts.example.test/reset/{path_token}"
+        email = {
+            "subject": f"Account recovery {reset_link}",
+            "sender": "security@example.com",
+            "date": "2026-05-13",
+            "snippet": "Docs: https://help.example.test/reset-faq#section",
+            "content": f"Observed account link: {reset_link}.",
+            "is_archived": False,
+        }
+
+        prompt = processor._build_prompt(email, redact_sensitive=True)
+
+        self.assertNotIn(path_token, prompt)
+        self.assertNotIn(reset_link, prompt)
+        self.assertIn("[REDACTED_SENSITIVE_LINK]", prompt)
+        self.assertIn("Docs: https://help.example.test/reset-faq#section", prompt)
+
     def test_prompt_redacts_database_connection_url_passwords(self):
         postgres_secret = "warehouse-pass-2026"
         redis_secret = "cache-secret-2026"

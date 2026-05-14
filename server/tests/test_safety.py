@@ -2345,6 +2345,28 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertNotIn("secret-token-123", redacted)
         self.assertNotIn("[REDACTED_CREDENTIAL_QUERY_VALUE]", redacted)
 
+    def test_redaction_removes_standalone_sensitive_path_token_links(self):
+        path_token = _fixture_secret("AbCd", "1234", "EfGh", "5678", "IjKl")
+        fragment_token = _fixture_secret("MnOp", "9012", "QrSt", "3456", "UvWx")
+        text = (
+            "Observed links: "
+            f"https://accounts.example.test/password-reset/{path_token}. "
+            f"https://accounts.example.test/#/verify/{fragment_token}?view=summary. "
+            "Docs: https://help.example.test/reset-faq#section."
+        )
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertNotIn(path_token, redacted)
+        self.assertNotIn(fragment_token, redacted)
+        self.assertEqual(redacted.count("[REDACTED_SENSITIVE_LINK]"), 2)
+        self.assertEqual(
+            redacted,
+            "Observed links: [REDACTED_SENSITIVE_LINK]. "
+            "[REDACTED_SENSITIVE_LINK]. "
+            "Docs: https://help.example.test/reset-faq#section.",
+        )
+
     def test_redaction_removes_sensitive_link_with_path_secret_and_query_secret(self):
         cases = [
             (

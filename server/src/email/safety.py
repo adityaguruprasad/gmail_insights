@@ -5726,15 +5726,20 @@ def _redact_credential_query_params_in_url(match: re.Match) -> str:
         return match.group(0)
 
     redacted_url, changed = _redact_url_query_and_fragment(url)
-
-    if not changed:
-        return match.group(0)
-
+    # Reset/verification links can carry bearer tokens only in path or fragment
+    # segments, so this branch must run even when parameter redaction is unchanged.
     if (
-        _has_sensitive_email_link_url_context(url)
+        (
+            _has_sensitive_email_link_url_context(url)
+            or _has_credential_link_code_url_context(url)
+        )
         and _url_has_token_like_path_segment(url)
     ):
         redacted_url = "[REDACTED_SENSITIVE_LINK]"
+        changed = True
+
+    if not changed:
+        return match.group(0)
 
     redacted_url = redacted_url + trailing_punctuation
     return (
