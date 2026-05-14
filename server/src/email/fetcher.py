@@ -58,7 +58,10 @@ def _decode_base64_urlsafe(data: Optional[str]) -> str:
         return ""
 
 
-_HTML_CONTENT_TAGS_TO_DROP = {"script", "style", "template", "noscript"}
+_HTML_CONTENT_TAGS_TO_DROP = {"script", "style", "template", "noscript", "title"}
+# SVG title/desc/metadata are not trusted visible email body content; keep
+# suppressing them across SVG/foreignObject-like namespace edges.
+_SVG_NON_RENDERED_CONTENT_TAGS_TO_DROP = {"desc", "metadata"}
 _HTML_VOID_TAGS = {
     "area",
     "base",
@@ -234,6 +237,12 @@ _CSS_IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
 _HiddenStylesheetSelector = Tuple[Optional[str], Optional[str], Tuple[str, ...]]
 
 
+def _html_tag_drops_content(tag: str, *, in_svg: bool = False) -> bool:
+    return tag in _HTML_CONTENT_TAGS_TO_DROP or (
+        in_svg and tag in _SVG_NON_RENDERED_CONTENT_TAGS_TO_DROP
+    )
+
+
 def _html_attrs_by_name(attrs) -> Dict[str, str]:
     return {
         str(name).lower(): str(value or "")
@@ -265,17 +274,46 @@ class _HTMLStyleBlockParser(HTMLParser):
         super().__init__(convert_charrefs=True)
         self._chunks: List[str] = []
         self._style_depth = 0
+        self._ignored_depth = 0
+        self._svg_depth = 0
+        self._tag_stack: List[Tuple[str, bool, bool]] = []
 
     def handle_starttag(self, tag, attrs):
-        if tag.lower() == "style":
+        tag = tag.lower()
+        in_svg = self._svg_depth > 0
+        hides_nested_styles = tag != "style" and _html_tag_drops_content(
+            tag,
+            in_svg=in_svg,
+        )
+        collects_style = tag == "style" and not self._ignored_depth
+
+        if tag not in _HTML_VOID_TAGS:
+            self._tag_stack.append((tag, hides_nested_styles, collects_style))
+
+        if tag == "svg":
+            self._svg_depth += 1
+
+        if hides_nested_styles:
+            self._ignored_depth += 1
+
+        if collects_style:
             self._style_depth += 1
 
     def handle_endtag(self, tag):
-        if tag.lower() == "style" and self._style_depth:
-            self._style_depth -= 1
+        tag = tag.lower()
+        for open_tag, hides_nested_styles, collects_style in _pop_html_tag_stack(
+            self._tag_stack,
+            tag,
+        ):
+            if open_tag == "svg" and self._svg_depth:
+                self._svg_depth -= 1
+            if hides_nested_styles and self._ignored_depth:
+                self._ignored_depth -= 1
+            if collects_style and self._style_depth:
+                self._style_depth -= 1
 
     def handle_data(self, data):
-        if self._style_depth:
+        if self._style_depth and not self._ignored_depth:
             self._chunks.append(data)
 
     def get_text(self) -> str:
@@ -751,9 +789,11 @@ def _html_tag_suppresses_text(
     tag: str,
     attrs_by_name: Dict[str, str],
     hidden_stylesheet_selectors: List[_HiddenStylesheetSelector],
+    *,
+    in_svg: bool = False,
 ) -> bool:
     return (
-        tag in _HTML_CONTENT_TAGS_TO_DROP
+        _html_tag_drops_content(tag, in_svg=in_svg)
         or _html_attrs_hidden_or_suppressed(attrs_by_name)
         or _html_attrs_match_hidden_stylesheet_selector(
             tag,
@@ -781,13 +821,16 @@ class _HTMLToPlainTextParser(HTMLParser):
         super().__init__(convert_charrefs=True)
         self._chunks: List[str] = []
         self._suppressed_depth = 0
+        self._svg_depth = 0
         self._tag_stack: List[Tuple[str, bool]] = []
         self._hidden_stylesheet_selectors = hidden_stylesheet_selectors
 
     def _pop_tag(self, tag: str) -> None:
-        for _open_tag, suppresses_text in _pop_html_tag_stack(
+        for open_tag, suppresses_text in _pop_html_tag_stack(
             self._tag_stack, tag
         ):
+            if open_tag == "svg" and self._svg_depth:
+                self._svg_depth -= 1
             if suppresses_text and self._suppressed_depth:
                 self._suppressed_depth -= 1
 
@@ -798,10 +841,14 @@ class _HTMLToPlainTextParser(HTMLParser):
             tag,
             attrs_by_name,
             self._hidden_stylesheet_selectors,
+            in_svg=self._svg_depth > 0,
         )
 
         if tag not in _HTML_VOID_TAGS:
             self._tag_stack.append((tag, suppresses_text))
+
+        if tag == "svg":
+            self._svg_depth += 1
 
         if suppresses_text:
             if tag not in _HTML_VOID_TAGS:
@@ -821,6 +868,7 @@ class _HTMLToPlainTextParser(HTMLParser):
             tag,
             attrs_by_name,
             self._hidden_stylesheet_selectors,
+            in_svg=self._svg_depth > 0,
         )
 
         if suppresses_text or self._suppressed_depth:
@@ -956,6 +1004,7 @@ class _HTMLSafetyParser(HTMLParser):
         self._seen_warnings = set()
         self._drop_depth = 0
         self._hidden_depth = 0
+        self._svg_depth = 0
         self._tag_stack: List[Tuple[str, bool, bool]] = []
         self._anchor_stack: List[Dict] = []
         self._hidden_stylesheet_selectors = hidden_stylesheet_selectors
@@ -970,6 +1019,8 @@ class _HTMLSafetyParser(HTMLParser):
     def _pop_tag(self, tag: str) -> List[Tuple[str, bool, bool]]:
         popped_tags = _pop_html_tag_stack(self._tag_stack, tag)
         for _open_tag, drops_content, hides_text in popped_tags:
+            if _open_tag == "svg" and self._svg_depth:
+                self._svg_depth -= 1
             if drops_content and self._drop_depth:
                 self._drop_depth -= 1
             if hides_text and self._hidden_depth:
@@ -1028,7 +1079,7 @@ class _HTMLSafetyParser(HTMLParser):
     def handle_starttag(self, tag, attrs):
         tag = tag.lower()
         attrs_by_name = _html_attrs_by_name(attrs)
-        drops_content = tag in _HTML_CONTENT_TAGS_TO_DROP
+        drops_content = _html_tag_drops_content(tag, in_svg=self._svg_depth > 0)
         hides_text = not drops_content and (
             _html_attrs_hidden_or_suppressed(attrs_by_name)
             or _html_attrs_match_hidden_stylesheet_selector(
@@ -1041,7 +1092,10 @@ class _HTMLSafetyParser(HTMLParser):
         if tag not in _HTML_VOID_TAGS:
             self._tag_stack.append((tag, drops_content, hides_text))
 
-        if tag in _HTML_CONTENT_TAGS_TO_DROP:
+        if tag == "svg":
+            self._svg_depth += 1
+
+        if drops_content:
             if tag not in _HTML_VOID_TAGS:
                 self._drop_depth += 1
             return
@@ -1063,7 +1117,10 @@ class _HTMLSafetyParser(HTMLParser):
     def handle_startendtag(self, tag, attrs):
         tag = tag.lower()
         attrs_by_name = _html_attrs_by_name(attrs)
-        if tag in _HTML_CONTENT_TAGS_TO_DROP or self._drop_depth:
+        if (
+            _html_tag_drops_content(tag, in_svg=self._svg_depth > 0)
+            or self._drop_depth
+        ):
             return
 
         hides_text = _html_attrs_hidden_or_suppressed(
