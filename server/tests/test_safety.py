@@ -2726,6 +2726,40 @@ class SafetyPolicyTests(unittest.TestCase):
         )
         self.assertNotIn("p%40ss%3Aword", redacted)
 
+    def test_sanitize_untrusted_email_text_redacts_url_userinfo_credentials(self):
+        mailbox_password = "correct-horse-battery"
+        db_password = "warehouse-pass-2026"
+        text = (
+            "Forwarded mailbox URL: "
+            f"imaps://alice@example.com:{mailbox_password}@imap.example.com/INBOX.\n"
+            "Forwarded database URL: "
+            f"postgresql://reporter:{db_password}@db.example.com:5432/app."
+        )
+
+        sanitized = sanitize_untrusted_email_text(text)
+
+        self.assertNotIn(mailbox_password, sanitized)
+        self.assertNotIn(db_password, sanitized)
+        self.assertIn(
+            "imaps://alice@example.com:[REDACTED_URL_CREDENTIAL]@imap.example.com/INBOX.",
+            sanitized,
+        )
+        self.assertIn(
+            "postgresql://reporter:[REDACTED_URL_CREDENTIAL]@db.example.com:5432/app.",
+            sanitized,
+        )
+
+    def test_sanitize_untrusted_email_text_preserves_safe_mail_and_transfer_urls(self):
+        text = (
+            "Docs: https://docs.example.com/mail/setup and "
+            "imaps://imap.example.com/INBOX. "
+            "SMTP relay smtp://smtp-user@smtp-relay:587 uses username-only auth. "
+            "Transfer targets include sftp://deploy@sftp.example.com/incoming "
+            "and ssh://git@example.com/repo."
+        )
+
+        self.assertEqual(sanitize_untrusted_email_text(text), text)
+
     def test_redaction_preserves_safe_mail_and_transfer_urls_and_prose(self):
         sensitive_text = (
             "Docs: https://docs.example.com/mail/setup and "
@@ -3984,6 +4018,63 @@ class SafetyPolicyTests(unittest.TestCase):
             "\n".join(result["security_warnings"]),
         )
         self.assertIn("[REDACTED_SESSION_TOKEN]", result["subject"])
+
+    def test_prompt_summary_and_public_fields_redact_url_userinfo_credentials(self):
+        processor = _processor_module()
+        mailbox_password = "correct-horse-battery"
+        db_password = "warehouse-pass-2026"
+        mailbox_url = (
+            "imaps://alice@example.com:"
+            f"{mailbox_password}@imap.example.com/INBOX"
+        )
+        db_url = (
+            "postgresql://reporter:"
+            f"{db_password}@db.example.com:5432/app"
+        )
+        email = {
+            "id": "url-userinfo-credential-1",
+            "subject": f"Mailbox export {mailbox_url}",
+            "sender": "Ops Team",
+            "date": "2026-05-10",
+            "snippet": f"Database mirror {db_url}",
+            "security_warnings": [
+                f"Credential-bearing mailbox URL was present: {mailbox_url}",
+            ],
+            "content": f"Review copied URLs only: {mailbox_url} {db_url}",
+            "is_archived": False,
+        }
+
+        prompt = processor._build_prompt(email, redact_sensitive=True)
+        original_create = processor.anthropic.completions.create
+        processor.anthropic.completions.create = (
+            lambda **kwargs: types.SimpleNamespace(
+                completion=f"Summary copied URLs {mailbox_url} {db_url}."
+            )
+        )
+        try:
+            result = processor.extract_insights(email)
+        finally:
+            processor.anthropic.completions.create = original_create
+
+        public_text = "\n".join(
+            [
+                prompt,
+                result["summary"],
+                result["subject"],
+                "\n".join(result["security_warnings"]),
+            ]
+        )
+        self.assertNotIn(mailbox_password, public_text)
+        self.assertNotIn(db_password, public_text)
+        self.assertIn("[REDACTED_URL_CREDENTIAL]", public_text)
+        self.assertIn(
+            "imaps://alice@example.com:[REDACTED_URL_CREDENTIAL]@imap.example.com/INBOX",
+            public_text,
+        )
+        self.assertIn(
+            "postgresql://reporter:[REDACTED_URL_CREDENTIAL]@db.example.com:5432/app",
+            public_text,
+        )
 
     def test_prompt_summary_and_public_fields_redact_provider_webhook_urls(self):
         processor = _processor_module()

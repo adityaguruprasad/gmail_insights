@@ -6625,6 +6625,7 @@ def sanitize_untrusted_email_text(text: str) -> str:
     sanitized = _redact_oauth_oidc_authorization_artifacts(sanitized)
     sanitized = _redact_cookie_artifacts(sanitized)
     sanitized = _redact_provider_webhook_urls(sanitized)
+    sanitized = _redact_url_userinfo_credentials(sanitized)
     sanitized = _redact_authenticator_enrollment_secrets(sanitized)
     sanitized = _redact_npm_access_tokens(sanitized)
     sanitized = _PROMPT_BOUNDARY_MARKER_RE.sub(
