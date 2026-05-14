@@ -730,6 +730,48 @@ class ProcessorPromptTests(unittest.TestCase):
         self.assertIn("[REDACTED_OTP] is your password reset code.", prompt)
         self.assertIn("Docs: https://help.example.test/reset-faq", prompt)
 
+    def test_prompt_redacts_database_connection_url_passwords(self):
+        postgres_secret = "warehouse-pass-2026"
+        redis_secret = "cache-secret-2026"
+        email = {
+            "subject": (
+                "Database review "
+                f"postgresql://reporter:{postgres_secret}@db.example.com/app"
+            ),
+            "sender": "Data Ops <data@example.test>",
+            "date": "2026-05-13",
+            "snippet": "Public docs mention postgresql://db.example.com/app",
+            "content": (
+                "Connection string is "
+                f"rediss://:{redis_secret}@cache.example.com:6380/0. "
+                "Host-only URI redis://cache.example.com:6379/0 is documentation."
+            ),
+            "is_archived": False,
+        }
+
+        prompt = processor._build_prompt(email, redact_sensitive=True)
+
+        self.assertNotIn(postgres_secret, prompt)
+        self.assertNotIn(redis_secret, prompt)
+        self.assertIn(
+            "Subject: Database review "
+            "postgresql://reporter:[REDACTED_URL_CREDENTIAL]@db.example.com/app",
+            prompt,
+        )
+        self.assertIn(
+            "Connection string is "
+            "rediss://:[REDACTED_URL_CREDENTIAL]@cache.example.com:6380/0.",
+            prompt,
+        )
+        self.assertIn(
+            "Public docs mention postgresql://db.example.com/app",
+            prompt,
+        )
+        self.assertIn(
+            "Host-only URI redis://cache.example.com:6379/0 is documentation.",
+            prompt,
+        )
+
     def test_prompt_redacts_sensitive_content_before_length_limit(self):
         token = _fixture_access_token()
         token_prefix_shorter_than_redaction_threshold = token[:15]
@@ -1385,6 +1427,39 @@ class ProcessorPromptTests(unittest.TestCase):
         self.assertIn("[REDACTED_NPM_TOKEN]", prompt)
         self.assertIn("[REDACTED_NPM_TOKEN]", returned_text)
         self.assertIn("build@example.test", result["sender"])
+
+    def test_extract_insights_redacts_database_url_passwords_from_returned_metadata(self):
+        postgres_secret = "warehouse-pass-2026"
+        redis_secret = "cache-secret-2026"
+        email = {
+            "id": "metadata-dsn-secret-1",
+            "subject": (
+                "Database DSN "
+                f"postgresql://reporter:{postgres_secret}@db.example.com/app"
+            ),
+            "sender": f"Data Ops rediss://:{redis_secret}@cache.example.com:6380/0",
+            "is_archived": False,
+        }
+
+        with patch.object(
+            processor.anthropic.completions,
+            "create",
+            return_value=types.SimpleNamespace(completion="Summary: ok"),
+        ):
+            result = processor.extract_insights(email, redact_sensitive=False)
+
+        returned_metadata = result["subject"] + " " + result["sender"]
+        self.assertNotIn(postgres_secret, returned_metadata)
+        self.assertNotIn(redis_secret, returned_metadata)
+        self.assertEqual(
+            "Database DSN "
+            "postgresql://reporter:[REDACTED_URL_CREDENTIAL]@db.example.com/app",
+            result["subject"],
+        )
+        self.assertEqual(
+            "Data Ops rediss://:[REDACTED_URL_CREDENTIAL]@cache.example.com:6380/0",
+            result["sender"],
+        )
 
     def test_extract_insights_neutralizes_inline_role_markers_in_returned_metadata(self):
         email = {

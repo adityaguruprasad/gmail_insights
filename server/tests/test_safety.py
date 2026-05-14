@@ -2544,6 +2544,52 @@ class SafetyPolicyTests(unittest.TestCase):
                         self.assertEqual(redacted, expected)
                         self.assertNotIn(secret, redacted)
 
+    def test_redaction_redacts_database_connection_url_passwords(self):
+        cases = [
+            (
+                "Postgres DSN: "
+                "postgresql://reporter:warehouse-pass-2026@db.example.com:5432/app"
+                "?sslmode=require.",
+                "warehouse-pass-2026",
+                "Postgres DSN: "
+                "postgresql://reporter:[REDACTED_URL_CREDENTIAL]@db.example.com:5432/app"
+                "?sslmode=require.",
+            ),
+            (
+                "MySQL replica URL mysql://readonly:readonly%23secret@mysql.example.com/app,",
+                "readonly%23secret",
+                "MySQL replica URL mysql://readonly:[REDACTED_URL_CREDENTIAL]@mysql.example.com/app,",
+            ),
+            (
+                "MariaDB primary URL mariadb://app:maria-secret-2026@mariadb.example.com/app.",
+                "maria-secret-2026",
+                "MariaDB primary URL mariadb://app:[REDACTED_URL_CREDENTIAL]@mariadb.example.com/app.",
+            ),
+            (
+                "Redis cache uses rediss://:cache-secret-2026@cache.example.com:6380/0",
+                "cache-secret-2026",
+                "Redis cache uses rediss://:[REDACTED_URL_CREDENTIAL]@cache.example.com:6380/0",
+            ),
+            (
+                "Mongo connection mongodb+srv://analytics:cluster-pass-2026@cluster.example.com/app?retryWrites=true",
+                "cluster-pass-2026",
+                "Mongo connection mongodb+srv://analytics:[REDACTED_URL_CREDENTIAL]@cluster.example.com/app?retryWrites=true",
+            ),
+        ]
+
+        for text, secret, expected in cases:
+            with self.subTest(text=text):
+                for redactor in (
+                    redact_credential_content,
+                    redact_response_metadata_content,
+                    redact_sensitive_content,
+                ):
+                    with self.subTest(redactor=redactor.__name__):
+                        redacted = redactor(text)
+
+                        self.assertEqual(redacted, expected)
+                        self.assertNotIn(secret, redacted)
+
     def test_redaction_redacts_percent_encoded_url_userinfo_credentials(self):
         text = (
             "Mailbox URL: imaps://alice%40example.com:p%40ss%3Aword"
@@ -2575,12 +2621,36 @@ class SafetyPolicyTests(unittest.TestCase):
             "ftps://archive@files.example.com/incoming "
             "and ssh://git@example.com/repo."
         )
+        database_text = (
+            "Database docs mention postgresql://db.example.com/app, "
+            "postgres://reporter@db.example.com/app, "
+            "mysql://mysql.example.com/app, "
+            "mariadb://mariadb.example.com/app, "
+            "redis://cache.example.com:6379/0, and "
+            "mongodb+srv://cluster.example.com/app."
+        )
+        host_only_database_text = (
+            "Database docs mention postgresql://db.example.com/app, "
+            "mysql://mysql.example.com/app, "
+            "mariadb://mariadb.example.com/app, "
+            "redis://cache.example.com:6379/0, and "
+            "mongodb+srv://cluster.example.com/app."
+        )
 
         self.assertEqual(redact_sensitive_content(sensitive_text), sensitive_text)
         self.assertEqual(redact_credential_content(credential_text), credential_text)
         self.assertEqual(
             redact_response_metadata_content(credential_text),
             credential_text,
+        )
+        self.assertEqual(redact_credential_content(database_text), database_text)
+        self.assertEqual(
+            redact_response_metadata_content(database_text),
+            database_text,
+        )
+        self.assertEqual(
+            redact_sensitive_content(host_only_database_text),
+            host_only_database_text,
         )
 
     def test_redaction_redacts_common_auth_secret_query_parameter_aliases(self):

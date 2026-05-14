@@ -821,11 +821,19 @@ _URL_USERINFO_CREDENTIAL_SCHEMES = {
     "https",
     "imap",
     "imaps",
-    "smtp",
-    "smtps",
+    "mariadb",
+    "mongodb",
+    "mongodb+srv",
+    "mysql",
     "pop3",
     "pop3s",
+    "postgres",
+    "postgresql",
+    "redis",
+    "rediss",
     "sftp",
+    "smtp",
+    "smtps",
     "ssh",
 }
 
@@ -1109,7 +1117,8 @@ _OTPAUTH_URL_RE = re.compile(
 )
 _URL_USERINFO_CREDENTIAL_URL_RE = re.compile(
     r"(?P<url>"
-    r"(?:https?://|imaps?://|smtps?://|pop3s?://|ftps?://|sftp://|ssh://)"
+    r"(?:https?://|imaps?://|smtps?://|pop3s?://|ftps?://|sftp://|ssh://|"
+    r"postgres(?:ql)?://|mysql://|mariadb://|mongodb(?:\+srv)?://|rediss?://)"
     r"[^\s<>\"']{1,2048})",
     re.IGNORECASE,
 )
