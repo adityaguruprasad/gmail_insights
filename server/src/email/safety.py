@@ -1475,11 +1475,12 @@ _PROMPT_SECRET_EXFILTRATION_TARGET = (
     r")"
 )
 _ACTION_ROLE_PREFIX = rf"(?:(?:{_PROMPT_ROLE_TAGS})\s*:\s*)?"
+_PROMPT_INSTRUCTION_REFERENCE = r"(?:all\s+)?(?:the\s+)?(?:previous|prior|above)"
 _INSTRUCTION_PHRASE_RE = re.compile(
     rf"(?i)\b("
-    rf"ignore\s+(all\s+)?(previous|prior|above)\s+instructions?"
-    rf"|disregard\s+(all\s+)?(previous|prior|above)\s+instructions?"
-    rf"|forget\s+(all\s+)?(previous|prior|above)\s+instructions?"
+    rf"ignore\s+{_PROMPT_INSTRUCTION_REFERENCE}\s+instructions?"
+    rf"|disregard\s+{_PROMPT_INSTRUCTION_REFERENCE}\s+instructions?"
+    rf"|forget\s+{_PROMPT_INSTRUCTION_REFERENCE}\s+instructions?"
     rf"|follow\s+these\s+instructions?"
     rf"|(?:show|print|reveal|display|disclose|dump|leak|exfiltrate|"
     rf"tell|share|repeat|recite|output|echo)\s+"
