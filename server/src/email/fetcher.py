@@ -209,6 +209,13 @@ _CSS_NAMED_COLOR_ALIASES = {"black": "#000000", "white": "#ffffff"}
 _CSS_CLIPPING_OVERFLOW_VALUES = {"hidden", "clip"}
 _CSS_OFFSCREEN_POSITION_THRESHOLD = 1000
 _CSS_OFFSCREEN_TEXT_INDENT_THRESHOLD = 100
+_CSS_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
+_CSS_RULE_RE = re.compile(
+    r"(?P<selectors>[^{}]+)\{(?P<declarations>[^{}]*)\}",
+    re.DOTALL,
+)
+_CSS_IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
+_HiddenStylesheetSelector = Tuple[Optional[str], Optional[str], Tuple[str, ...]]
 
 
 def _html_attrs_by_name(attrs) -> Dict[str, str]:
@@ -235,6 +242,39 @@ def _css_declarations(style: str) -> Dict[str, str]:
             declarations[property_name] = value.strip()
 
     return declarations
+
+
+class _HTMLStyleBlockParser(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self._chunks: List[str] = []
+        self._style_depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() == "style":
+            self._style_depth += 1
+
+    def handle_endtag(self, tag):
+        if tag.lower() == "style" and self._style_depth:
+            self._style_depth -= 1
+
+    def handle_data(self, data):
+        if self._style_depth:
+            self._chunks.append(data)
+
+    def get_text(self) -> str:
+        return "\n".join(self._chunks)
+
+
+def _html_stylesheet_text(content: str) -> str:
+    parser = _HTMLStyleBlockParser()
+    try:
+        parser.feed(content)
+        parser.close()
+    except Exception:
+        return ""
+
+    return parser.get_text()
 
 
 def _css_keyword(value: str) -> str:
@@ -461,10 +501,116 @@ def _html_attrs_hidden_or_suppressed(attrs_by_name: Dict[str, str]) -> bool:
     return False
 
 
-def _html_tag_suppresses_text(tag: str, attrs_by_name: Dict[str, str]) -> bool:
+def _parse_simple_css_selector(selector: str):
+    # Intentionally narrow: simple class/id selectors, optionally tag-qualified
+    # (e.g. .foo, #bar, span.foo.bar). Combinators, pseudo selectors,
+    # attribute selectors, and bare tag selectors are ignored to avoid
+    # over-hiding broad email content.
+    selector = selector.strip()
+    if (
+        not selector
+        or selector.startswith("@")
+        or any(char in selector for char in " >+~[:*")
+    ):
+        return None
+
+    tag = None
+    index = 0
+    tag_match = _CSS_IDENTIFIER_RE.match(selector)
+    if tag_match:
+        tag = tag_match.group(0).lower()
+        index = tag_match.end()
+
+    selector_id = None
+    classes = []
+    while index < len(selector):
+        marker = selector[index]
+        if marker not in ".#":
+            return None
+
+        token_match = _CSS_IDENTIFIER_RE.match(selector, index + 1)
+        if token_match is None:
+            return None
+
+        token = token_match.group(0)
+        if marker == "#":
+            if selector_id is not None:
+                return None
+            selector_id = token
+        else:
+            classes.append(token)
+        index = token_match.end()
+
+    if selector_id is None and not classes:
+        return None
+
+    return tag, selector_id, tuple(classes)
+
+
+def _hidden_stylesheet_selectors(content: str) -> List[_HiddenStylesheetSelector]:
+    stylesheet = _html_stylesheet_text(content)
+    if not stylesheet:
+        return []
+
+    # This is not a full CSS/media-query evaluator. Regex scanning may
+    # conservatively apply inner simple hidden selectors from nested at-rules.
+    css = _CSS_COMMENT_RE.sub("", stylesheet)
+    selectors = []
+    seen = set()
+
+    for rule_match in _CSS_RULE_RE.finditer(css):
+        declarations = rule_match.group("declarations")
+        if not _html_attrs_hidden_or_suppressed({"style": declarations}):
+            continue
+
+        for selector_text in rule_match.group("selectors").split(","):
+            selector = _parse_simple_css_selector(selector_text)
+            if selector is None or selector in seen:
+                continue
+
+            seen.add(selector)
+            selectors.append(selector)
+
+    return selectors
+
+
+def _html_attrs_match_hidden_stylesheet_selector(
+    tag: str,
+    attrs_by_name: Dict[str, str],
+    hidden_stylesheet_selectors: List[_HiddenStylesheetSelector],
+) -> bool:
+    if not hidden_stylesheet_selectors:
+        return False
+
+    element_id = attrs_by_name.get("id", "")
+    class_names = set(attrs_by_name.get("class", "").split())
+
+    for selector_tag, selector_id, selector_classes in hidden_stylesheet_selectors:
+        if selector_tag and selector_tag != tag:
+            continue
+        if selector_id and selector_id != element_id:
+            continue
+        if selector_classes and not set(selector_classes).issubset(class_names):
+            continue
+
+        return True
+
+    return False
+
+
+def _html_tag_suppresses_text(
+    tag: str,
+    attrs_by_name: Dict[str, str],
+    hidden_stylesheet_selectors: List[_HiddenStylesheetSelector],
+) -> bool:
     return (
         tag in _HTML_CONTENT_TAGS_TO_DROP
         or _html_attrs_hidden_or_suppressed(attrs_by_name)
+        or _html_attrs_match_hidden_stylesheet_selector(
+            tag,
+            attrs_by_name,
+            hidden_stylesheet_selectors,
+        )
     )
 
 
@@ -479,11 +625,15 @@ def _pop_html_tag_stack(tag_stack: List[Tuple], tag: str) -> List[Tuple]:
 
 
 class _HTMLToPlainTextParser(HTMLParser):
-    def __init__(self):
+    def __init__(
+        self,
+        hidden_stylesheet_selectors: List[_HiddenStylesheetSelector],
+    ):
         super().__init__(convert_charrefs=True)
         self._chunks: List[str] = []
         self._suppressed_depth = 0
         self._tag_stack: List[Tuple[str, bool]] = []
+        self._hidden_stylesheet_selectors = hidden_stylesheet_selectors
 
     def _pop_tag(self, tag: str) -> None:
         for _open_tag, suppresses_text in _pop_html_tag_stack(
@@ -495,7 +645,11 @@ class _HTMLToPlainTextParser(HTMLParser):
     def handle_starttag(self, tag, attrs):
         tag = tag.lower()
         attrs_by_name = _html_attrs_by_name(attrs)
-        suppresses_text = _html_tag_suppresses_text(tag, attrs_by_name)
+        suppresses_text = _html_tag_suppresses_text(
+            tag,
+            attrs_by_name,
+            self._hidden_stylesheet_selectors,
+        )
 
         if tag not in _HTML_VOID_TAGS:
             self._tag_stack.append((tag, suppresses_text))
@@ -514,7 +668,11 @@ class _HTMLToPlainTextParser(HTMLParser):
     def handle_startendtag(self, tag, attrs):
         tag = tag.lower()
         attrs_by_name = _html_attrs_by_name(attrs)
-        suppresses_text = _html_tag_suppresses_text(tag, attrs_by_name)
+        suppresses_text = _html_tag_suppresses_text(
+            tag,
+            attrs_by_name,
+            self._hidden_stylesheet_selectors,
+        )
 
         if suppresses_text or self._suppressed_depth:
             return
@@ -554,7 +712,7 @@ def _html_to_plain_text(content: str) -> str:
     if not content:
         return ""
 
-    parser = _HTMLToPlainTextParser()
+    parser = _HTMLToPlainTextParser(_hidden_stylesheet_selectors(content))
     try:
         parser.feed(content)
         parser.close()
@@ -640,7 +798,10 @@ def _url_scheme(value: Optional[str]) -> str:
 
 
 class _HTMLSafetyParser(HTMLParser):
-    def __init__(self):
+    def __init__(
+        self,
+        hidden_stylesheet_selectors: List[_HiddenStylesheetSelector],
+    ):
         super().__init__(convert_charrefs=True)
         self._warnings: List[str] = []
         self._seen_warnings = set()
@@ -648,6 +809,7 @@ class _HTMLSafetyParser(HTMLParser):
         self._hidden_depth = 0
         self._tag_stack: List[Tuple[str, bool, bool]] = []
         self._anchor_stack: List[Dict] = []
+        self._hidden_stylesheet_selectors = hidden_stylesheet_selectors
 
     def _add_warning(self, warning: str) -> None:
         if warning in self._seen_warnings:
@@ -718,8 +880,13 @@ class _HTMLSafetyParser(HTMLParser):
         tag = tag.lower()
         attrs_by_name = _html_attrs_by_name(attrs)
         drops_content = tag in _HTML_CONTENT_TAGS_TO_DROP
-        hides_text = (
-            not drops_content and _html_attrs_hidden_or_suppressed(attrs_by_name)
+        hides_text = not drops_content and (
+            _html_attrs_hidden_or_suppressed(attrs_by_name)
+            or _html_attrs_match_hidden_stylesheet_selector(
+                tag,
+                attrs_by_name,
+                self._hidden_stylesheet_selectors,
+            )
         )
 
         if tag not in _HTML_VOID_TAGS:
@@ -750,7 +917,13 @@ class _HTMLSafetyParser(HTMLParser):
         if tag in _HTML_CONTENT_TAGS_TO_DROP or self._drop_depth:
             return
 
-        hides_text = _html_attrs_hidden_or_suppressed(attrs_by_name)
+        hides_text = _html_attrs_hidden_or_suppressed(
+            attrs_by_name
+        ) or _html_attrs_match_hidden_stylesheet_selector(
+            tag,
+            attrs_by_name,
+            self._hidden_stylesheet_selectors,
+        )
         if hides_text:
             self._add_warning(_HIDDEN_HTML_CONTENT_WARNING)
 
@@ -800,7 +973,7 @@ def _html_content_security_warnings(content: str) -> List[str]:
     if not content:
         return []
 
-    parser = _HTMLSafetyParser()
+    parser = _HTMLSafetyParser(_hidden_stylesheet_selectors(content))
     try:
         parser.feed(content)
         parser.close()
