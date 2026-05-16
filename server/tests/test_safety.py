@@ -1141,6 +1141,33 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(safety["effective_actions"], ["archive_suggestion", "draft"])
         self.assertEqual(safety["blocked_actions"], [])
 
+    def test_allowed_actions_remain_read_only_insight_actions(self):
+        self.assertEqual(
+            safety_module.ALLOWED_ACTIONS,
+            {"read", "summarize", "classify", "draft", "archive_suggestion"},
+        )
+        unsafe_actions = [
+            "send",
+            "delete",
+            "modify_labels",
+            "mark_read",
+            "mark_unread",
+            "open_link",
+            "download_attachment",
+        ]
+
+        effective, blocked = evaluate_requested_actions(
+            ["read", "summarize", "draft", "archive_suggestion", *unsafe_actions]
+        )
+
+        self.assertEqual(
+            effective,
+            ["archive_suggestion", "draft", "read", "summarize"],
+        )
+        self.assertEqual(blocked, sorted(unsafe_actions))
+        self.assertTrue(set(unsafe_actions).issubset(safety_module.BLOCKED_ACTIONS))
+        self.assertFalse(set(unsafe_actions).intersection(safety_module.ALLOWED_ACTIONS))
+
     def test_redaction(self):
         text = "Contact me at jane@example.com or +1 415-555-1212"
         redacted = redact_sensitive_content(text)
@@ -2993,7 +3020,11 @@ class SafetyPolicyTests(unittest.TestCase):
 
         self.assertEqual(
             sanitized.count("[REDACTED_OAUTH_AUTHORIZATION_CODE]"),
-            3,
+            1,
+        )
+        self.assertEqual(
+            sanitized.count("[REDACTED_OAUTH_DEVICE_USER_CODE]"),
+            2,
         )
         self.assertEqual(sanitized.count("[REDACTED_REFRESH_TOKEN]"), 2)
         for secret in [
@@ -3254,6 +3285,31 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertNotIn(authorization_code, redacted)
         self.assertNotIn(state, redacted)
 
+    def test_redaction_redacts_oauth_device_code_query_parameters(self):
+        device_code = "device-Code-9ZQ4-LM2P"
+        otc = "GQVQ-JKEC"
+        user_code = "WDJB-MJHT"
+        text = (
+            "Review URL: https://microsoft.com/devicelogin"
+            f"?otc={otc}&prompt=select_account. "
+            "OAuth device endpoint: https://accounts.example.test/oauth/device"
+            f"?user_code={user_code}&client_id=public-client. "
+            "Device authorization URL: https://login.example.test/device/authorization"
+            f"?device_code={device_code}&scope=openid."
+        )
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertNotIn(device_code, redacted)
+        self.assertNotIn(otc, redacted)
+        self.assertNotIn(user_code, redacted)
+        self.assertIn("otc=[REDACTED_OAUTH_DEVICE_USER_CODE]", redacted)
+        self.assertIn("user_code=[REDACTED_OAUTH_DEVICE_USER_CODE]", redacted)
+        self.assertIn("device_code=[REDACTED_OAUTH_DEVICE_USER_CODE]", redacted)
+        self.assertIn("prompt=select_account", redacted)
+        self.assertIn("client_id=public-client", redacted)
+        self.assertIn("scope=openid", redacted)
+
     def test_redaction_redacts_oauth_authorization_code_assignment_forms(self):
         cases = [
             (
@@ -3274,12 +3330,12 @@ class SafetyPolicyTests(unittest.TestCase):
             (
                 "Device code - device-Code-9ZQ4-LM2P",
                 "device-Code-9ZQ4-LM2P",
-                "Device code - [REDACTED_OAUTH_AUTHORIZATION_CODE]",
+                "Device code - [REDACTED_OAUTH_DEVICE_USER_CODE]",
             ),
             (
                 'user_code="USER-9ZQ4-LM2P-8T"',
                 "USER-9ZQ4-LM2P-8T",
-                'user_code="[REDACTED_OAUTH_AUTHORIZATION_CODE]"',
+                'user_code="[REDACTED_OAUTH_DEVICE_USER_CODE]"',
             ),
             (
                 "auth_code=auth-code-secret-123&state=public",
@@ -3299,6 +3355,60 @@ class SafetyPolicyTests(unittest.TestCase):
 
                 self.assertEqual(redacted, expected)
                 self.assertNotIn(secret, redacted)
+
+    def test_redaction_redacts_short_oauth_device_user_codes(self):
+        device_code = "GQVQ-JKEC"
+        user_code = "WDJB-MJHT"
+        grouped_user_code = "ABCD EFGH"
+        text = (
+            f"Device code: {device_code}. "
+            f"user_code={user_code}. "
+            f"OAuth user code is {grouped_user_code}."
+        )
+
+        for redactor in (
+            redact_credential_content,
+            redact_response_metadata_content,
+            redact_sensitive_content,
+            sanitize_untrusted_email_text,
+        ):
+            with self.subTest(redactor=redactor.__name__):
+                redacted = redactor(text)
+
+                for secret in (device_code, user_code, grouped_user_code):
+                    self.assertNotIn(secret, redacted)
+                self.assertEqual(
+                    redacted.count("[REDACTED_OAUTH_DEVICE_USER_CODE]"),
+                    3,
+                )
+
+    def test_redaction_redacts_oauth_device_verification_uri_complete_values(self):
+        complete_url = "https://microsoft.com/devicelogin?otc=GQVQ-JKEC"
+        json_url = "https://accounts.example.test/device?user_code=WDJB-MJHT"
+        text = (
+            f"verification_uri_complete={complete_url}. "
+            f'"verificationUriComplete": "{json_url}"'
+        )
+
+        for redactor in (
+            redact_credential_content,
+            redact_response_metadata_content,
+            redact_sensitive_content,
+            sanitize_untrusted_email_text,
+        ):
+            with self.subTest(redactor=redactor.__name__):
+                redacted = redactor(text)
+
+                self.assertNotIn(complete_url, redacted)
+                self.assertNotIn(json_url, redacted)
+                self.assertNotIn("GQVQ-JKEC", redacted)
+                self.assertNotIn("WDJB-MJHT", redacted)
+                self.assertEqual(
+                    redacted.count(
+                        "[REDACTED_OAUTH_DEVICE_VERIFICATION_URI_COMPLETE]"
+                    ),
+                    2,
+                )
 
     def test_redaction_redacts_contextual_refresh_tokens(self):
         cases = [
@@ -3335,6 +3445,8 @@ class SafetyPolicyTests(unittest.TestCase):
             "The authorization code grant is documented. "
             "The authorization code flow is documented. "
             "The device code flow is documented. "
+            "The verification_uri_complete field is documented. "
+            "The verification URL complete field is documented. "
             "The refresh token rotation policy is documented. "
             "OAuth code is yes. "
             "OAuth code is abc. "

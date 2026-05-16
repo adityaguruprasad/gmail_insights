@@ -2636,6 +2636,97 @@ class ProcessorPromptTests(unittest.TestCase):
         self.assertIn("[REDACTED_NPM_TOKEN]", returned_text)
         self.assertIn("build@example.test", result["sender"])
 
+    def test_prompt_summary_warnings_and_public_fields_redact_oauth_device_artifacts(self):
+        complete_url = "https://microsoft.com/devicelogin?otc=GQVQ-JKEC"
+        user_code = "WDJB-MJHT"
+        email = {
+            "id": "metadata-oauth-device-1",
+            "subject": f"Device login verification_uri_complete={complete_url}",
+            "sender": f"Security Bot <security@example.test> user_code={user_code}",
+            "date": "2026-05-13",
+            "snippet": f"Complete verification URL: {complete_url}",
+            "security_warnings": [
+                f"Scanner saw verification_uri_complete: {complete_url}",
+            ],
+            "content": (
+                f"OAuth device code: {user_code}\n"
+                f"verification_uri_complete: {complete_url}"
+            ),
+            "is_archived": False,
+        }
+        captured_prompt = {}
+
+        def fake_create(**kwargs):
+            captured_prompt["prompt"] = kwargs["prompt"]
+            return types.SimpleNamespace(
+                completion=(
+                    f"Summary copied verification_uri_complete={complete_url} "
+                    f"and user_code={user_code}."
+                )
+            )
+
+        with patch.object(
+            processor.anthropic.completions,
+            "create",
+            side_effect=fake_create,
+        ):
+            result = processor.extract_insights(email)
+
+        prompt = captured_prompt["prompt"]
+        returned_text = (
+            result["subject"]
+            + " "
+            + result["sender"]
+            + " "
+            + result["summary"]
+            + " "
+            + " ".join(result["security_warnings"])
+        )
+        for sensitive_value in (complete_url, "GQVQ-JKEC", user_code):
+            with self.subTest(sensitive_value=sensitive_value):
+                self.assertNotIn(sensitive_value, prompt)
+                self.assertNotIn(sensitive_value, returned_text)
+
+        self.assertIn(
+            "[REDACTED_OAUTH_DEVICE_VERIFICATION_URI_COMPLETE]",
+            prompt,
+        )
+        self.assertIn("[REDACTED_OAUTH_DEVICE_USER_CODE]", prompt)
+        self.assertNotIn("[REDACTED_OAUTH_AUTHORIZATION_CODE]", prompt)
+        self.assertEqual(
+            "Device login verification_uri_complete="
+            "[REDACTED_OAUTH_DEVICE_VERIFICATION_URI_COMPLETE]",
+            result["subject"],
+        )
+        self.assertEqual(
+            "Security Bot <security@example.test> "
+            "user_code=[REDACTED_OAUTH_DEVICE_USER_CODE]",
+            result["sender"],
+        )
+        self.assertIn(
+            "[REDACTED_OAUTH_DEVICE_VERIFICATION_URI_COMPLETE]",
+            result["summary"],
+        )
+        self.assertIn("[REDACTED_OAUTH_DEVICE_USER_CODE]", result["summary"])
+        self.assertNotIn(
+            "[REDACTED_OAUTH_AUTHORIZATION_CODE]",
+            result["summary"],
+        )
+        self.assertEqual(
+            [
+                "Scanner saw verification_uri_complete: "
+                "[REDACTED_OAUTH_DEVICE_VERIFICATION_URI_COMPLETE]"
+            ],
+            result["security_warnings"],
+        )
+        self.assertEqual(
+            {"id", "subject", "sender", "is_archived", "security_warnings", "summary"},
+            set(result),
+        )
+        self.assertFalse(result["is_archived"])
+        self.assertNotIn("blocked_actions", result)
+        self.assertNotIn("effective_actions", result)
+
     def test_extract_insights_redacts_database_url_passwords_from_returned_metadata(self):
         postgres_secret = "warehouse-pass-2026"
         redis_secret = "cache-secret-2026"

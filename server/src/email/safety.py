@@ -845,6 +845,10 @@ _SENSITIVE_LINK_URL_TARGET = (
 )
 _CREDENTIAL_QUERY_VALUE_PLACEHOLDER = "[REDACTED_CREDENTIAL_QUERY_VALUE]"
 _OAUTH_AUTHORIZATION_CODE_PLACEHOLDER = "[REDACTED_OAUTH_AUTHORIZATION_CODE]"
+_OAUTH_DEVICE_USER_CODE_PLACEHOLDER = "[REDACTED_OAUTH_DEVICE_USER_CODE]"
+_OAUTH_DEVICE_VERIFICATION_URI_COMPLETE_PLACEHOLDER = (
+    "[REDACTED_OAUTH_DEVICE_VERIFICATION_URI_COMPLETE]"
+)
 _REFRESH_TOKEN_PLACEHOLDER = "[REDACTED_REFRESH_TOKEN]"
 _PASSKEY_CREDENTIAL_ID_PLACEHOLDER = "[REDACTED_PASSKEY_CREDENTIAL_ID]"
 _PASSKEY_CHALLENGE_ID_PLACEHOLDER = "[REDACTED_PASSKEY_CHALLENGE_ID]"
@@ -1099,6 +1103,13 @@ _OAUTH_AUTHORIZATION_CODE_QUERY_CONTEXT_PARAM_NAMES = _expand_query_param_names(
         "response_type",
     }
 )
+_OAUTH_DEVICE_CODE_QUERY_PARAM_NAMES = _expand_query_param_names(
+    {
+        "device_code",
+        "otc",
+        "user_code",
+    }
+)
 _PASSKEY_CREDENTIAL_QUERY_PARAM_NAMES = _expand_query_param_names(
     {
         "credential",
@@ -1179,6 +1190,14 @@ _OAUTH_AUTHORIZATION_CODE_URL_CONTEXT_RE = re.compile(
     r"oidc|openid|"
     r"authorize|authorization|consent|"
     r"callback(?:url)?|redirect(?:uri|url)?"
+    r")(?![A-Za-z])"
+)
+_OAUTH_DEVICE_CODE_URL_CONTEXT_RE = re.compile(
+    r"(?i)(?<![A-Za-z])(?:"
+    r"oauth(?:2|[-_/]?2(?:\.0)?)?[-_/ ]?device|"
+    r"device[-_/ ]?(?:authorization|auth|code|login|verification)|"
+    r"devicelogin|"
+    r"verification[-_/ ]?(?:uri|url)(?:[-_/ ]?complete)?"
     r")(?![A-Za-z])"
 )
 _CREDENTIAL_LINK_CODE_URL_CONTEXT_RE = re.compile(
@@ -1386,17 +1405,45 @@ _OAUTH_DEVICE_USER_CODE_CONTEXT = (
     r"user[_-]?code"
     r")"
 )
-_OAUTH_DEVICE_USER_CODE_VALUE = (
+_OAUTH_DEVICE_USER_CODE_LONG_VALUE = (
     r"(?=[A-Za-z0-9_~+/\-=%]{12,})"
     r"(?=[A-Za-z0-9_~+/\-=%]*[A-Za-z])"
     r"(?=[A-Za-z0-9_~+/\-=%]*\d)"
     r"[A-Za-z0-9][A-Za-z0-9_~+/\-=%]*"
 )
+_OAUTH_DEVICE_USER_CODE_GROUPED_VALUE = (
+    r"(?=[A-Z0-9]{4}(?:[- ][A-Z0-9]{4}){1,2}(?![A-Z0-9]))"
+    r"(?=[A-Z0-9 -]*[A-Z])"
+    r"[A-Z0-9]{4}(?:[- ][A-Z0-9]{4}){1,2}"
+)
+_OAUTH_DEVICE_USER_CODE_VALUE = (
+    rf"(?:{_OAUTH_DEVICE_USER_CODE_LONG_VALUE}|"
+    rf"{_OAUTH_DEVICE_USER_CODE_GROUPED_VALUE})"
+)
 _OAUTH_DEVICE_USER_CODE_AFTER_CONTEXT_RE = re.compile(
     rf"\b(?P<context>{_OAUTH_DEVICE_USER_CODE_CONTEXT})\b"
     rf"(?P<between>{_OAUTH_CONTEXT_VALUE_SEPARATOR})"
     rf"(?P<quote>[\"'])?"
-    rf"(?P<authorization_code>{_OAUTH_DEVICE_USER_CODE_VALUE})"
+    rf"(?P<device_user_code>{_OAUTH_DEVICE_USER_CODE_VALUE})"
+    rf"(?(quote)(?P=quote))",
+    re.IGNORECASE,
+)
+_OAUTH_DEVICE_VERIFICATION_URI_COMPLETE_CONTEXT = (
+    r"(?:"
+    r"verification[-_\s]?uri[-_\s]?complete|"
+    r"verification[-_\s]?url[-_\s]?complete|"
+    r"complete\s+verification\s+(?:uri|url)"
+    r")"
+)
+_OAUTH_DEVICE_VERIFICATION_URI_COMPLETE_RE = re.compile(
+    rf"(?<![A-Za-z0-9_])"
+    rf"(?P<context_quote>[\"'])?"
+    rf"(?P<context>{_OAUTH_DEVICE_VERIFICATION_URI_COMPLETE_CONTEXT})"
+    rf"(?(context_quote)(?P=context_quote))"
+    rf"(?![A-Za-z0-9_])"
+    rf"(?P<between>\s*(?:(?:is|are|was|at)\s+|[:=]\s*|-\s+))"
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<url>{_SENSITIVE_LINK_URL_TARGET})"
     rf"(?(quote)(?P=quote))",
     re.IGNORECASE,
 )
@@ -5155,6 +5202,14 @@ def _redact_oauth_authorization_code(match: re.Match) -> str:
     )
 
 
+def _redact_oauth_device_user_code(match: re.Match) -> str:
+    return _replace_match_group(
+        match,
+        "device_user_code",
+        _OAUTH_DEVICE_USER_CODE_PLACEHOLDER,
+    )
+
+
 def _quote_agent_tool_invocation_marker(match: re.Match) -> str:
     marker = match.group(0)
     indentation = marker[: len(marker) - len(marker.lstrip())]
@@ -5439,6 +5494,27 @@ def _has_oauth_authorization_code_url_context(url: str) -> bool:
     )
 
 
+def _has_oauth_device_code_url_context(url: str) -> bool:
+    candidate = url
+    if candidate.lower().startswith("www."):
+        candidate = f"https://{candidate}"
+
+    try:
+        parsed = urlsplit(candidate)
+    except ValueError:
+        return False
+
+    query_param_names = _query_param_names(parsed.query)
+    fragment_param_names = _fragment_query_param_names(parsed.fragment)
+    structural_context = _url_structural_context(
+        parsed,
+        query_param_names,
+        fragment_param_names,
+    )
+
+    return bool(_OAUTH_DEVICE_CODE_URL_CONTEXT_RE.search(structural_context))
+
+
 def _has_credential_link_code_url_context(url: str) -> bool:
     candidate = url
     if candidate.lower().startswith("www."):
@@ -5571,6 +5647,16 @@ def _is_oauth_authorization_code_query_param(
     return normalized_name != "code" or oauth_authorization_code_context
 
 
+def _is_oauth_device_code_query_param(
+    name: str,
+    oauth_device_code_context: bool,
+) -> bool:
+    return (
+        oauth_device_code_context
+        and _normalized_query_param_name(name) in _OAUTH_DEVICE_CODE_QUERY_PARAM_NAMES
+    )
+
+
 def _is_credential_link_code_query_param(
     name: str,
     credential_link_code_context: bool,
@@ -5656,6 +5742,7 @@ def _credential_query_param_placeholder(name: str, value: str):
 def _redact_credential_query_string(
     query: str,
     oauth_authorization_code_context: bool = False,
+    oauth_device_code_context: bool = False,
     credential_link_code_context: bool = False,
     passkey_webauthn_context: bool = False,
     sensitive_email_link_context: bool = False,
@@ -5701,6 +5788,15 @@ def _redact_credential_query_string(
         ):
             redacted_parts.append(
                 f"{name}{separator}{_OAUTH_AUTHORIZATION_CODE_PLACEHOLDER}"
+            )
+            changed = True
+        elif (
+            separator
+            and value
+            and _is_oauth_device_code_query_param(name, oauth_device_code_context)
+        ):
+            redacted_parts.append(
+                f"{name}{separator}{_OAUTH_DEVICE_USER_CODE_PLACEHOLDER}"
             )
             changed = True
         elif (
@@ -5754,6 +5850,7 @@ def _redact_credential_query_string(
 def _redact_credential_fragment(
     fragment: str,
     oauth_authorization_code_context: bool = False,
+    oauth_device_code_context: bool = False,
     credential_link_code_context: bool = False,
     passkey_webauthn_context: bool = False,
     sensitive_email_link_context: bool = False,
@@ -5763,6 +5860,7 @@ def _redact_credential_fragment(
         return _redact_credential_query_string(
             fragment,
             oauth_authorization_code_context,
+            oauth_device_code_context,
             credential_link_code_context,
             passkey_webauthn_context,
             sensitive_email_link_context,
@@ -5773,6 +5871,7 @@ def _redact_credential_fragment(
     redacted_query, changed = _redact_credential_query_string(
         query,
         oauth_authorization_code_context,
+        oauth_device_code_context,
         credential_link_code_context,
         passkey_webauthn_context,
         sensitive_email_link_context,
@@ -5783,6 +5882,7 @@ def _redact_credential_fragment(
 
 def _redact_url_query_and_fragment(url: str) -> Tuple[str, bool]:
     oauth_authorization_code_context = _has_oauth_authorization_code_url_context(url)
+    oauth_device_code_context = _has_oauth_device_code_url_context(url)
     credential_link_code_context = _has_credential_link_code_url_context(url)
     passkey_webauthn_context = _has_passkey_webauthn_url_context(url)
     sensitive_email_link_context = _has_sensitive_email_link_url_context(url)
@@ -5795,6 +5895,7 @@ def _redact_url_query_and_fragment(url: str) -> Tuple[str, bool]:
             redacted_query, changed = _redact_credential_query_string(
                 query,
                 oauth_authorization_code_context,
+                oauth_device_code_context,
                 credential_link_code_context,
                 passkey_webauthn_context,
                 sensitive_email_link_context,
@@ -5807,6 +5908,7 @@ def _redact_url_query_and_fragment(url: str) -> Tuple[str, bool]:
             redacted_query, query_changed = _redact_credential_query_string(
                 query,
                 oauth_authorization_code_context,
+                oauth_device_code_context,
                 credential_link_code_context,
                 passkey_webauthn_context,
                 sensitive_email_link_context,
@@ -5815,6 +5917,7 @@ def _redact_url_query_and_fragment(url: str) -> Tuple[str, bool]:
             redacted_fragment, fragment_changed = _redact_credential_fragment(
                 fragment,
                 oauth_authorization_code_context,
+                oauth_device_code_context,
                 credential_link_code_context,
                 passkey_webauthn_context,
                 sensitive_email_link_context,
@@ -5836,6 +5939,7 @@ def _redact_url_query_and_fragment(url: str) -> Tuple[str, bool]:
         redacted_fragment, changed = _redact_credential_fragment(
             fragment,
             oauth_authorization_code_context,
+            oauth_device_code_context,
             credential_link_code_context,
             passkey_webauthn_context,
             sensitive_email_link_context,
@@ -5972,8 +6076,24 @@ def _redact_oauth_authorization_codes(text: str) -> str:
         text,
     )
     return _OAUTH_DEVICE_USER_CODE_AFTER_CONTEXT_RE.sub(
-        _redact_oauth_authorization_code,
+        _redact_oauth_device_user_code,
         redacted,
+    )
+
+
+def _redact_oauth_device_verification_uri_complete_match(match: re.Match) -> str:
+    _, trailing_punctuation = _split_url_trailing_punctuation(match.group("url"))
+    return _replace_match_group(
+        match,
+        "url",
+        _OAUTH_DEVICE_VERIFICATION_URI_COMPLETE_PLACEHOLDER + trailing_punctuation,
+    )
+
+
+def _redact_oauth_device_verification_uri_complete(text: str) -> str:
+    return _OAUTH_DEVICE_VERIFICATION_URI_COMPLETE_RE.sub(
+        _redact_oauth_device_verification_uri_complete_match,
+        text,
     )
 
 
@@ -6548,6 +6668,7 @@ def redact_credential_content(text: str) -> str:
     redacted = _redact_private_keys(text)
     redacted = _redact_saml_sso_artifacts(redacted)
     redacted = _redact_oauth_oidc_assignments(redacted)
+    redacted = _redact_oauth_device_verification_uri_complete(redacted)
     redacted = _redact_oauth_oidc_authorization_artifacts(redacted)
     redacted = _redact_cookie_artifacts(redacted)
     redacted = _GOOGLE_OAUTH_TOKEN_RE.sub("[REDACTED_GOOGLE_TOKEN]", redacted)
@@ -6622,6 +6743,7 @@ def sanitize_untrusted_email_text(text: str) -> str:
     sanitized = text.replace("\r\n", "\n").replace("\r", "\n")
     sanitized = sanitized.translate(_INVISIBLE_PROMPT_CONTROL_TRANSLATION)
     sanitized = _redact_saml_sso_artifacts(sanitized)
+    sanitized = _redact_oauth_device_verification_uri_complete(sanitized)
     sanitized = _redact_oauth_oidc_authorization_artifacts(sanitized)
     sanitized = _redact_cookie_artifacts(sanitized)
     sanitized = _redact_provider_webhook_urls(sanitized)
