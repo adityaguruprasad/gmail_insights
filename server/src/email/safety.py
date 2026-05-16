@@ -1,4 +1,5 @@
 import re
+import unicodedata
 from typing import Iterable, List, Set, Tuple
 from urllib.parse import quote_plus, unquote, unquote_plus, urlsplit
 
@@ -1539,7 +1540,62 @@ _INVISIBLE_PROMPT_CONTROL_TRANSLATION = str.maketrans(
     "",
     _INVISIBLE_PROMPT_CONTROL_CHARACTERS,
 )
-_PROMPT_ROLE_TAGS = r"system|assistant|user|developer|tool|human"
+_PROMPT_ROLE_NAMES = ("system", "assistant", "user", "developer", "tool", "human")
+
+
+_PROMPT_ROLE_NAME_SET = frozenset(_PROMPT_ROLE_NAMES)
+_PROMPT_ROLE_TAGS_ASCII = "|".join(_PROMPT_ROLE_NAMES)
+
+# All Unicode category M characters are non-ASCII. The regex admits non-ASCII
+# candidates between role letters, then _canonical_prompt_role_label validates
+# that only category M characters were ignored. This keeps role matching broad
+# without a generated range table or import-time Unicode scan.
+_PROMPT_ROLE_MARK_CANDIDATE = r"[^\x00-\x7F]*"
+
+
+def _prompt_role_pattern(role: str) -> str:
+    return "".join(
+        f"{re.escape(char)}{_PROMPT_ROLE_MARK_CANDIDATE}" for char in role
+    )
+
+
+def _canonical_prompt_role_label(role: str) -> str:
+    return "".join(
+        char for char in role if not unicodedata.category(char).startswith("M")
+    )
+
+
+def _quoted_prompt_role(role: str) -> str:
+    canonical = _canonical_prompt_role_label(role)
+    if canonical.lower() not in _PROMPT_ROLE_NAME_SET:
+        return ""
+    return f"[quoted-role {canonical}]"
+
+
+def _quote_markdown_role_heading(match: re.Match) -> str:
+    quoted_role = _quoted_prompt_role(match.group(2))
+    if not quoted_role:
+        return match.group(0)
+    return f"{match.group(1)}{quoted_role}{match.group(3)}"
+
+
+def _quote_line_role_tag(match: re.Match) -> str:
+    quoted_role = _quoted_prompt_role(match.group(2))
+    if not quoted_role:
+        return match.group(0)
+    return f"{match.group(1)}{quoted_role} "
+
+
+def _quote_inline_role_tag(match: re.Match) -> str:
+    quoted_role = _quoted_prompt_role(match.group(1))
+    if not quoted_role:
+        return match.group(0)
+    return f"{quoted_role} "
+
+
+_PROMPT_ROLE_TAGS = "|".join(
+    _prompt_role_pattern(role) for role in _PROMPT_ROLE_NAMES
+)
 _PROMPT_ROLE_SEPARATOR = r"[:\ufe13\ufe55\uff1a]"
 _PROMPT_BOUNDARY_MARKER_RE = re.compile(
     r"(?i)\b(?:BEGIN|END)_UNTRUSTED_EMAIL\b"
@@ -1554,6 +1610,10 @@ _INLINE_ROLE_TAG_RE = re.compile(
 _MARKDOWN_ROLE_HEADING_RE = re.compile(
     rf"(?im)^([ \t]{{0,3}}#{{1,6}}\s*)({_PROMPT_ROLE_TAGS})"
     rf"(\s*{_PROMPT_ROLE_SEPARATOR}\s*|\s*$)"
+)
+_DIRECTIVE_ROLE_PREFIX_RE = re.compile(
+    rf"(?i)^(\s*(?:[-*]|\d+[.)])?\s*)({_PROMPT_ROLE_TAGS})"
+    rf"\s*{_PROMPT_ROLE_SEPARATOR}\s*"
 )
 _SERIALIZED_ROLE_FIELD_RE = re.compile(
     rf"(?i)"
@@ -1602,7 +1662,7 @@ _PROMPT_SECRET_EXFILTRATION_TARGET = (
     r")"
 )
 _ACTION_ROLE_PREFIX = (
-    rf"(?:(?:{_PROMPT_ROLE_TAGS})\s*{_PROMPT_ROLE_SEPARATOR}\s*)?"
+    rf"(?:(?:{_PROMPT_ROLE_TAGS_ASCII})\s*{_PROMPT_ROLE_SEPARATOR}\s*)?"
 )
 _PROMPT_INSTRUCTION_REFERENCE = r"(?:all\s+)?(?:the\s+)?(?:previous|prior|above|earlier)"
 # Keep bare previous/prior/above/earlier "messages" out of the unprotected
@@ -5217,9 +5277,13 @@ def _quote_agent_tool_invocation_marker(match: re.Match) -> str:
 
 
 def _quote_serialized_role_field(match: re.Match) -> str:
-    role = match.group("quoted_role") or match.group("bare_role")
+    quoted_role = _quoted_prompt_role(
+        match.group("quoted_role") or match.group("bare_role")
+    )
+    if not quoted_role:
+        return match.group(0)
     value_quote = match.group("value_quote") or ""
-    return f"{match.group('prefix')}{value_quote}[quoted-role {role}]{value_quote}"
+    return f"{match.group('prefix')}{value_quote}{quoted_role}{value_quote}"
 
 
 def _split_url_trailing_punctuation(url: str) -> Tuple[str, str]:
@@ -6766,12 +6830,12 @@ def sanitize_untrusted_email_text(text: str) -> str:
         _quote_serialized_role_field,
         sanitized,
     )
-    sanitized = _MARKDOWN_ROLE_HEADING_RE.sub(r"\1[quoted-role \2]\3", sanitized)
-    sanitized = _ROLE_TAG_RE.sub(r"\1[quoted-role \2] ", sanitized)
-    sanitized = _INLINE_ROLE_TAG_RE.sub(
-        lambda match: f"[quoted-role {match.group(1)}] ",
+    sanitized = _MARKDOWN_ROLE_HEADING_RE.sub(
+        _quote_markdown_role_heading,
         sanitized,
     )
+    sanitized = _ROLE_TAG_RE.sub(_quote_line_role_tag, sanitized)
+    sanitized = _INLINE_ROLE_TAG_RE.sub(_quote_inline_role_tag, sanitized)
     sanitized = _INSTRUCTION_PHRASE_RE.sub(r"[quoted-instruction: \1]", sanitized)
     sanitized = _SAFETY_METADATA_DIRECTIVE_RE.sub(
         lambda match: f"[quoted-safety-directive: {match.group(1)}]",
@@ -6815,7 +6879,60 @@ def neutralize_safety_metadata_misrepresentation(
     return "\n".join(guarded_lines), sorted(findings)
 
 
+def _canonical_directive_role_label_offsets(match: re.Match) -> List[int]:
+    offsets = [match.start(2)]
+    original_offset = match.start(2)
+    for char in match.group(2):
+        original_offset += 1
+        if not unicodedata.category(char).startswith("M"):
+            offsets.append(original_offset)
+
+    offsets[-1] = match.end(2)
+    return offsets
+
+
+def _canonicalize_directive_role_prefix_with_offsets(
+    line: str,
+) -> Tuple[str, List[int]]:
+    match = _DIRECTIVE_ROLE_PREFIX_RE.search(line)
+    if not match:
+        return line, []
+
+    canonical = _canonical_prompt_role_label(match.group(2))
+    if canonical.lower() not in _PROMPT_ROLE_NAME_SET:
+        return line, []
+
+    replacement = f"{match.group(1)}{canonical}: "
+    canonicalized = f"{line[:match.start()]}{replacement}{line[match.end():]}"
+    replacement_start = match.start()
+    replacement_end = replacement_start + len(replacement)
+    role_start = replacement_start + len(match.group(1))
+    role_end = role_start + len(canonical)
+    role_offsets = _canonical_directive_role_label_offsets(match)
+
+    offset_map = []
+    for offset in range(len(canonicalized) + 1):
+        if offset <= replacement_start:
+            offset_map.append(offset)
+        elif offset <= role_start:
+            offset_map.append(match.start() + offset - replacement_start)
+        elif offset <= role_end:
+            offset_map.append(role_offsets[offset - role_start])
+        elif offset < replacement_end:
+            offset_map.append(match.end())
+        else:
+            offset_map.append(match.end() + offset - replacement_end)
+
+    return canonicalized, offset_map
+
+
+def _canonicalize_directive_role_prefix_for_detection(line: str) -> str:
+    canonicalized, _ = _canonicalize_directive_role_prefix_with_offsets(line)
+    return canonicalized
+
+
 def _directive_actions(line: str) -> List[str]:
+    line = _canonicalize_directive_role_prefix_for_detection(line)
     actions = [
         action
         for action, patterns in _DIRECTIVE_PATTERNS.items()
@@ -6830,10 +6947,13 @@ def _directive_actions(line: str) -> List[str]:
 
 
 def _directive_match_spans(line: str, action: str) -> List[Tuple[int, int]]:
+    canonicalized, offset_map = _canonicalize_directive_role_prefix_with_offsets(line)
     return [
-        match.span()
+        (offset_map[match.start()], offset_map[match.end()])
+        if offset_map
+        else match.span()
         for pattern in _DIRECTIVE_PATTERNS[action]
-        for match in [pattern.search(line)]
+        for match in [pattern.search(canonicalized)]
         if match
     ]
 
