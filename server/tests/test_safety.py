@@ -1320,6 +1320,26 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertNotIn(begin, redacted)
         self.assertNotIn(end, redacted)
 
+    def test_redaction_removes_encrypted_private_key_blocks(self):
+        key_type = _fixture_secret("ENCRYPTED", " ", "PRIVATE", " ", "KEY")
+        body = _fixture_secret("encrypted", "-", "private", "-", "fixture", "-body")
+        begin = _private_key_delimiter("BEGIN", key_type)
+        end = _private_key_delimiter("END", key_type)
+        text = f"before\n{begin}\n{body}\n{end}\nafter"
+
+        for redactor in (
+            redact_credential_content,
+            redact_response_metadata_content,
+            redact_sensitive_content,
+        ):
+            with self.subTest(redactor=redactor.__name__):
+                redacted = redactor(text)
+
+                self.assertEqual(redacted, "before\n[REDACTED_PRIVATE_KEY]\nafter")
+                self.assertNotIn(body, redacted)
+                self.assertNotIn(begin, redacted)
+                self.assertNotIn(end, redacted)
+
     def test_redaction_removes_openssh_private_key_blocks(self):
         key_type = _fixture_secret("OPEN", "SSH", " ", "PRIVATE", " ", "KEY")
         body = _fixture_secret("open", "ssh", "-", "fixture", "-", "body")
@@ -4018,6 +4038,97 @@ class SafetyPolicyTests(unittest.TestCase):
             "\n".join(result["security_warnings"]),
         )
         self.assertIn("[REDACTED_SESSION_TOKEN]", result["subject"])
+
+    def test_prompt_summary_and_public_fields_redact_encrypted_private_keys(self):
+        processor = _processor_module()
+        key_type = _fixture_secret("ENCRYPTED", " ", "PRIVATE", " ", "KEY")
+        body = _fixture_secret("encrypted", "-", "private", "-", "body", "-012345")
+        begin = _private_key_delimiter("BEGIN", key_type)
+        end = _private_key_delimiter("END", key_type)
+        private_key_block = f"{begin}\n{body}\n{end}"
+        inline_private_key = f'private_key="{begin}\\n{body}\\n{end}"'
+        email = {
+            "id": "encrypted-private-key-1",
+            "subject": f"Credential review {inline_private_key}",
+            "sender": "Security Ops",
+            "date": "2026-05-10",
+            "snippet": "Visible credential rotation note.",
+            "security_warnings": [
+                "Credential-like private key material was present in the message.",
+            ],
+            "content": (
+                "Visible deployment note remains.\n"
+                f"{private_key_block}\n"
+                "Draft assistance should only discuss safe rotation wording."
+            ),
+            "is_archived": True,
+        }
+
+        captured_prompt = {}
+
+        def fake_create(**kwargs):
+            captured_prompt["prompt"] = kwargs["prompt"]
+            return types.SimpleNamespace(
+                completion=(
+                    "Summary copied encrypted key:\n"
+                    f"{private_key_block}\n"
+                    "Draft assistance: Optional rotation wording only.\n"
+                    "Archive suggestion: Yes, archived already."
+                )
+            )
+
+        original_create = processor.anthropic.completions.create
+        processor.anthropic.completions.create = fake_create
+        try:
+            result = processor.extract_insights(email)
+        finally:
+            processor.anthropic.completions.create = original_create
+
+        prompt = captured_prompt["prompt"]
+        public_text = "\n".join(
+            [
+                prompt,
+                result["subject"],
+                result["summary"],
+                "\n".join(result["security_warnings"]),
+            ]
+        )
+        for secret_part in (begin, body, end, private_key_block, inline_private_key):
+            with self.subTest(secret_part=secret_part):
+                self.assertNotIn(secret_part, public_text)
+
+        self.assertIn("[REDACTED_PRIVATE_KEY]", prompt)
+        self.assertIn("[REDACTED_PRIVATE_KEY]", result["subject"])
+        self.assertIn("[REDACTED_PRIVATE_KEY]", result["summary"])
+        self.assertIn("Visible deployment note remains.", prompt)
+        self.assertIn(
+            "Draft assistance should only discuss safe rotation wording.",
+            prompt,
+        )
+        self.assertIn(
+            "Draft assistance: Optional rotation wording only.",
+            result["summary"],
+        )
+        self.assertTrue(result["is_archived"])
+        required_public_keys = {
+            "id",
+            "subject",
+            "sender",
+            "is_archived",
+            "security_warnings",
+            "summary",
+        }
+        self.assertTrue(
+            required_public_keys.issubset(result),
+            f"missing public keys: {required_public_keys - set(result)}",
+        )
+        self.assertNotIn("blocked_actions", result)
+        self.assertNotIn("effective_actions", result)
+        self.assertIn(
+            "You may propose a safe draft outline and archive recommendation only.",
+            prompt,
+        )
+        self.assertIn("Mailbox state: archived", prompt)
 
     def test_prompt_summary_and_public_fields_redact_url_userinfo_credentials(self):
         processor = _processor_module()
