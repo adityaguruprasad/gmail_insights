@@ -128,6 +128,12 @@ _HIDDEN_HTML_CONTENT_WARNING = (
     "HTML message contains hidden or visually suppressed content; hidden text was "
     "excluded from extracted text."
 )
+_META_REFRESH_REDIRECT_WARNING = "HTML email contains a meta refresh redirect."
+_META_REFRESH_URL_RE = re.compile(
+    r"(?:^|;)\s*url\s*=\s*(?P<url>.*)",
+    re.IGNORECASE | re.DOTALL,
+)
+_DANGEROUS_META_REFRESH_SCHEMES = _DANGEROUS_LINK_SCHEMES | {"vbscript"}
 _EXECUTABLE_ATTACHMENT_EXTENSIONS = {
     ".exe",
     ".msi",
@@ -1011,6 +1017,37 @@ def _url_scheme(value: Optional[str]) -> str:
     return scheme
 
 
+def _meta_refresh_target(content: Optional[str]) -> str:
+    if not content:
+        return ""
+
+    match = _META_REFRESH_URL_RE.search(str(content))
+    if match is None:
+        return ""
+
+    target = match.group("url").strip()
+    if len(target) >= 2 and target[0] == target[-1] and target[0] in {"'", '"'}:
+        target = target[1:-1].strip()
+
+    return target
+
+
+def _meta_refresh_warning(content: Optional[str]) -> str:
+    target = _meta_refresh_target(content)
+    scheme = _url_scheme(target)
+    if scheme in _DANGEROUS_META_REFRESH_SCHEMES:
+        return (
+            "HTML email contains a meta refresh redirect using potentially unsafe "
+            f"{scheme}: URL scheme."
+        )
+
+    target_host = _http_url_host(target)
+    if target_host:
+        return f"HTML email contains a meta refresh redirect to {target_host}."
+
+    return _META_REFRESH_REDIRECT_WARNING
+
+
 class _HTMLSafetyParser(HTMLParser):
     def __init__(
         self,
@@ -1092,6 +1129,11 @@ class _HTMLSafetyParser(HTMLParser):
             self._check_form(attrs_by_name.get("action", ""))
         elif tag == "img" and _http_url_host(attrs_by_name.get("src")):
             self._add_warning(_REMOTE_IMAGE_WARNING)
+        elif (
+            tag == "meta"
+            and (attrs_by_name.get("http-equiv") or "").strip().lower() == "refresh"
+        ):
+            self._add_warning(_meta_refresh_warning(attrs_by_name.get("content")))
 
     def handle_starttag(self, tag, attrs):
         tag = tag.lower()

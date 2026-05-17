@@ -1856,6 +1856,53 @@ class ProcessorPromptTests(unittest.TestCase):
             prompt,
         )
 
+    def test_meta_refresh_redirect_warning_reaches_prompt_and_public_warnings(self):
+        email = _fetched_email_from_payload(
+            {
+                "mimeType": "text/html",
+                "headers": [
+                    {"name": "Subject", "value": "Invoice review"},
+                    {"name": "From", "value": "Billing <billing@example.test>"},
+                    {"name": "Date", "value": "Thu, 14 May 2026 09:30:00 -0700"},
+                ],
+                "body": {
+                    "data": _gmail_b64(
+                        '<meta http-equiv="refresh" '
+                        'content="0;url=https://Evil.Example./login?token=secret">'
+                        "<p>Please review the invoice notes.</p>"
+                    )
+                },
+            }
+        )
+        captured_prompt = {}
+
+        def fake_create(**kwargs):
+            captured_prompt["prompt"] = kwargs["prompt"]
+            return types.SimpleNamespace(completion="Summary: ok")
+
+        with patch.object(
+            processor.anthropic.completions,
+            "create",
+            side_effect=fake_create,
+        ):
+            result = processor.extract_insights(email, redact_sensitive=False)
+
+        warning = "HTML email contains a meta refresh redirect to evil.example."
+        prompt = captured_prompt["prompt"]
+
+        self.assertIn(f"Security warnings (read-only): {warning}", prompt)
+        self.assertEqual([warning], result["security_warnings"])
+        self.assertIn("Please review the invoice notes.", prompt)
+        self.assertNotIn("http-equiv", prompt)
+        self.assertNotIn("/login", prompt)
+        self.assertNotIn("token=secret", prompt)
+        self.assertNotIn("blocked_actions", result)
+        self.assertNotIn("effective_actions", result)
+        self.assertEqual(
+            {"id", "subject", "sender", "is_archived", "security_warnings", "summary"},
+            set(result),
+        )
+
     def test_active_web_content_attachment_warning_reaches_prompt_and_public_warnings(self):
         email = _fetched_email_from_payload(
             {

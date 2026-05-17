@@ -1972,6 +1972,165 @@ class FetcherHtmlSecurityWarningTests(unittest.TestCase):
         self.assertNotIn("ops@example.test", warnings_text)
         self.assertNotIn("secret", warnings_text)
 
+    def test_get_emails_by_query_warns_for_dangerous_meta_refresh_scheme(self):
+        email = _email_from_payload(
+            {
+                "mimeType": "text/html",
+                "headers": _headers(),
+                "body": {
+                    "data": _gmail_b64(
+                        '<meta http-equiv="refresh" '
+                        "content=\"0; url=JaVaScRiPt:alert('secret')\">"
+                        "<p>Visible invoice update.</p>"
+                    )
+                },
+            }
+        )
+
+        self.assertEqual(
+            email["security_warnings"],
+            [
+                "HTML email contains a meta refresh redirect using potentially unsafe "
+                "javascript: URL scheme."
+            ],
+        )
+        self.assertIn("Visible invoice update.", email["content"])
+        self.assertNotIn("http-equiv", email["content"])
+        self.assertNotIn("refresh", email["content"])
+        warnings_text = "\n".join(email["security_warnings"])
+        self.assertNotIn("alert", warnings_text)
+        self.assertNotIn("secret", warnings_text)
+
+    def test_get_emails_by_query_warns_for_vbscript_meta_refresh_scheme(self):
+        email = _email_from_payload(
+            {
+                "mimeType": "text/html",
+                "headers": _headers(),
+                "body": {
+                    "data": _gmail_b64(
+                        '<meta http-equiv="refresh" '
+                        "content=\"0; url=VBScript:MsgBox('secret')\">"
+                        "<p>Visible invoice update.</p>"
+                    )
+                },
+            }
+        )
+
+        self.assertEqual(
+            email["security_warnings"],
+            [
+                "HTML email contains a meta refresh redirect using potentially unsafe "
+                "vbscript: URL scheme."
+            ],
+        )
+        self.assertIn("Visible invoice update.", email["content"])
+        warnings_text = "\n".join(email["security_warnings"])
+        self.assertNotIn("MsgBox", warnings_text)
+        self.assertNotIn("secret", warnings_text)
+
+    def test_get_emails_by_query_handles_mixed_case_spaced_meta_refresh(self):
+        email = _email_from_payload(
+            {
+                "mimeType": "text/html",
+                "headers": _headers(),
+                "body": {
+                    "data": _gmail_b64(
+                        '<META HTTP-EQUIV=" ReFrEsH " '
+                        'CONTENT="  0 ; URL = https://WWW.Payments.Example./path  ">'
+                        "<p>Visible invoice update.</p>"
+                    )
+                },
+            }
+        )
+
+        self.assertEqual(
+            email["security_warnings"],
+            ["HTML email contains a meta refresh redirect to payments.example."],
+        )
+        self.assertIn("Visible invoice update.", email["content"])
+        self.assertNotIn("HTTP-EQUIV", email["content"])
+        self.assertNotIn("https://", email["content"])
+        self.assertNotIn("/path", "\n".join(email["security_warnings"]))
+
+    def test_get_emails_by_query_warns_for_protocol_relative_meta_refresh_host(self):
+        email = _email_from_payload(
+            {
+                "mimeType": "text/html",
+                "headers": _headers(),
+                "body": {
+                    "data": _gmail_b64(
+                        '<meta http-equiv="refresh" '
+                        'content="0; url=//Evil.Example/path?token=secret">'
+                        "<p>Visible invoice update.</p>"
+                    )
+                },
+            }
+        )
+
+        self.assertEqual(
+            email["security_warnings"],
+            ["HTML email contains a meta refresh redirect to evil.example."],
+        )
+        self.assertIn("Visible invoice update.", email["content"])
+        warnings_text = "\n".join(email["security_warnings"])
+        self.assertNotIn("/path", warnings_text)
+        self.assertNotIn("token=secret", warnings_text)
+
+    def test_get_emails_by_query_warns_for_meta_refresh_without_parseable_url(self):
+        email = _email_from_payload(
+            {
+                "mimeType": "text/html",
+                "headers": _headers(),
+                "body": {
+                    "data": _gmail_b64(
+                        '<meta http-equiv="refresh" content="0">'
+                        "<p>Visible invoice update.</p>"
+                    )
+                },
+            }
+        )
+
+        self.assertEqual(
+            email["security_warnings"],
+            [fetcher._META_REFRESH_REDIRECT_WARNING],
+        )
+        self.assertIn("Visible invoice update.", email["content"])
+
+    def test_get_emails_by_query_ignores_valueless_meta_http_equiv(self):
+        email = _email_from_payload(
+            {
+                "mimeType": "text/html",
+                "headers": _headers(),
+                "body": {
+                    "data": _gmail_b64(
+                        '<meta http-equiv content="0; url=//ignored.example/path">'
+                        "<p>Visible invoice update.</p>"
+                    )
+                },
+            }
+        )
+
+        self.assertEqual(email["security_warnings"], [])
+        self.assertIn("Visible invoice update.", email["content"])
+
+    def test_get_emails_by_query_does_not_warn_for_benign_meta_tag(self):
+        email = _email_from_payload(
+            {
+                "mimeType": "text/html",
+                "headers": _headers(),
+                "body": {
+                    "data": _gmail_b64(
+                        '<meta name="viewport" content="width=device-width">'
+                        "<p>Visible invoice update.</p>"
+                    )
+                },
+            }
+        )
+
+        self.assertEqual(email["security_warnings"], [])
+        self.assertIn("Visible invoice update.", email["content"])
+        self.assertNotIn("viewport", email["content"])
+
     def test_get_emails_by_query_summarizes_remote_image_warning(self):
         email = _email_from_payload(
             {
