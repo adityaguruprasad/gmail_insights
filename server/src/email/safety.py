@@ -1642,7 +1642,10 @@ def _prompt_role_pattern(role: str) -> str:
 
 
 def _canonical_prompt_role_label(role: str) -> str:
-    return "".join(char for char in role if not _is_prompt_role_ignored_char(char))
+    compact = "".join(
+        char for char in role if not _is_prompt_role_ignored_char(char)
+    )
+    return unicodedata.normalize("NFKC", compact)
 
 
 def _quoted_prompt_role(role: str) -> str:
@@ -1677,15 +1680,35 @@ _PROMPT_ROLE_TAGS = "|".join(
     _prompt_role_pattern(role) for role in _PROMPT_ROLE_NAMES
 )
 _PROMPT_ROLE_SEPARATOR = r"[:\ufe13\ufe55\uff1a]"
+_NFKC_PROMPT_ROLE_TAG_LENGTH_MARGIN = 7
+_NFKC_PROMPT_ROLE_TAG_MAX_LENGTH = (
+    max(len(role) for role in _PROMPT_ROLE_NAMES)
+    + _NFKC_PROMPT_ROLE_TAG_LENGTH_MARGIN
+)
+# This broad NFKC candidate is intentionally gated by
+# _canonical_prompt_role_label inside the quote callbacks. The legacy
+# _PROMPT_ROLE_TAGS patterns still cover combining-mark/interior-mark role forms.
+_NFKC_PROMPT_ROLE_TAG = rf"[^\W\d_]{{1,{_NFKC_PROMPT_ROLE_TAG_MAX_LENGTH}}}"
 _PROMPT_BOUNDARY_MARKER_RE = re.compile(
     r"(?i)\b(?:BEGIN|END)_UNTRUSTED_EMAIL\b"
+)
+_NFKC_ROLE_TAG_RE = re.compile(
+    rf"(?im)^(\s*)({_NFKC_PROMPT_ROLE_TAG})\s*{_PROMPT_ROLE_SEPARATOR}\s*"
 )
 _ROLE_TAG_RE = re.compile(
     rf"(?im)^(\s*)({_PROMPT_ROLE_TAGS})\s*{_PROMPT_ROLE_SEPARATOR}\s*"
 )
+_NFKC_INLINE_ROLE_TAG_RE = re.compile(
+    rf"(?i)(?<![\w/@.-])({_NFKC_PROMPT_ROLE_TAG})"
+    rf"\s*{_PROMPT_ROLE_SEPARATOR}\s*"
+)
 _INLINE_ROLE_TAG_RE = re.compile(
     rf"(?i)(?<![\w/@.-])({_PROMPT_ROLE_TAGS})"
     rf"\s*{_PROMPT_ROLE_SEPARATOR}\s*"
+)
+_NFKC_MARKDOWN_ROLE_HEADING_RE = re.compile(
+    rf"(?im)^([ \t]{{0,3}}#{{1,6}}\s*)({_NFKC_PROMPT_ROLE_TAG})"
+    rf"(\s*{_PROMPT_ROLE_SEPARATOR}\s*|\s*$)"
 )
 _MARKDOWN_ROLE_HEADING_RE = re.compile(
     rf"(?im)^([ \t]{{0,3}}#{{1,6}}\s*)({_PROMPT_ROLE_TAGS})"
@@ -1703,6 +1726,16 @@ _SERIALIZED_ROLE_FIELD_RE = re.compile(
     rf"(?:"
     rf"(?P<value_quote>[\"'])(?P<quoted_role>{_PROMPT_ROLE_TAGS})(?P=value_quote)"
     rf"|(?P<bare_role>{_PROMPT_ROLE_TAGS})(?=\s*(?:$|[\n\r,;.!?:}}\]\)>|<#]))"
+    rf")"
+)
+_NFKC_SERIALIZED_ROLE_FIELD_RE = re.compile(
+    rf"(?i)"
+    rf"(?P<prefix>(?<![\w-])(?P<key_quote>[\"'])?"
+    rf"role(?(key_quote)(?P=key_quote))"
+    rf"\s*(?:{_PROMPT_ROLE_SEPARATOR}|=)\s*)"
+    rf"(?:"
+    rf"(?P<value_quote>[\"'])(?P<quoted_role>{_NFKC_PROMPT_ROLE_TAG})(?P=value_quote)"
+    rf"|(?P<bare_role>{_NFKC_PROMPT_ROLE_TAG})(?=\s*(?:$|[\n\r,;.!?:}}\]\)>|<#]))"
     rf")"
 )
 _MODEL_CONTROL_TOKEN_RE = re.compile(
@@ -6979,15 +7012,25 @@ def sanitize_untrusted_email_text(text: str) -> str:
         _quote_agent_tool_invocation_marker,
         sanitized,
     )
+    sanitized = _NFKC_SERIALIZED_ROLE_FIELD_RE.sub(
+        _quote_serialized_role_field,
+        sanitized,
+    )
     sanitized = _SERIALIZED_ROLE_FIELD_RE.sub(
         _quote_serialized_role_field,
+        sanitized,
+    )
+    sanitized = _NFKC_MARKDOWN_ROLE_HEADING_RE.sub(
+        _quote_markdown_role_heading,
         sanitized,
     )
     sanitized = _MARKDOWN_ROLE_HEADING_RE.sub(
         _quote_markdown_role_heading,
         sanitized,
     )
+    sanitized = _NFKC_ROLE_TAG_RE.sub(_quote_line_role_tag, sanitized)
     sanitized = _ROLE_TAG_RE.sub(_quote_line_role_tag, sanitized)
+    sanitized = _NFKC_INLINE_ROLE_TAG_RE.sub(_quote_inline_role_tag, sanitized)
     sanitized = _INLINE_ROLE_TAG_RE.sub(_quote_inline_role_tag, sanitized)
     sanitized = _INSTRUCTION_PHRASE_RE.sub(r"[quoted-instruction: \1]", sanitized)
     sanitized = _SAFETY_METADATA_DIRECTIVE_RE.sub(
