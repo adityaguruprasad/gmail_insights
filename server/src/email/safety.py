@@ -184,6 +184,54 @@ _APP_PASSWORD_BEFORE_CONTEXT_RE = re.compile(
     rf"(?P<context>{_APP_PASSWORD_CONTEXT})\b",
     re.IGNORECASE,
 )
+_PASSWORD_MANAGER_SECRET_PLACEHOLDER = "[REDACTED_PASSWORD_MANAGER_SECRET]"
+_ONE_PASSWORD_CONTEXT = r"(?:1[ -]?password|onepassword)"
+_ONE_PASSWORD_EMERGENCY_KIT_CONTEXT = r"emergency\s+kits?"
+_ONE_PASSWORD_SECRET_KEY_LABEL = r"secret\s+keys?"
+_PASSWORD_MANAGER_SECRET_CONTEXT = (
+    r"(?:"
+    rf"{_ONE_PASSWORD_CONTEXT}"
+    rf"(?:\s+{_ONE_PASSWORD_EMERGENCY_KIT_CONTEXT})?"
+    rf"\s+{_ONE_PASSWORD_SECRET_KEY_LABEL}|"
+    rf"{_ONE_PASSWORD_EMERGENCY_KIT_CONTEXT}"
+    rf"(?:\s+{_ONE_PASSWORD_CONTEXT})?"
+    rf"\s+{_ONE_PASSWORD_SECRET_KEY_LABEL}|"
+    rf"{_ONE_PASSWORD_SECRET_KEY_LABEL}\s+"
+    rf"(?:for|from|in|inside|on|to)\s+"
+    rf"(?:your\s+|my\s+|our\s+|the\s+|this\s+)?"
+    rf"(?:{_ONE_PASSWORD_CONTEXT}(?:\s+{_ONE_PASSWORD_EMERGENCY_KIT_CONTEXT})?|"
+    rf"{_ONE_PASSWORD_EMERGENCY_KIT_CONTEXT})"
+    r")"
+)
+_PASSWORD_MANAGER_SECRET_CONTEXT_BOUNDARY = (
+    r"(?![A-Za-z0-9_])"
+    r"(?!\s+(?:policy|policies|rotation|runbooks?|docs?|documentation|"
+    r"guides?|formats?|examples?)\b)"
+)
+_ONE_PASSWORD_SECRET_KEY_VALUE = (
+    r"(?<![A-Za-z0-9-])A[23]-[A-Z0-9]{6}-[A-Z0-9]{6}"
+    r"(?:-[A-Z0-9]{5}){4}(?![A-Za-z0-9-])"
+)
+_PASSWORD_MANAGER_SECRET_VALUE = _ONE_PASSWORD_SECRET_KEY_VALUE
+_PASSWORD_MANAGER_SECRET_AFTER_CONTEXT_RE = re.compile(
+    rf"(?<![A-Za-z0-9_])(?P<context>{_PASSWORD_MANAGER_SECRET_CONTEXT})"
+    rf"{_PASSWORD_MANAGER_SECRET_CONTEXT_BOUNDARY}"
+    rf"(?P<between>\s*(?:(?:is|are|was)\s+|[:=]\s*|-\s*|\s+))"
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<password_manager_secret>{_PASSWORD_MANAGER_SECRET_VALUE})"
+    rf"(?(quote)(?P=quote))",
+    re.IGNORECASE,
+)
+_PASSWORD_MANAGER_SECRET_BEFORE_CONTEXT_RE = re.compile(
+    rf"(?P<quote>[\"'])?"
+    rf"(?P<password_manager_secret>{_PASSWORD_MANAGER_SECRET_VALUE})"
+    rf"(?(quote)(?P=quote))"
+    rf"(?P<between>\s+(?:is|are|was|as|for|from|in|inside|on)\s+"
+    rf"(?:your|my|our|the|this|a|an)?\s*)"
+    rf"(?P<context>{_PASSWORD_MANAGER_SECRET_CONTEXT})"
+    rf"{_PASSWORD_MANAGER_SECRET_CONTEXT_BOUNDARY}",
+    re.IGNORECASE,
+)
 _WALLET_SEED_PHRASE_PLACEHOLDER = "[REDACTED_WALLET_SEED_PHRASE]"
 _WALLET_SEED_CONTEXT = (
     r"(?:"
@@ -6530,6 +6578,25 @@ def _redact_app_passwords(text: str) -> str:
     return _APP_PASSWORD_BEFORE_CONTEXT_RE.sub(_redact_app_password, redacted)
 
 
+def _redact_password_manager_secret(match: re.Match) -> str:
+    return _replace_match_group(
+        match,
+        "password_manager_secret",
+        _PASSWORD_MANAGER_SECRET_PLACEHOLDER,
+    )
+
+
+def _redact_password_manager_secrets(text: str) -> str:
+    redacted = _PASSWORD_MANAGER_SECRET_AFTER_CONTEXT_RE.sub(
+        _redact_password_manager_secret,
+        text,
+    )
+    return _PASSWORD_MANAGER_SECRET_BEFORE_CONTEXT_RE.sub(
+        _redact_password_manager_secret,
+        redacted,
+    )
+
+
 def _redact_wallet_seed_phrase(match: re.Match) -> str:
     return _replace_match_group(
         match,
@@ -6757,6 +6824,7 @@ def redact_credential_content(text: str) -> str:
         redacted,
     )
     redacted = _BEARER_TOKEN_RE.sub(r"\1[REDACTED_TOKEN]", redacted)
+    redacted = _redact_password_manager_secrets(redacted)
     redacted = _redact_password_secrets(redacted)
     redacted = _redact_short_lived_login_credentials(redacted)
     redacted = _redact_mfa_backup_codes(redacted)
@@ -6814,6 +6882,7 @@ def sanitize_untrusted_email_text(text: str) -> str:
     sanitized = _redact_url_userinfo_credentials(sanitized)
     sanitized = _redact_authenticator_enrollment_secrets(sanitized)
     sanitized = _redact_npm_access_tokens(sanitized)
+    sanitized = _redact_password_manager_secrets(sanitized)
     sanitized = _PROMPT_BOUNDARY_MARKER_RE.sub(
         "[quoted-prompt-boundary]",
         sanitized,

@@ -212,6 +212,24 @@ def _webhook_signing_secret_fixture():
     )
 
 
+def _one_password_secret_key_fixture():
+    return _fixture_secret(
+        "A3",
+        "-",
+        "8MMQJN",
+        "-",
+        "MZ64CY",
+        "-",
+        "2SDB4",
+        "-",
+        "RPX3T",
+        "-",
+        "V52Q3",
+        "-",
+        "N2C84",
+    )
+
+
 def _slack_webhook_url_fixture():
     team = _fixture_secret("T", "1234", "5678")
     channel = _fixture_secret("B", "2345", "6789")
@@ -2215,6 +2233,117 @@ class SafetyPolicyTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(redact_sensitive_content(text), text)
 
+    def test_redact_credential_content_redacts_password_manager_secret_keys(self):
+        secret_key = _one_password_secret_key_fixture()
+        placeholder = "[REDACTED_PASSWORD_MANAGER_SECRET]"
+        cases = [
+            (
+                f"1Password Secret Key: {secret_key}",
+                f"1Password Secret Key: {placeholder}",
+            ),
+            (
+                f'Emergency Kit secret key = "{secret_key}"',
+                f'Emergency Kit secret key = "{placeholder}"',
+            ),
+            (
+                f"{secret_key} is your 1Password Secret Key.",
+                f"{placeholder} is your 1Password Secret Key.",
+            ),
+        ]
+
+        for text, expected in cases:
+            with self.subTest(text=text):
+                redacted = redact_credential_content(text)
+
+                self.assertEqual(redacted, expected)
+                self.assertNotIn(secret_key, redacted)
+
+    def test_redaction_redacts_1password_brand_spelling_variants(self):
+        secret_key = _one_password_secret_key_fixture()
+        placeholder = "[REDACTED_PASSWORD_MANAGER_SECRET]"
+        cases = [
+            "1Password",
+            "1 Password",
+            "1-Password",
+            "onepassword",
+        ]
+
+        for brand in cases:
+            text = f"{brand} Secret Key: {secret_key}"
+            expected = f"{brand} Secret Key: {placeholder}"
+            with self.subTest(brand=brand):
+                redacted = redact_credential_content(text)
+
+                self.assertEqual(redacted, expected)
+                self.assertNotIn(secret_key, redacted)
+
+    def test_redaction_redacts_password_manager_secret_key_was_before_context(self):
+        secret_key = _one_password_secret_key_fixture()
+        text = f"{secret_key} was your 1Password Secret Key."
+        redacted = redact_credential_content(text)
+
+        self.assertEqual(
+            redacted,
+            "[REDACTED_PASSWORD_MANAGER_SECRET] was your 1Password Secret Key.",
+        )
+        self.assertNotIn(secret_key, redacted)
+
+    def test_public_metadata_and_sanitized_untrusted_email_redact_password_manager_secret_keys(
+        self,
+    ):
+        secret_key = _one_password_secret_key_fixture()
+
+        metadata_redacted = redact_response_metadata_content(
+            f'subject:"1Password Secret Key: {secret_key}"'
+        )
+        sanitized = sanitize_untrusted_email_text(
+            f"{secret_key} is your 1Password Secret Key from the Emergency Kit."
+        )
+
+        for public_text in (metadata_redacted, sanitized):
+            with self.subTest(public_text=public_text):
+                self.assertNotIn(secret_key, public_text)
+                self.assertIn("[REDACTED_PASSWORD_MANAGER_SECRET]", public_text)
+
+    def test_redaction_preserves_benign_password_manager_key_prose(self):
+        cases = [
+            "The 1Password secret key rotation runbook is ready for review.",
+            "The recovery key policy is documented in the onboarding guide.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                self.assertEqual(redact_credential_content(text), text)
+                self.assertEqual(redact_response_metadata_content(text), text)
+                self.assertEqual(redact_sensitive_content(text), text)
+                self.assertEqual(sanitize_untrusted_email_text(text), text)
+
+    def test_redaction_preserves_unanchored_password_manager_key_shaped_values(self):
+        secret_key = _one_password_secret_key_fixture()
+        text = f"Opaque import identifier observed in logs: {secret_key}."
+
+        self.assertEqual(redact_credential_content(text), text)
+        self.assertEqual(redact_response_metadata_content(text), text)
+        self.assertEqual(redact_sensitive_content(text), text)
+        self.assertEqual(sanitize_untrusted_email_text(text), text)
+
+    def test_redaction_preserves_non_1password_password_manager_key_values(self):
+        cases = [
+            "1Password Secret Key: abcd-ef12-gh34-ij56",
+            "Emergency Kit secret key: abcdef123456abcdef123456",
+            (
+                "Password manager recovery key: "
+                f"{_one_password_secret_key_fixture()}"
+            ),
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                self.assertEqual(redact_credential_content(text), text)
+                self.assertEqual(redact_response_metadata_content(text), text)
+                self.assertEqual(redact_sensitive_content(text), text)
+                self.assertEqual(sanitize_untrusted_email_text(text), text)
+
     def test_redaction_removes_contextual_app_passwords(self):
         app_password = _fixture_secret("abcd", " ", "efgh", " ", "ijkl", " ", "mnop")
         cases = [
@@ -4047,6 +4176,51 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertIn("[REDACTED_AUTHENTICATOR_SECRET]", prompt)
         self.assertIn("[REDACTED_AUTHENTICATOR_SECRET]", result["summary"])
         self.assertIn("[REDACTED_AUTHENTICATOR_SECRET]", result["subject"])
+
+    def test_prompt_summary_and_warning_paths_redact_password_manager_secret_keys(self):
+        processor = _processor_module()
+        secret_key = _one_password_secret_key_fixture()
+        email = {
+            "id": "password-manager-secret-key-1",
+            "subject": f"Emergency Kit 1Password Secret Key: {secret_key}",
+            "sender": "Security Ops",
+            "date": "2026-05-10",
+            "snippet": f"{secret_key} is your 1Password Secret Key.",
+            "security_warnings": [
+                f"1Password Secret Key: {secret_key}",
+            ],
+            "content": f"Emergency Kit secret key: {secret_key}",
+            "is_archived": False,
+        }
+
+        prompt = processor._build_prompt(email, redact_sensitive=True)
+        original_create = processor.anthropic.completions.create
+        processor.anthropic.completions.create = (
+            lambda **kwargs: types.SimpleNamespace(
+                completion=f"Summary copied 1Password Secret Key: {secret_key}."
+            )
+        )
+        try:
+            result = processor.extract_insights(email)
+        finally:
+            processor.anthropic.completions.create = original_create
+
+        public_text = "\n".join(
+            [
+                prompt,
+                result["summary"],
+                result["subject"],
+                "\n".join(result["security_warnings"]),
+            ]
+        )
+        self.assertNotIn(secret_key, public_text)
+        self.assertIn("[REDACTED_PASSWORD_MANAGER_SECRET]", prompt)
+        self.assertIn("[REDACTED_PASSWORD_MANAGER_SECRET]", result["summary"])
+        self.assertIn("[REDACTED_PASSWORD_MANAGER_SECRET]", result["subject"])
+        self.assertIn(
+            "[REDACTED_PASSWORD_MANAGER_SECRET]",
+            "\n".join(result["security_warnings"]),
+        )
 
     def test_prompt_summary_and_warning_paths_redact_signed_cloud_storage_urls(self):
         processor = _processor_module()
