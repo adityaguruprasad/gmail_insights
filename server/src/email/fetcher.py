@@ -256,6 +256,27 @@ _CSS_COLOR_KEYWORDS_TO_IGNORE = {
     "unset",
 }
 _CSS_NAMED_COLOR_ALIASES = {"black": "#000000", "white": "#ffffff"}
+_CSS_FONT_OPTIONAL_KEYWORDS = {
+    "normal",
+    "italic",
+    "oblique",
+    "small-caps",
+    "bold",
+    "bolder",
+    "lighter",
+    "ultra-condensed",
+    "extra-condensed",
+    "condensed",
+    "semi-condensed",
+    "semi-expanded",
+    "expanded",
+    "extra-expanded",
+    "ultra-expanded",
+}
+_CSS_FONT_WEIGHT_RE = re.compile(r"^(?:[1-9]\d{0,2}|1000)$")
+_CSS_NONZERO_PERCENT_RE = re.compile(
+    r"^(?:[1-9]\d*(?:\.\d+)?|0*\.\d*[1-9]\d*)%$"
+)
 _CSS_CLIPPING_OVERFLOW_VALUES = {"hidden", "clip"}
 _CSS_OFFSCREEN_POSITION_THRESHOLD = 1000
 _CSS_OFFSCREEN_TEXT_INDENT_THRESHOLD = 100
@@ -447,6 +468,40 @@ def _css_large_negative_text_indent(value: str) -> bool:
         length is not None
         and length <= -_CSS_OFFSCREEN_TEXT_INDENT_THRESHOLD
     )
+
+
+def _css_font_shorthand_has_zero_size(value: str) -> bool:
+    candidate = _css_keyword(value)
+    if not candidate:
+        return False
+
+    # Normalize "font: 0 / 0 Arial" to the same size token as "font: 0/0 Arial".
+    candidate = re.sub(r"\s*/\s*", "/", candidate)
+    for raw_token in candidate.split():
+        token = raw_token.strip(",")
+        if not token:
+            continue
+
+        size_token = token.split("/", 1)[0]
+        if not size_token:
+            continue
+
+        if (
+            size_token in _CSS_FONT_OPTIONAL_KEYWORDS
+            or _CSS_FONT_WEIGHT_RE.fullmatch(size_token)
+            or _CSS_NONZERO_PERCENT_RE.fullmatch(size_token)
+        ):
+            continue
+
+        if _css_zero_value(size_token):
+            return True
+
+        if _css_numeric_length(size_token) is not None:
+            return False
+
+        return False
+
+    return False
 
 
 def _normalize_css_alpha(value: str) -> Optional[str]:
@@ -691,6 +746,9 @@ def _html_attrs_hidden_or_suppressed(attrs_by_name: Dict[str, str]) -> bool:
         return True
 
     if _css_zero_value(declarations.get("font-size", "")):
+        return True
+
+    if _css_font_shorthand_has_zero_size(declarations.get("font", "")):
         return True
 
     if _css_keyword(declarations.get("position", "")) in {"absolute", "fixed"}:
