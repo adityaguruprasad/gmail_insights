@@ -1759,6 +1759,16 @@ _MARKDOWN_ROLE_HEADING_RE = re.compile(
     rf"(?im)^([ \t]{{0,3}}#{{1,6}}\s*)({_PROMPT_ROLE_TAGS})"
     rf"(\s*{_PROMPT_ROLE_SEPARATOR}\s*|\s*$)"
 )
+_NFKC_MARKDOWN_ROLE_FENCE_RE = re.compile(
+    rf"(?im)^([ \t]*(?:`{{3,}}|~{{3,}})[ \t]*)"
+    rf"({_NFKC_PROMPT_ROLE_TAG})"
+    rf"([ \t]*{_PROMPT_ROLE_SEPARATOR}[^\r\n]*|[^\S\r\n]+[^\r\n]*|$)"
+)
+_MARKDOWN_ROLE_FENCE_RE = re.compile(
+    rf"(?im)^([ \t]*(?:`{{3,}}|~{{3,}})[ \t]*)"
+    rf"({_PROMPT_ROLE_TAGS})"
+    rf"([ \t]*{_PROMPT_ROLE_SEPARATOR}[^\r\n]*|[^\S\r\n]+[^\r\n]*|$)"
+)
 _DIRECTIVE_ROLE_PREFIX_RE = re.compile(
     rf"(?i)^(\s*(?:[-*]|\d+[.)])?\s*)({_PROMPT_ROLE_TAGS})"
     rf"\s*{_PROMPT_ROLE_SEPARATOR}\s*"
@@ -7093,6 +7103,14 @@ def sanitize_untrusted_email_text(text: str) -> str:
         sanitized,
     )
     sanitized = _MARKDOWN_ROLE_HEADING_RE.sub(
+        _quote_markdown_role_heading,
+        sanitized,
+    )
+    sanitized = _NFKC_MARKDOWN_ROLE_FENCE_RE.sub(
+        _quote_markdown_role_heading,
+        sanitized,
+    )
+    sanitized = _MARKDOWN_ROLE_FENCE_RE.sub(
         _quote_markdown_role_heading,
         sanitized,
     )
