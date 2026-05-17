@@ -1777,8 +1777,12 @@ _AGENT_TOOL_INVOCATION_MARKER_RE = re.compile(
     r"(?im)"
     rf"</?\s*(?:{_AGENT_TOOL_MARKER_NOUN})\b[^>]*>"
     rf"|<\|\s*(?:{_AGENT_TOOL_MARKER_NOUN})\s*\|>"
+    rf"|^[ \t]*(?:`{{3,}}|~{{3,}})[ \t]*(?:{_AGENT_TOOL_MARKER_NOUN})\b[^\r\n]*"
     rf"|^[ \t]*(?:{_AGENT_TOOL_MARKER_NOUN})[ \t]*:[ \t]*"
     r"|^[ \t]*(?:assistant|tool)[ \t]+(?:to|recipient)[ \t]*=[ \t]*"
+    r"[A-Za-z0-9_.:/@-]+(?:[ \t]+[\w.-]+)?[ \t]*:?[ \t]*"
+    r"|^[ \t]*(?:assistant|tool)[ \t]+(?:to|recipient)[ \t]+"
+    r"(?=[A-Za-z0-9_.:/@-]*[.:/@])"
     r"[A-Za-z0-9_.:/@-]+(?:[ \t]+[\w.-]+)?[ \t]*:?[ \t]*"
 )
 _PROMPT_SECRET_SOURCE = _prompt_ascii_words(
