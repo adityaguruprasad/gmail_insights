@@ -60,9 +60,17 @@ def _decode_base64_urlsafe(data: Optional[str]) -> str:
 
 
 _HTML_CONTENT_TAGS_TO_DROP = {"script", "style", "template", "noscript", "title"}
-# SVG title/desc/metadata are not trusted visible email body content; keep
-# suppressing them across SVG/foreignObject-like namespace edges.
-_SVG_NON_RENDERED_CONTENT_TAGS_TO_DROP = {"desc", "metadata"}
+# SVG/MathML annotation subtrees are not trusted visible email body content;
+# keep suppressing them across SVG/foreignObject-like namespace edges.
+_SVG_NON_RENDERED_CONTENT_TAGS_TO_DROP = {"defs", "desc", "metadata"}
+# MathML annotations can contain alternate representations rather than visible
+# rendered text. Drop them conservatively before exposing email content to LLMs.
+_MATHML_NON_RENDERED_CONTENT_TAGS_TO_DROP = {
+    "annotation",
+    "annotation-xml",
+    "desc",
+    "metadata",
+}
 _HTML_VOID_TAGS = {
     "area",
     "base",
@@ -263,9 +271,16 @@ _CSS_IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
 _HiddenStylesheetSelector = Tuple[Optional[str], Optional[str], Tuple[str, ...]]
 
 
-def _html_tag_drops_content(tag: str, *, in_svg: bool = False) -> bool:
+def _html_tag_drops_content(
+    tag: str,
+    *,
+    in_svg: bool = False,
+    in_math: bool = False,
+) -> bool:
     return tag in _HTML_CONTENT_TAGS_TO_DROP or (
         in_svg and tag in _SVG_NON_RENDERED_CONTENT_TAGS_TO_DROP
+    ) or (
+        in_math and tag in _MATHML_NON_RENDERED_CONTENT_TAGS_TO_DROP
     )
 
 
@@ -306,14 +321,17 @@ class _HTMLStyleBlockParser(HTMLParser):
         self._style_depth = 0
         self._ignored_depth = 0
         self._svg_depth = 0
+        self._math_depth = 0
         self._tag_stack: List[Tuple[str, bool, bool]] = []
 
     def handle_starttag(self, tag, attrs):
         tag = tag.lower()
         in_svg = self._svg_depth > 0
+        in_math = self._math_depth > 0
         hides_nested_styles = tag != "style" and _html_tag_drops_content(
             tag,
             in_svg=in_svg,
+            in_math=in_math,
         )
         collects_style = tag == "style" and not self._ignored_depth
 
@@ -322,6 +340,8 @@ class _HTMLStyleBlockParser(HTMLParser):
 
         if tag == "svg":
             self._svg_depth += 1
+        elif tag == "math":
+            self._math_depth += 1
 
         if hides_nested_styles:
             self._ignored_depth += 1
@@ -337,6 +357,8 @@ class _HTMLStyleBlockParser(HTMLParser):
         ):
             if open_tag == "svg" and self._svg_depth:
                 self._svg_depth -= 1
+            elif open_tag == "math" and self._math_depth:
+                self._math_depth -= 1
             if hides_nested_styles and self._ignored_depth:
                 self._ignored_depth -= 1
             if collects_style and self._style_depth:
@@ -841,9 +863,10 @@ def _html_tag_suppresses_text(
     hidden_stylesheet_selectors: List[_HiddenStylesheetSelector],
     *,
     in_svg: bool = False,
+    in_math: bool = False,
 ) -> bool:
     return (
-        _html_tag_drops_content(tag, in_svg=in_svg)
+        _html_tag_drops_content(tag, in_svg=in_svg, in_math=in_math)
         or _html_attrs_hidden_or_suppressed(attrs_by_name)
         or _html_attrs_match_hidden_stylesheet_selector(
             tag,
@@ -884,6 +907,7 @@ class _HTMLToPlainTextParser(HTMLParser):
         self._suppressed_depth = 0
         self._conditional_comment_depth = 0
         self._svg_depth = 0
+        self._math_depth = 0
         self._tag_stack: List[Tuple[str, bool]] = []
         self._hidden_stylesheet_selectors = hidden_stylesheet_selectors
 
@@ -893,6 +917,8 @@ class _HTMLToPlainTextParser(HTMLParser):
         ):
             if open_tag == "svg" and self._svg_depth:
                 self._svg_depth -= 1
+            elif open_tag == "math" and self._math_depth:
+                self._math_depth -= 1
             if suppresses_text and self._suppressed_depth:
                 self._suppressed_depth -= 1
 
@@ -907,6 +933,7 @@ class _HTMLToPlainTextParser(HTMLParser):
             attrs_by_name,
             self._hidden_stylesheet_selectors,
             in_svg=self._svg_depth > 0,
+            in_math=self._math_depth > 0,
         )
 
         if tag not in _HTML_VOID_TAGS:
@@ -914,6 +941,8 @@ class _HTMLToPlainTextParser(HTMLParser):
 
         if tag == "svg":
             self._svg_depth += 1
+        elif tag == "math":
+            self._math_depth += 1
 
         if suppresses_text:
             if tag not in _HTML_VOID_TAGS:
@@ -937,6 +966,7 @@ class _HTMLToPlainTextParser(HTMLParser):
             attrs_by_name,
             self._hidden_stylesheet_selectors,
             in_svg=self._svg_depth > 0,
+            in_math=self._math_depth > 0,
         )
 
         if suppresses_text or self._suppressed_depth:
@@ -1115,6 +1145,7 @@ class _HTMLSafetyParser(HTMLParser):
         self._hidden_depth = 0
         self._conditional_comment_depth = 0
         self._svg_depth = 0
+        self._math_depth = 0
         self._tag_stack: List[Tuple[str, bool, bool]] = []
         self._anchor_stack: List[Dict] = []
         self._hidden_stylesheet_selectors = hidden_stylesheet_selectors
@@ -1131,6 +1162,8 @@ class _HTMLSafetyParser(HTMLParser):
         for _open_tag, drops_content, hides_text in popped_tags:
             if _open_tag == "svg" and self._svg_depth:
                 self._svg_depth -= 1
+            elif _open_tag == "math" and self._math_depth:
+                self._math_depth -= 1
             if drops_content and self._drop_depth:
                 self._drop_depth -= 1
             if hides_text and self._hidden_depth:
@@ -1197,7 +1230,11 @@ class _HTMLSafetyParser(HTMLParser):
             return
 
         attrs_by_name = _html_attrs_by_name(attrs)
-        drops_content = _html_tag_drops_content(tag, in_svg=self._svg_depth > 0)
+        drops_content = _html_tag_drops_content(
+            tag,
+            in_svg=self._svg_depth > 0,
+            in_math=self._math_depth > 0,
+        )
         hides_text = not drops_content and (
             _html_attrs_hidden_or_suppressed(attrs_by_name)
             or _html_attrs_match_hidden_stylesheet_selector(
@@ -1212,6 +1249,8 @@ class _HTMLSafetyParser(HTMLParser):
 
         if tag == "svg":
             self._svg_depth += 1
+        elif tag == "math":
+            self._math_depth += 1
 
         if drops_content:
             if tag not in _HTML_VOID_TAGS:
@@ -1239,7 +1278,11 @@ class _HTMLSafetyParser(HTMLParser):
 
         attrs_by_name = _html_attrs_by_name(attrs)
         if (
-            _html_tag_drops_content(tag, in_svg=self._svg_depth > 0)
+            _html_tag_drops_content(
+                tag,
+                in_svg=self._svg_depth > 0,
+                in_math=self._math_depth > 0,
+            )
             or self._drop_depth
         ):
             return
