@@ -450,6 +450,29 @@ class FetcherAttachmentSecurityWarningTests(unittest.TestCase):
         self.assertNotIn("\n", email["security_warnings"][0])
         self.assertNotIn("\r", email["security_warnings"][0])
 
+    def test_get_emails_by_query_warns_for_bidi_obfuscated_attachment_extension(self):
+        filename = "invoice.exe\u202egnp"
+        email = _email_from_payload(
+            {
+                "mimeType": "multipart/mixed",
+                "headers": _headers(),
+                "parts": [
+                    _body_part("text/plain", "Invoice attached."),
+                    _attachment_part(filename),
+                ],
+            }
+        )
+
+        self.assertEqual(
+            email["security_warnings"],
+            [
+                "Attachment invoice.exe gnp uses executable or script file "
+                "extension .exe and may contain active content."
+            ],
+        )
+        self.assertNotIn(filename, "\n".join(email["security_warnings"]))
+        self.assertNotIn("\u202e", "\n".join(email["security_warnings"]))
+
     def test_get_emails_by_query_strips_attachment_path_components(self):
         for filename in (
             "C:\\Users\\alice\\Downloads\\payload.js",
@@ -479,6 +502,25 @@ class FetcherAttachmentSecurityWarningTests(unittest.TestCase):
         part = _attachment_part("r\u00e9sum\u00e9.pdf", "application/pdf")
 
         self.assertEqual(fetcher._attachment_filename(part), "r\u00e9sum\u00e9.pdf")
+
+        email = _email_from_payload(
+            {
+                "mimeType": "multipart/mixed",
+                "headers": _headers(),
+                "parts": [
+                    _body_part("text/plain", "Resume attached."),
+                    part,
+                ],
+            }
+        )
+
+        self.assertEqual(email["security_warnings"], [])
+
+    def test_get_emails_by_query_preserves_benign_rtl_attachment_filename(self):
+        filename = "\u0645\u0644\u062e\u0635 r\u00e9sum\u00e9.pdf"
+        part = _attachment_part(filename, "application/pdf")
+
+        self.assertEqual(fetcher._attachment_filename(part), filename)
 
         email = _email_from_payload(
             {

@@ -190,6 +190,12 @@ _BENIGN_DOCUMENT_MEDIA_ATTACHMENT_EXTENSIONS = {
 }
 _DISPLAY_URL_STRIP_CHARS = " \t\r\n\f\v<>()[]{}\"'`"
 _DISPLAY_URL_TRAILING_PUNCTUATION = ".,;:!?"
+# Replace these controls with spaces so hidden active extensions stay
+# separated and detectable, e.g. invoice.exe\u202egnp -> invoice.exe gnp.
+_ATTACHMENT_FILENAME_DISPLAY_CONTROL_RE = re.compile(
+    "[\x00-\x1f\x7f\u00ad\u061c\u180e\u200b-\u200f\u202a-\u202e"
+    "\u2060\u2066-\u2069\ufeff]"
+)
 _CSS_ZERO_VALUE_RE = re.compile(
     r"^[+-]?(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?$",
     re.IGNORECASE,
@@ -1253,7 +1259,10 @@ def _decode_attachment_filename(filename: str) -> str:
 
 
 def _canonical_attachment_filename(filename: str) -> str:
-    normalized = _normalize_header_display_controls(str(filename or ""))
+    normalized = _ATTACHMENT_FILENAME_DISPLAY_CONTROL_RE.sub(
+        " ",
+        str(filename or ""),
+    )
     basename = re.split(r"[\\/]+", normalized)[-1]
     return " ".join(basename.split())
 

@@ -1633,6 +1633,56 @@ class ProcessorPromptTests(unittest.TestCase):
             set(result),
         )
 
+    def test_bidi_obfuscated_attachment_warning_reaches_prompt_and_public_warnings(self):
+        filename = "invoice.exe\u202egnp"
+        warning = (
+            "Attachment invoice.exe gnp uses executable or script file extension "
+            ".exe and may contain active content."
+        )
+        email = _fetched_email_from_payload(
+            {
+                "mimeType": "multipart/mixed",
+                "headers": [
+                    {"name": "Subject", "value": "Invoice review"},
+                    {"name": "From", "value": "Billing <billing@example.test>"},
+                    {"name": "Date", "value": "Thu, 14 May 2026 09:30:00 -0700"},
+                ],
+                "parts": [
+                    _body_part("text/plain", "Please review the invoice notes."),
+                    _attachment_part(filename),
+                ],
+            }
+        )
+        captured_prompt = {}
+
+        def fake_create(**kwargs):
+            captured_prompt["prompt"] = kwargs["prompt"]
+            return types.SimpleNamespace(completion="Summary: ok")
+
+        with patch.object(
+            processor.anthropic.completions,
+            "create",
+            side_effect=fake_create,
+        ):
+            result = processor.extract_insights(email, redact_sensitive=False)
+
+        prompt = captured_prompt["prompt"]
+        returned_warnings = "\n".join(result["security_warnings"])
+
+        self.assertIn(f"Security warnings (read-only): {warning}", prompt)
+        self.assertEqual([warning], result["security_warnings"])
+        self.assertNotIn(filename, prompt)
+        self.assertNotIn(filename, returned_warnings)
+        self.assertNotIn("\u202e", prompt)
+        self.assertNotIn("\u202e", returned_warnings)
+        self.assertIn("Please review the invoice notes.", prompt)
+        self.assertEqual(
+            {"id", "subject", "sender", "is_archived", "security_warnings", "summary"},
+            set(result),
+        )
+        self.assertNotIn("blocked_actions", result)
+        self.assertNotIn("effective_actions", result)
+
     def test_prompt_includes_sanitized_security_warnings_as_read_only_context(self):
         email = {
             "subject": "Quarterly report update",
