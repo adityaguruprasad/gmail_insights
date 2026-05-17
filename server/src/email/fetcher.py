@@ -256,6 +256,9 @@ _CSS_RULE_RE = re.compile(
     r"(?P<selectors>[^{}]+)\{(?P<declarations>[^{}]*)\}",
     re.DOTALL,
 )
+_CSS_ESCAPE_RE = re.compile(
+    r"\\(?:([0-9A-Fa-f]{1,6})(?:\r\n|[ \t\r\n\f])?|([^\r\n\f]))"
+)
 _CSS_IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
 _HiddenStylesheetSelector = Tuple[Optional[str], Optional[str], Tuple[str, ...]]
 
@@ -715,12 +718,32 @@ def _html_attrs_hidden_or_suppressed(attrs_by_name: Dict[str, str]) -> bool:
     return False
 
 
+def _decode_css_escape(match: re.Match) -> str:
+    hex_digits = match.group(1)
+    if hex_digits is None:
+        return match.group(2)
+
+    codepoint = int(hex_digits, 16)
+    if (
+        codepoint <= 0
+        or 0xD800 <= codepoint <= 0xDFFF
+        or codepoint > 0x10FFFF
+    ):
+        return chr(0xFFFD)
+
+    return chr(codepoint)
+
+
+def _decode_css_selector_escapes(selector: str) -> str:
+    return _CSS_ESCAPE_RE.sub(_decode_css_escape, selector)
+
+
 def _parse_simple_css_selector(selector: str):
     # Intentionally narrow: simple class/id selectors, optionally tag-qualified
     # (e.g. .foo, #bar, span.foo.bar). Combinators, pseudo selectors,
     # attribute selectors, and bare tag selectors are ignored to avoid
     # over-hiding broad email content.
-    selector = selector.strip()
+    selector = _decode_css_selector_escapes(selector.strip())
     if (
         not selector
         or selector.startswith("@")
