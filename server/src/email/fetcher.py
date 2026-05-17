@@ -59,7 +59,18 @@ def _decode_base64_urlsafe(data: Optional[str]) -> str:
         return ""
 
 
-_HTML_CONTENT_TAGS_TO_DROP = {"script", "style", "template", "noscript", "title"}
+_HTML_CONTENT_TAGS_TO_DROP = {
+    "head",
+    "script",
+    "style",
+    "template",
+    "noscript",
+    "title",
+}
+# These tags are dropped from visible text, but they must not suppress nested
+# stylesheet collection: <style> is the rule source, and <head> rules can hide
+# matching body content.
+_HTML_DROPPED_TAGS_ALLOW_STYLESHEET_COLLECTION = {"head", "style"}
 # SVG/MathML annotation subtrees are not trusted visible email body content;
 # keep suppressing them across SVG/foreignObject-like namespace edges.
 _SVG_NON_RENDERED_CONTENT_TAGS_TO_DROP = {"defs", "desc", "metadata"}
@@ -349,10 +360,13 @@ class _HTMLStyleBlockParser(HTMLParser):
         tag = tag.lower()
         in_svg = self._svg_depth > 0
         in_math = self._math_depth > 0
-        hides_nested_styles = tag != "style" and _html_tag_drops_content(
-            tag,
-            in_svg=in_svg,
-            in_math=in_math,
+        hides_nested_styles = (
+            tag not in _HTML_DROPPED_TAGS_ALLOW_STYLESHEET_COLLECTION
+            and _html_tag_drops_content(
+                tag,
+                in_svg=in_svg,
+                in_math=in_math,
+            )
         )
         collects_style = tag == "style" and not self._ignored_depth
 
