@@ -13,6 +13,7 @@ from src.email.safety import (
     redact_credential_content,
     redact_response_metadata_content,
     safety_metadata,
+    sanitize_untrusted_email_text,
 )
 from src.email.query_validator import (
     QueryInsightsValidationError,
@@ -72,7 +73,7 @@ def _redact_log_text(text):
 
 
 def _redact_public_request_text(text):
-    return redact_response_metadata_content(text)
+    return sanitize_untrusted_email_text(redact_response_metadata_content(text))
 
 
 def _log_unhandled_api_exception(route):
