@@ -1573,20 +1573,32 @@ _SENSITIVE_LINK_BEFORE_CONTEXT_RE = re.compile(
     re.IGNORECASE,
 )
 _SENSITIVE_URL_TRAILING_PUNCTUATION = ".,;:!?)]}"
-_INVISIBLE_PROMPT_CONTROL_CHARACTERS = (
-    "\u00ad"  # soft hyphen
-    "\u061c"  # Arabic letter mark
-    "\u180e"  # Mongolian vowel separator
-    "\u200b\u200c\u200d\u200e\u200f"  # zero-width and directional marks
-    "\u202a\u202b\u202c\u202d\u202e"  # bidi embedding/override/pop controls
-    "\u2060"  # word joiner
-    "\u2066\u2067\u2068\u2069"  # bidi isolate/pop controls
-    "\ufeff"  # byte-order mark / zero-width no-break space
+_INVISIBLE_PROMPT_CONTROL_RANGES = (
+    (0x00AD, 0x00AD),  # soft hyphen
+    (0x034F, 0x034F),  # combining grapheme joiner
+    (0x061C, 0x061C),  # Arabic letter mark
+    (0x115F, 0x1160),  # Hangul fillers
+    (0x17B4, 0x17B5),  # Khmer invisible vowels
+    (0x180B, 0x180F),  # Mongolian free variation selectors / separator
+    (0x200B, 0x200F),  # zero-width and directional marks
+    (0x202A, 0x202E),  # bidi embedding/override/pop controls
+    (0x2060, 0x206F),  # word joiner, invisible operators, bidi isolates
+    (0x3164, 0x3164),  # Hangul filler
+    (0xFE00, 0xFE0F),  # variation selectors
+    (0xFEFF, 0xFEFF),  # byte-order mark / zero-width no-break space
+    (0xFFA0, 0xFFA0),  # halfwidth Hangul filler
+    (0x1BCA0, 0x1BCA3),  # shorthand format controls
+    (0x1D173, 0x1D17A),  # musical symbol format controls
+    (0xE0000, 0xE007F),  # Unicode tag characters
+    (0xE0100, 0xE01EF),  # variation selector supplement
+)
+_INVISIBLE_PROMPT_CONTROL_CHARACTERS = "".join(
+    chr(codepoint)
+    for start, end in _INVISIBLE_PROMPT_CONTROL_RANGES
+    for codepoint in range(start, end + 1)
 )
 _INVISIBLE_PROMPT_CONTROL_TRANSLATION = str.maketrans(
-    "",
-    "",
-    _INVISIBLE_PROMPT_CONTROL_CHARACTERS,
+    {char: " " for char in _INVISIBLE_PROMPT_CONTROL_CHARACTERS}
 )
 _PROMPT_ROLE_NAMES = ("system", "assistant", "user", "developer", "tool", "human")
 
@@ -1594,23 +1606,43 @@ _PROMPT_ROLE_NAMES = ("system", "assistant", "user", "developer", "tool", "human
 _PROMPT_ROLE_NAME_SET = frozenset(_PROMPT_ROLE_NAMES)
 _PROMPT_ROLE_TAGS_ASCII = "|".join(_PROMPT_ROLE_NAMES)
 
-# All Unicode category M characters are non-ASCII. The regex admits non-ASCII
-# candidates between role letters, then _canonical_prompt_role_label validates
-# that only category M characters were ignored. This keeps role matching broad
-# without a generated range table or import-time Unicode scan.
-_PROMPT_ROLE_MARK_CANDIDATE = r"[^\x00-\x7F]*"
+def _replace_invisible_prompt_controls_with_spaces(text: str) -> str:
+    return text.translate(_INVISIBLE_PROMPT_CONTROL_TRANSLATION)
+
+
+def _prompt_ascii_word(word: str) -> str:
+    return r"[ \t]*".join(re.escape(char) for char in word)
+
+
+def _prompt_ascii_words(*words: str) -> str:
+    return "(?:" + "|".join(_prompt_ascii_word(word) for word in words) + ")"
+
+
+def _is_prompt_role_ignored_char(char: str) -> bool:
+    return char in " \t" or unicodedata.category(char).startswith("M")
+
+
+# The regex admits non-ASCII candidates and spaces between role letters, then
+# _canonical_prompt_role_label validates that only combining marks or spaces
+# introduced by invisible-control normalization were ignored. Trailing ASCII
+# spaces stay outside the role group so serialized delimiters are preserved.
+_PROMPT_ROLE_INTERIOR_MARK_CANDIDATE = r"(?:[^\x00-\x7F]|[ \t])*"
+_PROMPT_ROLE_TRAILING_MARK_CANDIDATE = r"[^\x00-\x7F]*"
 
 
 def _prompt_role_pattern(role: str) -> str:
     return "".join(
-        f"{re.escape(char)}{_PROMPT_ROLE_MARK_CANDIDATE}" for char in role
+        f"{re.escape(char)}{_PROMPT_ROLE_INTERIOR_MARK_CANDIDATE}"
+        for char in role[:-1]
+    ) + (
+        f"{re.escape(role[-1])}{_PROMPT_ROLE_TRAILING_MARK_CANDIDATE}"
+        if role
+        else ""
     )
 
 
 def _canonical_prompt_role_label(role: str) -> str:
-    return "".join(
-        char for char in role if not unicodedata.category(char).startswith("M")
-    )
+    return "".join(char for char in role if not _is_prompt_role_ignored_char(char))
 
 
 def _quoted_prompt_role(role: str) -> str:
@@ -1700,45 +1732,97 @@ _AGENT_TOOL_INVOCATION_MARKER_RE = re.compile(
     r"|^[ \t]*(?:assistant|tool)[ \t]+(?:to|recipient)[ \t]*=[ \t]*"
     r"[A-Za-z0-9_.:/@-]+(?:[ \t]+[\w.-]+)?[ \t]*:?[ \t]*"
 )
+_PROMPT_SECRET_SOURCE = _prompt_ascii_words(
+    "system",
+    "developer",
+    "hidden",
+    "original",
+)
+_PROMPT_INTERNAL_SOURCE = _prompt_ascii_word("internal")
+_PROMPT_INSTRUCTION_OBJECT_WORDS = _prompt_ascii_words(
+    "prompt",
+    "prompts",
+    "instruction",
+    "instructions",
+    "policy",
+    "policies",
+    "rule",
+    "rules",
+    "directive",
+    "directives",
+)
+_PROMPT_PROTECTED_INSTRUCTION_OBJECT_WORDS = _prompt_ascii_words(
+    "prompt",
+    "prompts",
+    "instruction",
+    "instructions",
+    "message",
+    "messages",
+    "policy",
+    "policies",
+    "rule",
+    "rules",
+    "directive",
+    "directives",
+)
+_PROMPT_SECRET_EXFILTRATION_VERBS = _prompt_ascii_words(
+    "show",
+    "print",
+    "reveal",
+    "display",
+    "disclose",
+    "dump",
+    "leak",
+    "exfiltrate",
+    "tell",
+    "share",
+    "repeat",
+    "recite",
+    "output",
+    "echo",
+)
 _PROMPT_SECRET_EXFILTRATION_TARGET = (
     r"(?:(?:the|your|all|any)\s+)?"
     r"(?:"
-    r"(?:system|developer|hidden|original)\s+"
-    r"(?:prompts?|instructions?|messages?|polic(?:y|ies)|rules?|directives?)"
-    r"|internal\s+(?:prompts?|instructions?|polic(?:y|ies)|rules?|directives?)"
-    r"|internal\s+messages?(?!\s+from\b)"
+    rf"(?:{_PROMPT_SECRET_SOURCE})\s+"
+    rf"{_PROMPT_PROTECTED_INSTRUCTION_OBJECT_WORDS}"
+    rf"|{_PROMPT_INTERNAL_SOURCE}\s+{_PROMPT_INSTRUCTION_OBJECT_WORDS}"
+    rf"|{_PROMPT_INTERNAL_SOURCE}\s+{_prompt_ascii_words('message', 'messages')}"
+    r"(?!\s+from\b)"
     r")"
 )
 _ACTION_ROLE_PREFIX = (
     rf"(?:(?:{_PROMPT_ROLE_TAGS_ASCII})\s*{_PROMPT_ROLE_SEPARATOR}\s*)?"
 )
-_PROMPT_INSTRUCTION_REFERENCE = r"(?:all\s+)?(?:the\s+)?(?:previous|prior|above|earlier)"
+_PROMPT_INSTRUCTION_REFERENCE = (
+    rf"(?:all\s+)?(?:the\s+)?"
+    rf"{_prompt_ascii_words('previous', 'prior', 'above', 'earlier')}"
+)
 # Keep bare previous/prior/above/earlier "messages" out of the unprotected
 # matcher; that phrasing is common benign email-thread prose. Messages only
 # match protected references such as system/developer/internal/original messages.
-_PROMPT_INSTRUCTION_OBJECT = (
-    r"(?:prompts?|instructions?|polic(?:y|ies)|rules?|directives?)"
-)
-_PROMPT_PROTECTED_INSTRUCTION_OBJECT = (
-    r"(?:prompts?|instructions?|messages?|polic(?:y|ies)|rules?|directives?)"
-)
+_PROMPT_INSTRUCTION_OBJECT = _PROMPT_INSTRUCTION_OBJECT_WORDS
+_PROMPT_PROTECTED_INSTRUCTION_OBJECT = _PROMPT_PROTECTED_INSTRUCTION_OBJECT_WORDS
 _PROMPT_PROTECTED_INSTRUCTION_REFERENCE = (
     r"(?:(?:all|any)\s+)?(?:(?:the|your)\s+)?"
-    r"(?:system|developer|hidden|internal|original)\s+"
+    rf"{_prompt_ascii_words('system', 'developer', 'hidden', 'internal', 'original')}"
+    r"\s+"
     rf"{_PROMPT_PROTECTED_INSTRUCTION_OBJECT}"
 )
 _INSTRUCTION_PHRASE_RE = re.compile(
     rf"(?i)\b("
-    rf"(?:ignore|disregard|forget)\s+"
+    rf"{_prompt_ascii_words('ignore', 'disregard', 'forget')}\s+"
     rf"(?:{_PROMPT_INSTRUCTION_REFERENCE}\s+{_PROMPT_INSTRUCTION_OBJECT}"
     rf"|{_PROMPT_PROTECTED_INSTRUCTION_REFERENCE})"
-    rf"|follow\s+these\s+instructions?"
-    rf"|(?:show|print|reveal|display|disclose|dump|leak|exfiltrate|"
-    rf"tell|share|repeat|recite|output|echo)\s+"
+    rf"|{_prompt_ascii_word('follow')}\s+{_prompt_ascii_word('these')}\s+"
+    rf"{_prompt_ascii_words('instruction', 'instructions')}"
+    rf"|{_PROMPT_SECRET_EXFILTRATION_VERBS}\s+"
     rf"(?:(?:me|us|the\s+user)\s+|with\s+(?:me|us|the\s+user)\s+)?"
     rf"{_PROMPT_SECRET_EXFILTRATION_TARGET}"
-    rf"|act\s+as\s+(an?|the)\b"
-    rf"|you\s+are\s+(now\s+)?(chatgpt|assistant|system)\b"
+    rf"|{_prompt_ascii_word('act')}\s+{_prompt_ascii_word('as')}\s+(an?|the)\b"
+    rf"|{_prompt_ascii_word('you')}\s+{_prompt_ascii_word('are')}\s+"
+    rf"(?:{_prompt_ascii_word('now')}\s+)?"
+    rf"{_prompt_ascii_words('chatgpt', 'assistant', 'system')}\b"
     r")\b"
 )
 _INSTRUCTION_XML_TAG_RE = re.compile(
@@ -6873,7 +6957,7 @@ def sanitize_untrusted_email_text(text: str) -> str:
         return ""
 
     sanitized = text.replace("\r\n", "\n").replace("\r", "\n")
-    sanitized = sanitized.translate(_INVISIBLE_PROMPT_CONTROL_TRANSLATION)
+    sanitized = _replace_invisible_prompt_controls_with_spaces(sanitized)
     sanitized = _redact_saml_sso_artifacts(sanitized)
     sanitized = _redact_oauth_device_verification_uri_complete(sanitized)
     sanitized = _redact_oauth_oidc_authorization_artifacts(sanitized)
@@ -6922,6 +7006,7 @@ def neutralize_safety_metadata_misrepresentation(
     if not text:
         return "", []
 
+    text = _replace_invisible_prompt_controls_with_spaces(text)
     findings = set()
     guarded_lines = []
 
@@ -6953,7 +7038,7 @@ def _canonical_directive_role_label_offsets(match: re.Match) -> List[int]:
     original_offset = match.start(2)
     for char in match.group(2):
         original_offset += 1
-        if not unicodedata.category(char).startswith("M"):
+        if not _is_prompt_role_ignored_char(char):
             offsets.append(original_offset)
 
     offsets[-1] = match.end(2)
@@ -7322,6 +7407,7 @@ def neutralize_unsafe_action_suggestions(text: str) -> Tuple[str, List[str]]:
     if not text:
         return "", []
 
+    text = _replace_invisible_prompt_controls_with_spaces(text)
     lines = text.splitlines()
     blocked_found = set()
     blocked_line_indexes = set()
