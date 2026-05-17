@@ -1600,6 +1600,16 @@ _INVISIBLE_PROMPT_CONTROL_CHARACTERS = "".join(
 _INVISIBLE_PROMPT_CONTROL_TRANSLATION = str.maketrans(
     {char: " " for char in _INVISIBLE_PROMPT_CONTROL_CHARACTERS}
 )
+_ANSI_PROMPT_CONTROL_SEQUENCE_RE = re.compile(
+    r"(?:"
+    r"\x1b\[[0-?]*[ -/]*[@-~]|"
+    r"\x9b[0-?]*[ -/]*[@-~]|"
+    r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|"
+    r"\x9d[^\x07\x1b]*(?:\x07|\x1b\\)|"
+    r"\x1b[@-Z\\-_]"
+    r")"
+)
+_ASCII_PROMPT_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 _PROMPT_ROLE_NAMES = ("system", "assistant", "user", "developer", "tool", "human")
 
 
@@ -1608,6 +1618,12 @@ _PROMPT_ROLE_TAGS_ASCII = "|".join(_PROMPT_ROLE_NAMES)
 
 def _replace_invisible_prompt_controls_with_spaces(text: str) -> str:
     return text.translate(_INVISIBLE_PROMPT_CONTROL_TRANSLATION)
+
+
+def _normalize_prompt_controls(text: str) -> str:
+    text = _ANSI_PROMPT_CONTROL_SEQUENCE_RE.sub(" ", text)
+    text = _replace_invisible_prompt_controls_with_spaces(text)
+    return _ASCII_PROMPT_CONTROL_RE.sub(" ", text)
 
 
 def _prompt_ascii_word(word: str) -> str:
@@ -6990,7 +7006,7 @@ def sanitize_untrusted_email_text(text: str) -> str:
         return ""
 
     sanitized = text.replace("\r\n", "\n").replace("\r", "\n")
-    sanitized = _replace_invisible_prompt_controls_with_spaces(sanitized)
+    sanitized = _normalize_prompt_controls(sanitized)
     sanitized = _redact_saml_sso_artifacts(sanitized)
     sanitized = _redact_oauth_device_verification_uri_complete(sanitized)
     sanitized = _redact_oauth_oidc_authorization_artifacts(sanitized)
@@ -7049,7 +7065,7 @@ def neutralize_safety_metadata_misrepresentation(
     if not text:
         return "", []
 
-    text = _replace_invisible_prompt_controls_with_spaces(text)
+    text = _normalize_prompt_controls(text)
     findings = set()
     guarded_lines = []
 
@@ -7450,7 +7466,7 @@ def neutralize_unsafe_action_suggestions(text: str) -> Tuple[str, List[str]]:
     if not text:
         return "", []
 
-    text = _replace_invisible_prompt_controls_with_spaces(text)
+    text = _normalize_prompt_controls(text)
     lines = text.splitlines()
     blocked_found = set()
     blocked_line_indexes = set()
