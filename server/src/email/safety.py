@@ -1715,6 +1715,28 @@ _HTML_DOWNLEVEL_REVEALED_CONDITIONAL_COMMENT_RE = re.compile(
     r"<!\[\s*if\b[\s\S]*?\]>[\s\S]*?(?:<!\[\s*endif\s*\]>|$)",
     re.IGNORECASE,
 )
+_XML_MARKUP_DECLARATION_NAMES = (
+    "DOCTYPE",
+    "ENTITY",
+    "ELEMENT",
+    "ATTLIST",
+    "NOTATION",
+)
+_XML_MARKUP_DECLARATION_NAME_RE = "|".join(_XML_MARKUP_DECLARATION_NAMES)
+_XML_MARKUP_DECLARATION_BODY_RE = (
+    r"(?:\"[^\"]*\"|'[^']*'|\[[\s\S]*?\]\s*|[^>])*?"
+)
+_XML_PROCESSING_INSTRUCTION_BODY_RE = (
+    r"(?:\"[^\"]*(?:\"|$)|'[^']*(?:'|$)|\?(?!>)|[^?'\"])*?"
+)
+_XML_HTML_DECLARATION_TRAP_RE = re.compile(
+    rf"(?is)"
+    rf"<!\s*(?:{_XML_MARKUP_DECLARATION_NAME_RE})\b"
+    rf"{_XML_MARKUP_DECLARATION_BODY_RE}(?:>|$)"
+    rf"|<\?\s*[A-Za-z_][\w:.-]*"
+    rf"{_XML_PROCESSING_INSTRUCTION_BODY_RE}(?:\?>|$)"
+    r"|<!\[\s*CDATA\s*\[[\s\S]*?(?:\]\]>|$)"
+)
 _NFKC_ROLE_TAG_RE = re.compile(
     rf"(?im)^(\s*)({_NFKC_PROMPT_ROLE_TAG})\s*{_PROMPT_ROLE_SEPARATOR}\s*"
 )
@@ -5483,6 +5505,18 @@ def _strip_html_comment_traps(text: str) -> str:
     return _HTML_DOWNLEVEL_REVEALED_CONDITIONAL_COMMENT_RE.sub(" ", text)
 
 
+def _strip_xml_html_declaration_traps(text: str) -> str:
+    return _XML_HTML_DECLARATION_TRAP_RE.sub(" ", text)
+
+
+def strip_hidden_declaration_traps(text: str) -> str:
+    """Strip hidden XML/HTML declaration payloads before downstream guards."""
+    if not text:
+        return ""
+
+    return _strip_xml_html_declaration_traps(str(text))
+
+
 def _split_url_trailing_punctuation(url: str) -> Tuple[str, str]:
     trailing_punctuation = ""
     while url and url[-1] in _SENSITIVE_URL_TRAILING_PUNCTUATION:
@@ -7024,6 +7058,7 @@ def sanitize_untrusted_email_text(text: str) -> str:
     sanitized = text.replace("\r\n", "\n").replace("\r", "\n")
     sanitized = _normalize_prompt_controls(sanitized)
     sanitized = _strip_html_comment_traps(sanitized)
+    sanitized = _strip_xml_html_declaration_traps(sanitized)
     sanitized = _redact_saml_sso_artifacts(sanitized)
     sanitized = _redact_oauth_device_verification_uri_complete(sanitized)
     sanitized = _redact_oauth_oidc_authorization_artifacts(sanitized)

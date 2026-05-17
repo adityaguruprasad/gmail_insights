@@ -9,6 +9,7 @@ from src.email.safety import (
     redact_response_metadata_content,
     redact_sensitive_content,
     sanitize_untrusted_email_text,
+    strip_hidden_declaration_traps,
 )
 
 logger = logging.getLogger(__name__)
@@ -258,8 +259,9 @@ def extract_insights(email, redact_sensitive: bool = True):
         prompt=prompt,
     )
 
+    sanitized_completion = strip_hidden_declaration_traps(response.completion.strip())
     guarded_summary, blocked_suggestions = neutralize_unsafe_action_suggestions(
-        response.completion.strip()
+        sanitized_completion
     )
     guarded_summary, blocked_warning_manipulations = (
         neutralize_safety_metadata_misrepresentation(
