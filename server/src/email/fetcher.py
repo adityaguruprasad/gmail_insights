@@ -73,7 +73,13 @@ _HTML_CONTENT_TAGS_TO_DROP = {
 _HTML_DROPPED_TAGS_ALLOW_STYLESHEET_COLLECTION = {"head", "style"}
 # SVG/MathML annotation subtrees are not trusted visible email body content;
 # keep suppressing them across SVG/foreignObject-like namespace edges.
-_SVG_NON_RENDERED_CONTENT_TAGS_TO_DROP = {"defs", "desc", "metadata"}
+_SVG_NON_RENDERED_CONTENT_TAGS_TO_DROP = {
+    "defs",
+    "desc",
+    "metadata",
+    "script",
+    "title",
+}
 # MathML annotations can contain alternate representations rather than visible
 # rendered text. Drop them conservatively before exposing email content to LLMs.
 _MATHML_NON_RENDERED_CONTENT_TAGS_TO_DROP = {
@@ -81,6 +87,8 @@ _MATHML_NON_RENDERED_CONTENT_TAGS_TO_DROP = {
     "annotation-xml",
     "desc",
     "metadata",
+    "script",
+    "title",
 }
 _HTML_VOID_TAGS = {
     "area",
@@ -310,6 +318,19 @@ def _html_tag_drops_content(
     in_math: bool = False,
 ) -> bool:
     return tag in _HTML_CONTENT_TAGS_TO_DROP or (
+        in_svg and tag in _SVG_NON_RENDERED_CONTENT_TAGS_TO_DROP
+    ) or (
+        in_math and tag in _MATHML_NON_RENDERED_CONTENT_TAGS_TO_DROP
+    )
+
+
+def _html_tag_drops_non_visible_xml_text(
+    tag: str,
+    *,
+    in_svg: bool = False,
+    in_math: bool = False,
+) -> bool:
+    return (
         in_svg and tag in _SVG_NON_RENDERED_CONTENT_TAGS_TO_DROP
     ) or (
         in_math and tag in _MATHML_NON_RENDERED_CONTENT_TAGS_TO_DROP
@@ -1218,11 +1239,12 @@ class _HTMLSafetyParser(HTMLParser):
         self._warnings: List[str] = []
         self._seen_warnings = set()
         self._drop_depth = 0
+        self._non_visible_xml_drop_depth = 0
         self._hidden_depth = 0
         self._conditional_comment_depth = 0
         self._svg_depth = 0
         self._math_depth = 0
-        self._tag_stack: List[Tuple[str, bool, bool]] = []
+        self._tag_stack: List[Tuple[str, bool, bool, bool]] = []
         self._anchor_stack: List[Dict] = []
         self._hidden_stylesheet_selectors = hidden_stylesheet_selectors
 
@@ -1233,15 +1255,22 @@ class _HTMLSafetyParser(HTMLParser):
         self._seen_warnings.add(warning)
         self._warnings.append(warning)
 
-    def _pop_tag(self, tag: str) -> List[Tuple[str, bool, bool]]:
+    def _pop_tag(self, tag: str) -> List[Tuple[str, bool, bool, bool]]:
         popped_tags = _pop_html_tag_stack(self._tag_stack, tag)
-        for _open_tag, drops_content, hides_text in popped_tags:
+        for (
+            _open_tag,
+            drops_content,
+            hides_text,
+            warns_on_non_visible_text,
+        ) in popped_tags:
             if _open_tag == "svg" and self._svg_depth:
                 self._svg_depth -= 1
             elif _open_tag == "math" and self._math_depth:
                 self._math_depth -= 1
             if drops_content and self._drop_depth:
                 self._drop_depth -= 1
+            if warns_on_non_visible_text and self._non_visible_xml_drop_depth:
+                self._non_visible_xml_drop_depth -= 1
             if hides_text and self._hidden_depth:
                 self._hidden_depth -= 1
 
@@ -1306,10 +1335,17 @@ class _HTMLSafetyParser(HTMLParser):
             return
 
         attrs_by_name = _html_attrs_by_name(attrs)
+        in_svg = self._svg_depth > 0
+        in_math = self._math_depth > 0
         drops_content = _html_tag_drops_content(
             tag,
-            in_svg=self._svg_depth > 0,
-            in_math=self._math_depth > 0,
+            in_svg=in_svg,
+            in_math=in_math,
+        )
+        warns_on_non_visible_text = _html_tag_drops_non_visible_xml_text(
+            tag,
+            in_svg=in_svg,
+            in_math=in_math,
         )
         hides_text = not drops_content and (
             _html_attrs_hidden_or_suppressed(attrs_by_name)
@@ -1321,7 +1357,9 @@ class _HTMLSafetyParser(HTMLParser):
         )
 
         if tag not in _HTML_VOID_TAGS:
-            self._tag_stack.append((tag, drops_content, hides_text))
+            self._tag_stack.append(
+                (tag, drops_content, hides_text, warns_on_non_visible_text)
+            )
 
         if tag == "svg":
             self._svg_depth += 1
@@ -1331,6 +1369,8 @@ class _HTMLSafetyParser(HTMLParser):
         if drops_content:
             if tag not in _HTML_VOID_TAGS:
                 self._drop_depth += 1
+                if warns_on_non_visible_text:
+                    self._non_visible_xml_drop_depth += 1
             return
 
         if self._drop_depth:
@@ -1353,14 +1393,14 @@ class _HTMLSafetyParser(HTMLParser):
             return
 
         attrs_by_name = _html_attrs_by_name(attrs)
-        if (
-            _html_tag_drops_content(
-                tag,
-                in_svg=self._svg_depth > 0,
-                in_math=self._math_depth > 0,
-            )
-            or self._drop_depth
-        ):
+        in_svg = self._svg_depth > 0
+        in_math = self._math_depth > 0
+        drops_content = _html_tag_drops_content(
+            tag,
+            in_svg=in_svg,
+            in_math=in_math,
+        )
+        if drops_content or self._drop_depth:
             return
 
         hides_text = _html_attrs_hidden_or_suppressed(
@@ -1389,7 +1429,7 @@ class _HTMLSafetyParser(HTMLParser):
         popped_tags = self._pop_tag(tag)
 
         if was_hidden:
-            for open_tag, _drops_content, _hides_text in popped_tags:
+            for open_tag, _drops_content, _hides_text, _warns in popped_tags:
                 if open_tag == "a" and self._anchor_stack:
                     self._anchor_stack.pop()
 
@@ -1407,6 +1447,8 @@ class _HTMLSafetyParser(HTMLParser):
             or self._hidden_depth
             or self._conditional_comment_depth
         ):
+            if self._non_visible_xml_drop_depth and data.strip():
+                self._add_warning(_HIDDEN_HTML_CONTENT_WARNING)
             return
 
         for anchor in self._anchor_stack:

@@ -1,5 +1,6 @@
 import re
 import unicodedata
+from html.parser import HTMLParser
 from typing import Iterable, List, Set, Tuple
 from urllib.parse import quote_plus, unquote, unquote_plus, urlsplit
 
@@ -1714,6 +1715,25 @@ _HTML_COMMENT_RE = re.compile(r"<!--[\s\S]*?(?:-->|$)")
 _HTML_DOWNLEVEL_REVEALED_CONDITIONAL_COMMENT_RE = re.compile(
     r"<!\[\s*if\b[\s\S]*?\]>[\s\S]*?(?:<!\[\s*endif\s*\]>|$)",
     re.IGNORECASE,
+)
+_INLINE_XML_CONTEXT_PREFIXES = {"svg", "math", "mml"}
+_INLINE_XML_HIDDEN_NODE_TAGS = {
+    "annotation",
+    "annotation-xml",
+    "desc",
+    "metadata",
+    "script",
+    "title",
+}
+_INLINE_XML_CONTEXT_CANDIDATE_RE = re.compile(
+    r"(?is)<\s*(?:[A-Za-z_][\w:.-]*:)?(?:svg|math)\b"
+)
+_INLINE_XML_HIDDEN_NODE_CANDIDATE_RE = re.compile(
+    r"(?is)<\s*(?:[A-Za-z_][\w:.-]*:)?"
+    r"(?:annotation|annotation-xml|desc|metadata|script|title)\b"
+)
+_INLINE_XML_CONTEXT_END_RE = re.compile(
+    r"(?is)</\s*(?:[A-Za-z_][\w:.-]*:)?(?P<tag>svg|math)\b[^>]*>"
 )
 _XML_MARKUP_DECLARATION_NAMES = (
     "DOCTYPE",
@@ -5515,16 +5535,221 @@ def _strip_html_comment_traps(text: str) -> str:
     return _HTML_DOWNLEVEL_REVEALED_CONDITIONAL_COMMENT_RE.sub(" ", text)
 
 
+def _xml_local_tag_name(tag: str) -> str:
+    return str(tag or "").lower().rsplit(":", 1)[-1]
+
+
+def _xml_tag_prefix(tag: str) -> str:
+    prefix, separator, _local = str(tag or "").lower().rpartition(":")
+    return prefix if separator else ""
+
+
+def _line_start_offsets(text: str) -> List[int]:
+    offsets = [0]
+    offsets.extend(match.end() for match in re.finditer("\n", text))
+    return offsets
+
+
+def _remove_spans(text: str, spans: List[Tuple[int, int]]) -> str:
+    if not spans:
+        return text
+
+    chunks = []
+    cursor = 0
+    for start, end in sorted(spans):
+        start = max(0, min(start, len(text)))
+        end = max(start, min(end, len(text)))
+        if start < cursor:
+            if end > cursor:
+                cursor = end
+            continue
+
+        chunks.append(text[cursor:start])
+        chunks.append(" ")
+        cursor = end
+
+    chunks.append(text[cursor:])
+    return "".join(chunks)
+
+
+class _InlineXmlHiddenNodeStripper(HTMLParser):
+    def __init__(self, text: str):
+        super().__init__(convert_charrefs=False)
+        self._text = text
+        self._line_offsets = _line_start_offsets(text)
+        self._svg_depth = 0
+        self._math_depth = 0
+        self._hidden_stack: List[str] = []
+        self._hidden_start = None
+        self._hidden_context_depths = None
+        self._closed_hidden_at_raw_boundary = False
+        self.spans: List[Tuple[int, int]] = []
+
+    def _absolute_index(self) -> int:
+        line, offset = self.getpos()
+        line_index = max(0, min(line - 1, len(self._line_offsets) - 1))
+        return self._line_offsets[line_index] + offset
+
+    def _tag_end_index(self, start: int) -> int:
+        quote = None
+        for index in range(start, len(self._text)):
+            char = self._text[index]
+            if quote:
+                if char == quote:
+                    quote = None
+            elif char in ("'", '"'):
+                quote = char
+            elif char == ">":
+                return index + 1
+
+        return len(self._text)
+
+    def _in_inline_xml_context(self, tag: str) -> bool:
+        prefix = _xml_tag_prefix(tag)
+        return (
+            self._svg_depth > 0
+            or self._math_depth > 0
+            or prefix in _INLINE_XML_CONTEXT_PREFIXES
+        )
+
+    def _start_hidden_node(self, tag: str, start: int) -> None:
+        if (
+            self._in_inline_xml_context(tag)
+            and _xml_local_tag_name(tag) in _INLINE_XML_HIDDEN_NODE_TAGS
+        ):
+            if not self._hidden_stack:
+                self._hidden_start = start
+                self._hidden_context_depths = (self._svg_depth, self._math_depth)
+            self._hidden_stack.append(_xml_local_tag_name(tag))
+
+    def _finish_hidden_node(self, end: int) -> None:
+        if self._hidden_start is not None:
+            self.spans.append((self._hidden_start, end))
+        self._hidden_stack = []
+        self._hidden_start = None
+        self._hidden_context_depths = None
+
+    def _end_hidden_node(self, tag: str, end: int) -> None:
+        local_tag = _xml_local_tag_name(tag)
+        if local_tag not in self._hidden_stack:
+            return
+
+        while self._hidden_stack:
+            open_tag = self._hidden_stack.pop()
+            if open_tag == local_tag:
+                break
+
+        if not self._hidden_stack and self._hidden_start is not None:
+            self._finish_hidden_node(end)
+
+    def _at_hidden_context_boundary(self, local_tag: str) -> bool:
+        if not self._hidden_stack or self._hidden_context_depths is None:
+            return False
+
+        svg_depth, math_depth = self._hidden_context_depths
+        if local_tag == "svg":
+            return svg_depth > 0 and 0 < self._svg_depth <= svg_depth
+        if local_tag == "math":
+            return math_depth > 0 and 0 < self._math_depth <= math_depth
+        return False
+
+    def _raw_hidden_context_boundary_end(self) -> int:
+        if self._hidden_start is None or self._hidden_context_depths is None:
+            return len(self._text)
+
+        svg_depth, math_depth = self._hidden_context_depths
+        for match in _INLINE_XML_CONTEXT_END_RE.finditer(
+            self._text,
+            self._hidden_start,
+        ):
+            local_tag = match.group("tag").lower()
+            if local_tag == "svg" and svg_depth > 0:
+                return match.end()
+            if local_tag == "math" and math_depth > 0:
+                return match.end()
+
+        return len(self._text)
+
+    def handle_starttag(self, tag, attrs):
+        start = self._absolute_index()
+        self._start_hidden_node(tag, start)
+
+        local_tag = _xml_local_tag_name(tag)
+        if local_tag == "svg":
+            self._svg_depth += 1
+        elif local_tag == "math":
+            self._math_depth += 1
+
+    def handle_startendtag(self, tag, attrs):
+        start = self._absolute_index()
+        if (
+            self._in_inline_xml_context(tag)
+            and _xml_local_tag_name(tag) in _INLINE_XML_HIDDEN_NODE_TAGS
+        ):
+            self.spans.append((start, self._tag_end_index(start)))
+
+    def handle_endtag(self, tag):
+        start = self._absolute_index()
+        end = self._tag_end_index(start)
+        self._end_hidden_node(tag, end)
+
+        local_tag = _xml_local_tag_name(tag)
+        if self._at_hidden_context_boundary(local_tag):
+            self._finish_hidden_node(end)
+
+        if local_tag == "svg" and self._svg_depth:
+            self._svg_depth -= 1
+        elif local_tag == "math" and self._math_depth:
+            self._math_depth -= 1
+
+    def close(self):
+        super().close()
+        if self._hidden_stack and self._hidden_start is not None:
+            end = self._raw_hidden_context_boundary_end()
+            self._closed_hidden_at_raw_boundary = end < len(self._text)
+            self._finish_hidden_node(end)
+
+
+def _strip_inline_xml_hidden_node_traps(text: str) -> str:
+    if not text or "<" not in text:
+        return text
+    if not _INLINE_XML_CONTEXT_CANDIDATE_RE.search(text):
+        return text
+    if not _INLINE_XML_HIDDEN_NODE_CANDIDATE_RE.search(text):
+        return text
+
+    stripped = text
+    while True:
+        parser = _InlineXmlHiddenNodeStripper(stripped)
+        try:
+            parser.feed(stripped)
+            parser.close()
+        except Exception:
+            return stripped
+
+        if not parser.spans:
+            return stripped
+
+        next_stripped = _remove_spans(stripped, parser.spans)
+        if next_stripped == stripped or not parser._closed_hidden_at_raw_boundary:
+            return next_stripped
+
+        stripped = next_stripped
+        if not _INLINE_XML_HIDDEN_NODE_CANDIDATE_RE.search(stripped):
+            return stripped
+
+
 def _strip_xml_html_declaration_traps(text: str) -> str:
     return _XML_HTML_DECLARATION_TRAP_RE.sub(" ", text)
 
 
 def strip_hidden_declaration_traps(text: str) -> str:
-    """Strip hidden XML/HTML declaration payloads before downstream guards."""
+    """Strip hidden XML/HTML payloads before downstream guards."""
     if not text:
         return ""
 
-    return _strip_xml_html_declaration_traps(str(text))
+    stripped = _strip_inline_xml_hidden_node_traps(str(text))
+    return _strip_xml_html_declaration_traps(stripped)
 
 
 def _split_url_trailing_punctuation(url: str) -> Tuple[str, str]:
@@ -7068,6 +7293,7 @@ def sanitize_untrusted_email_text(text: str) -> str:
     sanitized = text.replace("\r\n", "\n").replace("\r", "\n")
     sanitized = _normalize_prompt_controls(sanitized)
     sanitized = _strip_html_comment_traps(sanitized)
+    sanitized = _strip_inline_xml_hidden_node_traps(sanitized)
     sanitized = _strip_xml_html_declaration_traps(sanitized)
     sanitized = _redact_saml_sso_artifacts(sanitized)
     sanitized = _redact_oauth_device_verification_uri_complete(sanitized)
