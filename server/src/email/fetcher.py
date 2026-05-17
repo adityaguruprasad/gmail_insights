@@ -328,20 +328,44 @@ def _strip_css_important(value: str) -> str:
     return re.sub(r"\s*!important\s*$", "", value, flags=re.IGNORECASE).strip()
 
 
+def _decode_css_escape(match: re.Match) -> str:
+    hex_digits = match.group(1)
+    if hex_digits is None:
+        return match.group(2)
+
+    codepoint = int(hex_digits, 16)
+    if (
+        codepoint <= 0
+        or 0xD800 <= codepoint <= 0xDFFF
+        or codepoint > 0x10FFFF
+    ):
+        return chr(0xFFFD)
+
+    return chr(codepoint)
+
+
+def _decode_css_escapes(value: str) -> str:
+    return _CSS_ESCAPE_RE.sub(_decode_css_escape, value)
+
+
+def _decode_css_selector_escapes(selector: str) -> str:
+    return _decode_css_escapes(selector)
+
+
 def _css_declarations(style: str) -> Dict[str, str]:
     declarations: Dict[str, str] = {}
     # CSS comments are parsed as whitespace by browsers. Normalize them before
-    # checking inline styles so comment-obfuscated hidden declarations do not
-    # leak visually suppressed prompt text into extracted email content.
+    # checking inline styles. CSS escapes are browser-equivalent in property
+    # names and values, so decode them before hidden-content checks.
     normalized_style = _CSS_COMMENT_RE.sub(" ", str(style or ""))
     for declaration in normalized_style.split(";"):
         property_name, separator, value = declaration.partition(":")
         if not separator:
             continue
 
-        property_name = property_name.strip().lower()
+        property_name = _decode_css_escapes(property_name).strip().lower()
         if property_name:
-            declarations[property_name] = value.strip()
+            declarations[property_name] = _decode_css_escapes(value).strip()
 
     return declarations
 
@@ -810,26 +834,6 @@ def _html_attrs_hidden_or_suppressed(attrs_by_name: Dict[str, str]) -> bool:
         return True
 
     return False
-
-
-def _decode_css_escape(match: re.Match) -> str:
-    hex_digits = match.group(1)
-    if hex_digits is None:
-        return match.group(2)
-
-    codepoint = int(hex_digits, 16)
-    if (
-        codepoint <= 0
-        or 0xD800 <= codepoint <= 0xDFFF
-        or codepoint > 0x10FFFF
-    ):
-        return chr(0xFFFD)
-
-    return chr(codepoint)
-
-
-def _decode_css_selector_escapes(selector: str) -> str:
-    return _CSS_ESCAPE_RE.sub(_decode_css_escape, selector)
 
 
 def _parse_simple_css_selector(selector: str):

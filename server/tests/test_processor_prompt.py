@@ -2210,7 +2210,8 @@ class ProcessorPromptTests(unittest.TestCase):
             "body": {
                 "data": _gmail_b64(
                     "<style>"
-                    ".pre\\68 eader, #stealth\\2d note { display: none; }"
+                    ".pre\\68 eader { dis\\70 lay: n\\6f ne; }"
+                    "#stealth\\2d note { visibility: h\\69 dden; }"
                     ".visible\\2d note { color: #111; }"
                     "</style>"
                     "<p>Visible invoice update.</p>"
