@@ -280,7 +280,11 @@ def _strip_css_important(value: str) -> str:
 
 def _css_declarations(style: str) -> Dict[str, str]:
     declarations: Dict[str, str] = {}
-    for declaration in str(style or "").split(";"):
+    # CSS comments are parsed as whitespace by browsers. Normalize them before
+    # checking inline styles so comment-obfuscated hidden declarations do not
+    # leak visually suppressed prompt text into extracted email content.
+    normalized_style = _CSS_COMMENT_RE.sub(" ", str(style or ""))
+    for declaration in normalized_style.split(";"):
         property_name, separator, value = declaration.partition(":")
         if not separator:
             continue
