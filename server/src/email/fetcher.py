@@ -836,6 +836,17 @@ def _pop_html_tag_stack(tag_stack: List[Tuple], tag: str) -> List[Tuple]:
     return []
 
 
+def _html_downlevel_revealed_conditional_marker(data: str) -> str:
+    normalized = str(data or "").strip().lower()
+    if normalized == "endif":
+        return "end"
+    if normalized == "if" or (
+        normalized.startswith("if") and normalized[2].isspace()
+    ):
+        return "start"
+    return ""
+
+
 class _HTMLToPlainTextParser(HTMLParser):
     def __init__(
         self,
@@ -844,6 +855,7 @@ class _HTMLToPlainTextParser(HTMLParser):
         super().__init__(convert_charrefs=True)
         self._chunks: List[str] = []
         self._suppressed_depth = 0
+        self._conditional_comment_depth = 0
         self._svg_depth = 0
         self._tag_stack: List[Tuple[str, bool]] = []
         self._hidden_stylesheet_selectors = hidden_stylesheet_selectors
@@ -859,6 +871,9 @@ class _HTMLToPlainTextParser(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         tag = tag.lower()
+        if self._conditional_comment_depth:
+            return
+
         attrs_by_name = _html_attrs_by_name(attrs)
         suppresses_text = _html_tag_suppresses_text(
             tag,
@@ -886,6 +901,9 @@ class _HTMLToPlainTextParser(HTMLParser):
 
     def handle_startendtag(self, tag, attrs):
         tag = tag.lower()
+        if self._conditional_comment_depth:
+            return
+
         attrs_by_name = _html_attrs_by_name(attrs)
         suppresses_text = _html_tag_suppresses_text(
             tag,
@@ -902,6 +920,9 @@ class _HTMLToPlainTextParser(HTMLParser):
 
     def handle_endtag(self, tag):
         tag = tag.lower()
+        if self._conditional_comment_depth:
+            return
+
         was_suppressed = bool(self._suppressed_depth)
         self._pop_tag(tag)
 
@@ -912,11 +933,18 @@ class _HTMLToPlainTextParser(HTMLParser):
             self._chunks.append("\n")
 
     def handle_data(self, data):
-        if not self._suppressed_depth:
+        if not self._suppressed_depth and not self._conditional_comment_depth:
             self._chunks.append(data)
 
     def handle_comment(self, data):
         return
+
+    def unknown_decl(self, data):
+        marker = _html_downlevel_revealed_conditional_marker(data)
+        if marker == "start":
+            self._conditional_comment_depth += 1
+        elif marker == "end" and self._conditional_comment_depth:
+            self._conditional_comment_depth -= 1
 
     def get_text(self) -> str:
         text = "".join(self._chunks)
@@ -1058,6 +1086,7 @@ class _HTMLSafetyParser(HTMLParser):
         self._seen_warnings = set()
         self._drop_depth = 0
         self._hidden_depth = 0
+        self._conditional_comment_depth = 0
         self._svg_depth = 0
         self._tag_stack: List[Tuple[str, bool, bool]] = []
         self._anchor_stack: List[Dict] = []
@@ -1137,6 +1166,9 @@ class _HTMLSafetyParser(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         tag = tag.lower()
+        if self._conditional_comment_depth:
+            return
+
         attrs_by_name = _html_attrs_by_name(attrs)
         drops_content = _html_tag_drops_content(tag, in_svg=self._svg_depth > 0)
         hides_text = not drops_content and (
@@ -1175,6 +1207,9 @@ class _HTMLSafetyParser(HTMLParser):
 
     def handle_startendtag(self, tag, attrs):
         tag = tag.lower()
+        if self._conditional_comment_depth:
+            return
+
         attrs_by_name = _html_attrs_by_name(attrs)
         if (
             _html_tag_drops_content(tag, in_svg=self._svg_depth > 0)
@@ -1200,6 +1235,9 @@ class _HTMLSafetyParser(HTMLParser):
 
     def handle_endtag(self, tag):
         tag = tag.lower()
+        if self._conditional_comment_depth:
+            return
+
         was_dropped = bool(self._drop_depth)
         was_hidden = bool(self._hidden_depth)
         popped_tags = self._pop_tag(tag)
@@ -1218,14 +1256,27 @@ class _HTMLSafetyParser(HTMLParser):
         self._check_anchor(self._anchor_stack.pop())
 
     def handle_data(self, data):
-        if self._drop_depth or self._hidden_depth:
+        if (
+            self._drop_depth
+            or self._hidden_depth
+            or self._conditional_comment_depth
+        ):
             return
 
         for anchor in self._anchor_stack:
             anchor["chunks"].append(data)
 
     def handle_comment(self, data):
-        return
+        if data.strip():
+            self._add_warning(_HIDDEN_HTML_CONTENT_WARNING)
+
+    def unknown_decl(self, data):
+        marker = _html_downlevel_revealed_conditional_marker(data)
+        if marker == "start":
+            self._add_warning(_HIDDEN_HTML_CONTENT_WARNING)
+            self._conditional_comment_depth += 1
+        elif marker == "end" and self._conditional_comment_depth:
+            self._conditional_comment_depth -= 1
 
     def get_warnings(self) -> List[str]:
         while self._anchor_stack:

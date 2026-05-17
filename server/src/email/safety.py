@@ -1708,6 +1708,13 @@ _NFKC_PROMPT_ROLE_TAG = rf"[^\W\d_]{{1,{_NFKC_PROMPT_ROLE_TAG_MAX_LENGTH}}}"
 _PROMPT_BOUNDARY_MARKER_RE = re.compile(
     r"(?i)\b(?:BEGIN|END)_UNTRUSTED_EMAIL\b"
 )
+# HTML comments are hidden in rendered email. Treat an unclosed opener as
+# hidden through end-of-field so malformed prompt traps fail closed.
+_HTML_COMMENT_RE = re.compile(r"<!--[\s\S]*?(?:-->|$)")
+_HTML_DOWNLEVEL_REVEALED_CONDITIONAL_COMMENT_RE = re.compile(
+    r"<!\[\s*if\b[\s\S]*?\]>[\s\S]*?(?:<!\[\s*endif\s*\]>|$)",
+    re.IGNORECASE,
+)
 _NFKC_ROLE_TAG_RE = re.compile(
     rf"(?im)^(\s*)({_NFKC_PROMPT_ROLE_TAG})\s*{_PROMPT_ROLE_SEPARATOR}\s*"
 )
@@ -5471,6 +5478,11 @@ def _quote_serialized_role_field(match: re.Match) -> str:
     return f"{match.group('prefix')}{value_quote}{quoted_role}{value_quote}"
 
 
+def _strip_html_comment_traps(text: str) -> str:
+    text = _HTML_COMMENT_RE.sub(" ", text)
+    return _HTML_DOWNLEVEL_REVEALED_CONDITIONAL_COMMENT_RE.sub(" ", text)
+
+
 def _split_url_trailing_punctuation(url: str) -> Tuple[str, str]:
     trailing_punctuation = ""
     while url and url[-1] in _SENSITIVE_URL_TRAILING_PUNCTUATION:
@@ -7011,6 +7023,7 @@ def sanitize_untrusted_email_text(text: str) -> str:
 
     sanitized = text.replace("\r\n", "\n").replace("\r", "\n")
     sanitized = _normalize_prompt_controls(sanitized)
+    sanitized = _strip_html_comment_traps(sanitized)
     sanitized = _redact_saml_sso_artifacts(sanitized)
     sanitized = _redact_oauth_device_verification_uri_complete(sanitized)
     sanitized = _redact_oauth_oidc_authorization_artifacts(sanitized)
