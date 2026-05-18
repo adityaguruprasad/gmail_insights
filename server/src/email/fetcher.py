@@ -60,7 +60,10 @@ def _decode_base64_urlsafe(data: Optional[str]) -> str:
 
 
 _HTML_CONTENT_TAGS_TO_DROP = {
+    "embed",
     "head",
+    "iframe",
+    "object",
     "script",
     "style",
     "template",
@@ -154,6 +157,10 @@ _EMBEDDED_FORM_WARNING = (
 _HIDDEN_HTML_CONTENT_WARNING = (
     "HTML message contains hidden or visually suppressed content; hidden text was "
     "excluded from extracted text."
+)
+_EMBEDDED_ACTIVE_CONTENT_WARNING = (
+    "HTML email contains embedded active content; embedded content was excluded "
+    "from extracted text."
 )
 _META_REFRESH_REDIRECT_WARNING = "HTML email contains a meta refresh redirect."
 _META_REFRESH_URL_RE = re.compile(
@@ -1367,6 +1374,8 @@ class _HTMLSafetyParser(HTMLParser):
             self._math_depth += 1
 
         if drops_content:
+            if tag in {"embed", "iframe", "object"}:
+                self._add_warning(_EMBEDDED_ACTIVE_CONTENT_WARNING)
             if tag not in _HTML_VOID_TAGS:
                 self._drop_depth += 1
                 if warns_on_non_visible_text:
@@ -1401,6 +1410,8 @@ class _HTMLSafetyParser(HTMLParser):
             in_math=in_math,
         )
         if drops_content or self._drop_depth:
+            if tag in {"embed", "iframe", "object"}:
+                self._add_warning(_EMBEDDED_ACTIVE_CONTENT_WARNING)
             return
 
         hides_text = _html_attrs_hidden_or_suppressed(

@@ -1763,6 +1763,19 @@ _HTML_RAW_TEXT_TAG_OPEN_RE = re.compile(r"(?is)<(?P<tag>script|style)(?=[\s>/])"
 _HTML_RAW_TEXT_TAG_CLOSE_RES = {
     tag: re.compile(rf"(?is)</{tag}\s*>") for tag in ("script", "style")
 }
+_HTML_EMBEDDED_CONTENT_TAGS = ("iframe", "object")
+_HTML_EMBEDDED_CONTENT_TAG_OPEN_RE = re.compile(
+    r"(?is)<(?P<tag>iframe|object)(?=[\s>/])"
+)
+_HTML_EMBEDDED_CONTENT_TAG_OPEN_RES = {
+    tag: re.compile(rf"(?is)<{tag}(?=[\s>/])")
+    for tag in _HTML_EMBEDDED_CONTENT_TAGS
+}
+_HTML_EMBEDDED_CONTENT_TAG_CLOSE_RES = {
+    tag: re.compile(rf"(?is)</{tag}\s*>")
+    for tag in _HTML_EMBEDDED_CONTENT_TAGS
+}
+_HTML_EMBED_TAG_OPEN_RE = re.compile(r"(?is)<embed(?=[\s>/])")
 # Cheap tag-local pre-check; HTMLParser below enforces exact attr semantics.
 _HTML_ACCESSIBILITY_HIDDEN_CANDIDATE_RE = re.compile(
     r"""(?i)<[a-z](?:"[^"]*"|'[^']*'|[^'"<>])*?\s"""
@@ -5784,6 +5797,89 @@ def _strip_html_raw_text_traps(text: str) -> str:
     return _remove_spans(text, spans)
 
 
+def _html_embedded_content_span_end(text: str, open_end: int, tag: str) -> int:
+    depth = 1
+    cursor = open_end
+    span_end = len(text)
+    open_re = _HTML_EMBEDDED_CONTENT_TAG_OPEN_RES[tag]
+    close_re = _HTML_EMBEDDED_CONTENT_TAG_CLOSE_RES[tag]
+
+    while depth:
+        next_open = open_re.search(text, cursor)
+        next_close = close_re.search(text, cursor)
+        if not next_close:
+            span_end = len(text)
+            break
+
+        if next_open and next_open.start() < next_close.start():
+            nested_end, nested_closed = _html_tag_end_index_and_closed(
+                text,
+                next_open.start(),
+            )
+            if not nested_closed:
+                span_end = len(text)
+                break
+
+            depth += 1
+            cursor = nested_end
+            continue
+
+        depth -= 1
+        cursor = next_close.end()
+        if not depth:
+            span_end = cursor
+
+    return span_end
+
+
+def _strip_html_embedded_content_traps(text: str) -> str:
+    if not text or "<" not in text:
+        return text
+    if not (
+        _HTML_EMBEDDED_CONTENT_TAG_OPEN_RE.search(text)
+        or _HTML_EMBED_TAG_OPEN_RE.search(text)
+    ):
+        return text
+
+    spans: List[Tuple[int, int]] = []
+    search_pos = 0
+    while True:
+        open_match = _HTML_EMBEDDED_CONTENT_TAG_OPEN_RE.search(text, search_pos)
+        if not open_match:
+            break
+
+        start = open_match.start()
+        open_end, open_closed = _html_tag_end_index_and_closed(text, start)
+        if not open_closed:
+            spans.append((start, len(text)))
+            break
+
+        tag = open_match.group("tag").lower()
+        span_end = _html_embedded_content_span_end(
+            text,
+            open_end,
+            tag,
+        )
+        spans.append((start, span_end))
+        search_pos = span_end
+
+    search_pos = 0
+    while True:
+        open_match = _HTML_EMBED_TAG_OPEN_RE.search(text, search_pos)
+        if not open_match:
+            break
+
+        start = open_match.start()
+        tag_end, closed = _html_tag_end_index_and_closed(text, start)
+        spans.append((start, tag_end))
+        if not closed:
+            break
+
+        search_pos = tag_end
+
+    return _remove_spans(text, spans)
+
+
 def _strip_html_document_metadata_tag_traps(text: str) -> str:
     if not text or "<" not in text:
         return text
@@ -6418,6 +6514,7 @@ def strip_hidden_declaration_traps(text: str) -> str:
     stripped = _strip_css_hidden_html_traps(stripped)
     stripped = _strip_hidden_form_control_traps(stripped)
     stripped = _strip_html_raw_text_traps(stripped)
+    stripped = _strip_html_embedded_content_traps(stripped)
     stripped = _strip_html_template_traps(stripped)
     stripped = _strip_accessibility_hidden_html_traps(stripped)
     stripped = _strip_inline_xml_hidden_node_traps(stripped)
