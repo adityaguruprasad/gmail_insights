@@ -1635,6 +1635,31 @@ def _prompt_ascii_words(*words: str) -> str:
     return "(?:" + "|".join(_prompt_ascii_word(word) for word in words) + ")"
 
 
+def _nfkc_ascii_char_pattern(char: str) -> str:
+    variants = {char}
+    if "a" <= char.lower() <= "z":
+        lower = char.lower()
+        upper = char.upper()
+        variants.update(
+            {
+                lower,
+                upper,
+                chr(ord(lower) + 0xFEE0),
+                chr(ord(upper) + 0xFEE0),
+            }
+        )
+    elif "!" <= char <= "~":
+        variants.add(chr(ord(char) + 0xFEE0))
+    elif char == " ":
+        variants.add("\u3000")
+
+    return "[" + re.escape("".join(sorted(variants))) + "]"
+
+
+def _nfkc_ascii_literal_pattern(text: str) -> str:
+    return "".join(_nfkc_ascii_char_pattern(char) for char in text)
+
+
 def _is_prompt_role_ignored_char(char: str) -> bool:
     return char in " \t" or unicodedata.category(char).startswith("M")
 
@@ -1864,6 +1889,65 @@ _AGENT_TOOL_INVOCATION_MARKER_RE = re.compile(
     r"|^[ \t]*(?:assistant|tool)[ \t]+(?:to|recipient)[ \t]+"
     r"(?=[A-Za-z0-9_.:/@-]*[.:/@])"
     r"[A-Za-z0-9_.:/@-]+(?:[ \t]+[\w.-]+)?[ \t]*:?[ \t]*"
+)
+# Same 32-character whitespace ceiling as the ASCII marker separator; NFKC
+# forms may use compatibility spaces but should still stay line-local.
+_NFKC_AGENT_TOOL_MARKER_SEPARATOR = r"(?:[_＿\-－]|[^\S\r\n]{1,32})?"
+_NFKC_AGENT_TOOL_OPTIONAL_S = rf"{_nfkc_ascii_literal_pattern('s')}?"
+_NFKC_AGENT_TOOL = _nfkc_ascii_literal_pattern("tool")
+_NFKC_FUNCTION = _nfkc_ascii_literal_pattern("function")
+_NFKC_AGENT_TOOL_MARKER_NOUN = (
+    rf"{_NFKC_AGENT_TOOL}{_NFKC_AGENT_TOOL_MARKER_SEPARATOR}(?:"
+    rf"{_nfkc_ascii_literal_pattern('call')}{_NFKC_AGENT_TOOL_OPTIONAL_S}|"
+    rf"{_nfkc_ascii_literal_pattern('use')}{_NFKC_AGENT_TOOL_OPTIONAL_S}|"
+    rf"{_nfkc_ascii_literal_pattern('invocation')}{_NFKC_AGENT_TOOL_OPTIONAL_S}|"
+    rf"{_nfkc_ascii_literal_pattern('result')}{_NFKC_AGENT_TOOL_OPTIONAL_S}|"
+    rf"{_nfkc_ascii_literal_pattern('response')}{_NFKC_AGENT_TOOL_OPTIONAL_S}"
+    r")|"
+    rf"{_NFKC_FUNCTION}{_NFKC_AGENT_TOOL_MARKER_SEPARATOR}(?:"
+    rf"{_nfkc_ascii_literal_pattern('call')}{_NFKC_AGENT_TOOL_OPTIONAL_S}|"
+    rf"{_nfkc_ascii_literal_pattern('result')}{_NFKC_AGENT_TOOL_OPTIONAL_S}|"
+    rf"{_nfkc_ascii_literal_pattern('response')}{_NFKC_AGENT_TOOL_OPTIONAL_S}"
+    r")"
+)
+_NFKC_AGENT_TOOL_COLON = r"[:﹕︓：]"
+_NFKC_AGENT_TOOL_EQUALS = r"[=＝]"
+_NFKC_AGENT_TOOL_LESS_THAN = r"[<＜]"
+_NFKC_AGENT_TOOL_GREATER_THAN = r"[>＞]"
+_NFKC_AGENT_TOOL_SLASH = r"[/／]"
+_NFKC_AGENT_TOOL_PIPE = r"[|｜]"
+_NFKC_AGENT_TOOL_TARGET = r"[A-Za-z0-9_.:/@\-Ａ-Ｚａ-ｚ０-９＿．：／＠－]+"
+# Matches route forms like "assistant to target channel:" without widening the
+# required primary target match.
+_NFKC_AGENT_TOOL_ROUTE_TARGET_SUFFIX = (
+    rf"(?:[^\S\r\n]+{_NFKC_AGENT_TOOL_TARGET})?"
+)
+_NFKC_AGENT_TOOL_INVOCATION_MARKER_RE = re.compile(
+    r"(?im)"
+    rf"{_NFKC_AGENT_TOOL_LESS_THAN}\s*{_NFKC_AGENT_TOOL_SLASH}?\s*"
+    rf"(?:{_NFKC_AGENT_TOOL_MARKER_NOUN})"
+    rf"(?=[^\S\r\n]|{_NFKC_AGENT_TOOL_GREATER_THAN})"
+    rf"[^>＞]*{_NFKC_AGENT_TOOL_GREATER_THAN}"
+    rf"|{_NFKC_AGENT_TOOL_LESS_THAN}{_NFKC_AGENT_TOOL_PIPE}\s*"
+    rf"(?:{_NFKC_AGENT_TOOL_MARKER_NOUN})\s*"
+    rf"{_NFKC_AGENT_TOOL_PIPE}{_NFKC_AGENT_TOOL_GREATER_THAN}"
+    rf"|^[^\S\r\n]*(?:`{{3,}}|~{{3,}})[^\S\r\n]*"
+    rf"(?:{_NFKC_AGENT_TOOL_MARKER_NOUN})"
+    rf"(?=[^\S\r\n]+|{_NFKC_AGENT_TOOL_COLON}|$)[^\r\n]*"
+    rf"|^[^\S\r\n]*(?:{_NFKC_AGENT_TOOL_MARKER_NOUN})"
+    rf"[^\S\r\n]*{_NFKC_AGENT_TOOL_COLON}[^\S\r\n]*"
+    rf"|^[^\S\r\n]*(?:{_nfkc_ascii_literal_pattern('assistant')}|"
+    rf"{_NFKC_AGENT_TOOL})[^\S\r\n]+(?:{_nfkc_ascii_literal_pattern('to')}|"
+    rf"{_nfkc_ascii_literal_pattern('recipient')})[^\S\r\n]*"
+    rf"{_NFKC_AGENT_TOOL_EQUALS}[^\S\r\n]*{_NFKC_AGENT_TOOL_TARGET}"
+    rf"{_NFKC_AGENT_TOOL_ROUTE_TARGET_SUFFIX}[^\S\r\n]*"
+    rf"{_NFKC_AGENT_TOOL_COLON}?[^\S\r\n]*"
+    rf"|^[^\S\r\n]*(?:{_nfkc_ascii_literal_pattern('assistant')}|"
+    rf"{_NFKC_AGENT_TOOL})[^\S\r\n]+(?:{_nfkc_ascii_literal_pattern('to')}|"
+    rf"{_nfkc_ascii_literal_pattern('recipient')})[^\S\r\n]+"
+    rf"(?={_NFKC_AGENT_TOOL_TARGET}[.:/@．：／＠])"
+    rf"{_NFKC_AGENT_TOOL_TARGET}{_NFKC_AGENT_TOOL_ROUTE_TARGET_SUFFIX}"
+    rf"[^\S\r\n]*{_NFKC_AGENT_TOOL_COLON}?[^\S\r\n]*"
 )
 _PROMPT_SECRET_SOURCE = _prompt_ascii_words(
     "system",
@@ -7466,6 +7550,10 @@ def sanitize_untrusted_email_text(text: str) -> str:
         sanitized,
     )
     sanitized = _AGENT_TOOL_INVOCATION_MARKER_RE.sub(
+        _quote_agent_tool_invocation_marker,
+        sanitized,
+    )
+    sanitized = _NFKC_AGENT_TOOL_INVOCATION_MARKER_RE.sub(
         _quote_agent_tool_invocation_marker,
         sanitized,
     )
