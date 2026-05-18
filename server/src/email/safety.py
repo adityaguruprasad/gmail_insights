@@ -1778,6 +1778,9 @@ _HTML_SELECTOR_ATTR_CANDIDATE_RE = re.compile(
 _HTML_FORM_CONTROL_CANDIDATE_RE = re.compile(
     r"(?is)<input(?=[\s/>])"
 )
+_HTML_DOCUMENT_METADATA_TAG_CANDIDATE_RE = re.compile(
+    r"(?is)<(?:meta|link|base)(?=[\s/>])"
+)
 _HTML_VOID_TAGS = {
     "area",
     "base",
@@ -5781,6 +5784,30 @@ def _strip_html_raw_text_traps(text: str) -> str:
     return _remove_spans(text, spans)
 
 
+def _strip_html_document_metadata_tag_traps(text: str) -> str:
+    if not text or "<" not in text:
+        return text
+    if not _HTML_DOCUMENT_METADATA_TAG_CANDIDATE_RE.search(text):
+        return text
+
+    spans: List[Tuple[int, int]] = []
+    search_pos = 0
+    while True:
+        match = _HTML_DOCUMENT_METADATA_TAG_CANDIDATE_RE.search(text, search_pos)
+        if not match:
+            break
+
+        start = match.start()
+        tag_end, closed = _html_tag_end_index_and_closed(text, start)
+        spans.append((start, tag_end))
+        if not closed:
+            break
+
+        search_pos = tag_end
+
+    return _remove_spans(text, spans)
+
+
 def _html_attrs_accessibility_hidden(attrs) -> bool:
     # Intentional asymmetry: hidden is boolean/presence-based, while
     # aria-hidden only hides when its value is true.
@@ -6382,9 +6409,12 @@ def strip_hidden_declaration_traps(text: str) -> str:
         return ""
 
     # Strip comments before CSS/HTML matching so commented faux tags cannot
-    # seed hidden block detection. CSS runs before raw <style> tags are removed
-    # so stylesheet-hidden elements can still be matched.
+    # seed hidden block detection. Non-rendered document/resource metadata tags
+    # are stripped before CSS matching so their attributes cannot seed rules.
+    # CSS runs before raw <style> tags are removed so stylesheet-hidden elements
+    # can still be matched.
     stripped = _strip_html_comment_traps(str(text))
+    stripped = _strip_html_document_metadata_tag_traps(stripped)
     stripped = _strip_css_hidden_html_traps(stripped)
     stripped = _strip_hidden_form_control_traps(stripped)
     stripped = _strip_html_raw_text_traps(stripped)
