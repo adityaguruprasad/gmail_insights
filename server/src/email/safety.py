@@ -1741,6 +1741,8 @@ _HTML_DOWNLEVEL_REVEALED_CONDITIONAL_COMMENT_RE = re.compile(
     r"<!\[\s*if\b[\s\S]*?\]>[\s\S]*?(?:<!\[\s*endif\s*\]>|$)",
     re.IGNORECASE,
 )
+_HTML_TEMPLATE_OPEN_RE = re.compile(r"(?is)<template(?=[\s>/])")
+_HTML_TEMPLATE_CLOSE_RE = re.compile(r"(?is)</template\s*>")
 # Cheap tag-local pre-check; HTMLParser below enforces exact attr semantics.
 _HTML_ACCESSIBILITY_HIDDEN_CANDIDATE_RE = re.compile(
     r"""(?i)<[a-z](?:"[^"]*"|'[^']*'|[^'"<>])*?\s"""
@@ -5653,6 +5655,74 @@ def _strip_html_comment_traps(text: str) -> str:
     return _HTML_DOWNLEVEL_REVEALED_CONDITIONAL_COMMENT_RE.sub(" ", text)
 
 
+def _html_tag_end_index_and_closed(text: str, start: int) -> Tuple[int, bool]:
+    quote = None
+    for index in range(start, len(text)):
+        char = text[index]
+        if quote:
+            if char == quote:
+                quote = None
+        elif char in ("'", '"'):
+            quote = char
+        elif char == ">":
+            return index + 1, True
+
+    return len(text), False
+
+
+def _strip_html_template_traps(text: str) -> str:
+    if not text or "<" not in text:
+        return text
+    if not _HTML_TEMPLATE_OPEN_RE.search(text):
+        return text
+
+    spans: List[Tuple[int, int]] = []
+    search_pos = 0
+    while True:
+        open_match = _HTML_TEMPLATE_OPEN_RE.search(text, search_pos)
+        if not open_match:
+            break
+
+        start = open_match.start()
+        open_end, open_closed = _html_tag_end_index_and_closed(text, start)
+        if not open_closed:
+            spans.append((start, len(text)))
+            break
+
+        depth = 1
+        cursor = open_end
+        span_end = len(text)
+        while depth:
+            next_open = _HTML_TEMPLATE_OPEN_RE.search(text, cursor)
+            next_close = _HTML_TEMPLATE_CLOSE_RE.search(text, cursor)
+            if not next_close:
+                span_end = len(text)
+                break
+
+            if next_open and next_open.start() < next_close.start():
+                nested_end, nested_closed = _html_tag_end_index_and_closed(
+                    text,
+                    next_open.start(),
+                )
+                if not nested_closed:
+                    span_end = len(text)
+                    break
+
+                depth += 1
+                cursor = nested_end
+                continue
+
+            depth -= 1
+            cursor = next_close.end()
+            if not depth:
+                span_end = cursor
+
+        spans.append((start, span_end))
+        search_pos = span_end
+
+    return _remove_spans(text, spans)
+
+
 def _html_attrs_accessibility_hidden(attrs) -> bool:
     # Intentional asymmetry: hidden is boolean/presence-based, while
     # aria-hidden only hides when its value is true.
@@ -5998,7 +6068,11 @@ def strip_hidden_declaration_traps(text: str) -> str:
     if not text:
         return ""
 
-    stripped = _strip_accessibility_hidden_html_traps(str(text))
+    # Strip regular/conditional comments first so commented faux
+    # <template>/</template> tags cannot affect template depth matching.
+    stripped = _strip_html_comment_traps(str(text))
+    stripped = _strip_html_template_traps(stripped)
+    stripped = _strip_accessibility_hidden_html_traps(stripped)
     stripped = _strip_inline_xml_hidden_node_traps(stripped)
     return _strip_xml_html_declaration_traps(stripped)
 
