@@ -1794,6 +1794,12 @@ _HTML_FORM_CONTROL_CANDIDATE_RE = re.compile(
 _HTML_DOCUMENT_METADATA_TAG_CANDIDATE_RE = re.compile(
     r"(?is)<(?:meta|link|base)(?=[\s/>])"
 )
+_HTML_START_TAG_CANDIDATE_RE = re.compile(
+    r"(?is)<[a-z][a-z0-9:-]*(?=[\s>/])"
+)
+_HTML_EVENT_HANDLER_ATTR_CANDIDATE_RE = re.compile(
+    r"(?is)(?:\s|/)on[a-z0-9_-]*\s*="
+)
 _HTML_VOID_TAGS = {
     "area",
     "base",
@@ -5904,6 +5910,114 @@ def _strip_html_document_metadata_tag_traps(text: str) -> str:
     return _remove_spans(text, spans)
 
 
+def _html_active_attribute_spans(tag_text: str) -> List[Tuple[int, int]]:
+    tag_match = _HTML_START_TAG_CANDIDATE_RE.match(tag_text)
+    if not tag_match:
+        return []
+
+    limit = len(tag_text) - 1 if tag_text.endswith(">") else len(tag_text)
+    index = tag_match.end()
+    spans = []
+
+    while index < limit:
+        while index < limit and tag_text[index].isspace():
+            index += 1
+        if index >= limit:
+            break
+        if tag_text[index] in "/>":
+            index += 1
+            continue
+
+        attr_start = index
+        while (
+            index < limit
+            and not tag_text[index].isspace()
+            and tag_text[index] not in "=/>"
+        ):
+            index += 1
+        if attr_start == index:
+            index += 1
+            continue
+
+        attr_name = tag_text[attr_start:index].lower()
+        while index < limit and tag_text[index].isspace():
+            index += 1
+
+        if index < limit and tag_text[index] == "=":
+            index += 1
+            while index < limit and tag_text[index].isspace():
+                index += 1
+            if index < limit and tag_text[index] in ("'", '"'):
+                quote = tag_text[index]
+                index += 1
+                while index < limit and tag_text[index] != quote:
+                    index += 1
+                if index < limit:
+                    index += 1
+            else:
+                while (
+                    index < limit
+                    and not tag_text[index].isspace()
+                    and tag_text[index] not in "/>"
+                ):
+                    index += 1
+
+        attr_end = index
+        if attr_name.startswith("on") and len(attr_name) > 2:
+            spans.append((attr_start, attr_end))
+
+    return spans
+
+
+def _strip_active_html_attribute_traps(text: str) -> str:
+    if not text or "<" not in text:
+        return text
+    if not _HTML_EVENT_HANDLER_ATTR_CANDIDATE_RE.search(text):
+        return text
+
+    chunks = []
+    cursor = 0
+    search_pos = 0
+    while True:
+        match = _HTML_START_TAG_CANDIDATE_RE.search(text, search_pos)
+        if not match:
+            break
+
+        start = match.start()
+        tag_end, closed = _html_tag_end_index_and_closed(text, start)
+        tag_text = text[start:tag_end]
+        if not _HTML_EVENT_HANDLER_ATTR_CANDIDATE_RE.search(tag_text):
+            search_pos = tag_end
+            continue
+
+        attr_spans = _html_active_attribute_spans(tag_text)
+        if not attr_spans:
+            search_pos = tag_end
+            continue
+
+        chunks.append(text[cursor:start])
+        if not closed:
+            cursor = len(text)
+            break
+
+        tag_chunks = []
+        tag_cursor = 0
+        for attr_start, attr_end in attr_spans:
+            tag_chunks.append(tag_text[tag_cursor:attr_start])
+            tag_cursor = attr_end
+        tag_chunks.append(tag_text[tag_cursor:])
+        chunks.append("".join(tag_chunks))
+
+        cursor = tag_end
+        search_pos = tag_end
+
+    if not chunks:
+        return text
+
+    chunks.append(text[cursor:])
+    return "".join(chunks)
+
+
 def _html_attrs_accessibility_hidden(attrs) -> bool:
     # Intentional asymmetry: hidden is boolean/presence-based, while
     # aria-hidden only hides when its value is true.
@@ -6511,6 +6625,7 @@ def strip_hidden_declaration_traps(text: str) -> str:
     # can still be matched.
     stripped = _strip_html_comment_traps(str(text))
     stripped = _strip_html_document_metadata_tag_traps(stripped)
+    stripped = _strip_active_html_attribute_traps(stripped)
     stripped = _strip_css_hidden_html_traps(stripped)
     stripped = _strip_hidden_form_control_traps(stripped)
     stripped = _strip_html_raw_text_traps(stripped)
