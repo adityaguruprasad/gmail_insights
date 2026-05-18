@@ -1871,6 +1871,18 @@ def _nfkc_ascii_literal_pattern(text: str) -> str:
     return "".join(_nfkc_ascii_char_pattern(char) for char in text)
 
 
+_NFKC_AGENT_TOOL_INTERIOR_MARK = (
+    r"(?:[^\S\r\n]|[\u0300-\u036f\u1ab0-\u1aff\u1dc0-\u1dff"
+    r"\u20d0-\u20ff\ufe20-\ufe2f]){0,32}"
+)
+
+
+def _nfkc_agent_tool_literal_pattern(text: str) -> str:
+    return _NFKC_AGENT_TOOL_INTERIOR_MARK.join(
+        _nfkc_ascii_char_pattern(char) for char in text
+    )
+
+
 def _is_prompt_role_ignored_char(char: str) -> bool:
     return char in " \t" or unicodedata.category(char).startswith("M")
 
@@ -2161,21 +2173,26 @@ _AGENT_TOOL_INVOCATION_MARKER_RE = re.compile(
 # Same 32-character whitespace ceiling as the ASCII marker separator; NFKC
 # forms may use compatibility spaces but should still stay line-local.
 _NFKC_AGENT_TOOL_MARKER_SEPARATOR = r"(?:[_＿\-－]|[^\S\r\n]{1,32})?"
-_NFKC_AGENT_TOOL_OPTIONAL_S = rf"{_nfkc_ascii_literal_pattern('s')}?"
-_NFKC_AGENT_TOOL = _nfkc_ascii_literal_pattern("tool")
-_NFKC_FUNCTION = _nfkc_ascii_literal_pattern("function")
+_NFKC_AGENT_TOOL_OPTIONAL_S = (
+    rf"(?:{_NFKC_AGENT_TOOL_INTERIOR_MARK}{_nfkc_ascii_char_pattern('s')})?"
+)
+_NFKC_AGENT_TOOL = _nfkc_agent_tool_literal_pattern("tool")
+_NFKC_FUNCTION = _nfkc_agent_tool_literal_pattern("function")
+_NFKC_ASSISTANT = _nfkc_agent_tool_literal_pattern("assistant")
+_NFKC_TO = _nfkc_agent_tool_literal_pattern("to")
+_NFKC_RECIPIENT = _nfkc_agent_tool_literal_pattern("recipient")
 _NFKC_AGENT_TOOL_MARKER_NOUN = (
     rf"{_NFKC_AGENT_TOOL}{_NFKC_AGENT_TOOL_MARKER_SEPARATOR}(?:"
-    rf"{_nfkc_ascii_literal_pattern('call')}{_NFKC_AGENT_TOOL_OPTIONAL_S}|"
-    rf"{_nfkc_ascii_literal_pattern('use')}{_NFKC_AGENT_TOOL_OPTIONAL_S}|"
-    rf"{_nfkc_ascii_literal_pattern('invocation')}{_NFKC_AGENT_TOOL_OPTIONAL_S}|"
-    rf"{_nfkc_ascii_literal_pattern('result')}{_NFKC_AGENT_TOOL_OPTIONAL_S}|"
-    rf"{_nfkc_ascii_literal_pattern('response')}{_NFKC_AGENT_TOOL_OPTIONAL_S}"
+    rf"{_nfkc_agent_tool_literal_pattern('call')}{_NFKC_AGENT_TOOL_OPTIONAL_S}|"
+    rf"{_nfkc_agent_tool_literal_pattern('use')}{_NFKC_AGENT_TOOL_OPTIONAL_S}|"
+    rf"{_nfkc_agent_tool_literal_pattern('invocation')}{_NFKC_AGENT_TOOL_OPTIONAL_S}|"
+    rf"{_nfkc_agent_tool_literal_pattern('result')}{_NFKC_AGENT_TOOL_OPTIONAL_S}|"
+    rf"{_nfkc_agent_tool_literal_pattern('response')}{_NFKC_AGENT_TOOL_OPTIONAL_S}"
     r")|"
     rf"{_NFKC_FUNCTION}{_NFKC_AGENT_TOOL_MARKER_SEPARATOR}(?:"
-    rf"{_nfkc_ascii_literal_pattern('call')}{_NFKC_AGENT_TOOL_OPTIONAL_S}|"
-    rf"{_nfkc_ascii_literal_pattern('result')}{_NFKC_AGENT_TOOL_OPTIONAL_S}|"
-    rf"{_nfkc_ascii_literal_pattern('response')}{_NFKC_AGENT_TOOL_OPTIONAL_S}"
+    rf"{_nfkc_agent_tool_literal_pattern('call')}{_NFKC_AGENT_TOOL_OPTIONAL_S}|"
+    rf"{_nfkc_agent_tool_literal_pattern('result')}{_NFKC_AGENT_TOOL_OPTIONAL_S}|"
+    rf"{_nfkc_agent_tool_literal_pattern('response')}{_NFKC_AGENT_TOOL_OPTIONAL_S}"
     r")"
 )
 _NFKC_AGENT_TOOL_COLON = r"[:﹕︓：]"
@@ -2204,15 +2221,15 @@ _NFKC_AGENT_TOOL_INVOCATION_MARKER_RE = re.compile(
     rf"(?=[^\S\r\n]+|{_NFKC_AGENT_TOOL_COLON}|$)[^\r\n]*"
     rf"|^[^\S\r\n]*(?:{_NFKC_AGENT_TOOL_MARKER_NOUN})"
     rf"[^\S\r\n]*{_NFKC_AGENT_TOOL_COLON}[^\S\r\n]*"
-    rf"|^[^\S\r\n]*(?:{_nfkc_ascii_literal_pattern('assistant')}|"
-    rf"{_NFKC_AGENT_TOOL})[^\S\r\n]+(?:{_nfkc_ascii_literal_pattern('to')}|"
-    rf"{_nfkc_ascii_literal_pattern('recipient')})[^\S\r\n]*"
+    rf"|^[^\S\r\n]*(?:{_NFKC_ASSISTANT}|"
+    rf"{_NFKC_AGENT_TOOL})[^\S\r\n]+(?:{_NFKC_TO}|"
+    rf"{_NFKC_RECIPIENT})[^\S\r\n]*"
     rf"{_NFKC_AGENT_TOOL_EQUALS}[^\S\r\n]*{_NFKC_AGENT_TOOL_TARGET}"
     rf"{_NFKC_AGENT_TOOL_ROUTE_TARGET_SUFFIX}[^\S\r\n]*"
     rf"{_NFKC_AGENT_TOOL_COLON}?[^\S\r\n]*"
-    rf"|^[^\S\r\n]*(?:{_nfkc_ascii_literal_pattern('assistant')}|"
-    rf"{_NFKC_AGENT_TOOL})[^\S\r\n]+(?:{_nfkc_ascii_literal_pattern('to')}|"
-    rf"{_nfkc_ascii_literal_pattern('recipient')})[^\S\r\n]+"
+    rf"|^[^\S\r\n]*(?:{_NFKC_ASSISTANT}|"
+    rf"{_NFKC_AGENT_TOOL})[^\S\r\n]+(?:{_NFKC_TO}|"
+    rf"{_NFKC_RECIPIENT})[^\S\r\n]+"
     rf"(?={_NFKC_AGENT_TOOL_TARGET}[.:/@．：／＠])"
     rf"{_NFKC_AGENT_TOOL_TARGET}{_NFKC_AGENT_TOOL_ROUTE_TARGET_SUFFIX}"
     rf"[^\S\r\n]*{_NFKC_AGENT_TOOL_COLON}?[^\S\r\n]*"
@@ -5893,6 +5910,17 @@ def _quote_agent_tool_invocation_marker(match: re.Match) -> str:
     return f"{indentation}[quoted-agent-tool-call] "
 
 
+def _neutralize_agent_tool_invocation_markers(text: str) -> str:
+    neutralized = _AGENT_TOOL_INVOCATION_MARKER_RE.sub(
+        _quote_agent_tool_invocation_marker,
+        text,
+    )
+    return _NFKC_AGENT_TOOL_INVOCATION_MARKER_RE.sub(
+        _quote_agent_tool_invocation_marker,
+        neutralized,
+    )
+
+
 def _quote_serialized_role_field(match: re.Match) -> str:
     quoted_role = _quoted_prompt_role(
         match.group("quoted_role") or match.group("bare_role")
@@ -8484,14 +8512,7 @@ def sanitize_untrusted_email_text(text: str) -> str:
         "[quoted-model-control-token]",
         sanitized,
     )
-    sanitized = _AGENT_TOOL_INVOCATION_MARKER_RE.sub(
-        _quote_agent_tool_invocation_marker,
-        sanitized,
-    )
-    sanitized = _NFKC_AGENT_TOOL_INVOCATION_MARKER_RE.sub(
-        _quote_agent_tool_invocation_marker,
-        sanitized,
-    )
+    sanitized = _neutralize_agent_tool_invocation_markers(sanitized)
     sanitized = _NFKC_SERIALIZED_ROLE_FIELD_RE.sub(
         _quote_serialized_role_field,
         sanitized,
