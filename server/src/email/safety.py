@@ -1776,6 +1776,11 @@ _HTML_EMBEDDED_CONTENT_TAG_CLOSE_RES = {
     for tag in _HTML_EMBEDDED_CONTENT_TAGS
 }
 _HTML_EMBED_TAG_OPEN_RE = re.compile(r"(?is)<embed(?=[\s>/])")
+_HTML_ALWAYS_NON_VISIBLE_CONTENT_TAGS = {"head", "noscript"}
+_HTML_CONDITIONAL_NON_VISIBLE_CONTENT_TAGS = {"title"}
+_HTML_NON_VISIBLE_CONTENT_TAG_CANDIDATE_RE = re.compile(
+    r"(?is)<(?:head|noscript|title)(?=[\s>/])"
+)
 # Cheap tag-local pre-check; HTMLParser below enforces exact attr semantics.
 _HTML_ACCESSIBILITY_HIDDEN_CANDIDATE_RE = re.compile(
     r"""(?i)<[a-z](?:"[^"]*"|'[^']*'|[^'"<>])*?\s"""
@@ -5910,6 +5915,20 @@ def _strip_html_document_metadata_tag_traps(text: str) -> str:
     return _remove_spans(text, spans)
 
 
+def _unclosed_html_non_visible_content_spans(text: str) -> List[Tuple[int, int]]:
+    spans = []
+    for match in _HTML_NON_VISIBLE_CONTENT_TAG_CANDIDATE_RE.finditer(text):
+        start = match.start()
+        _tag_end, closed = _html_tag_end_index_and_closed(text, start)
+        if closed:
+            continue
+
+        spans.append((start, len(text)))
+        break
+
+    return spans
+
+
 def _html_active_attribute_spans(tag_text: str) -> List[Tuple[int, int]]:
     tag_match = _HTML_START_TAG_CANDIDATE_RE.match(tag_text)
     if not tag_match:
@@ -6403,6 +6422,41 @@ class _HiddenElementStripper(HTMLParser):
             self._finish_hidden_element(len(self._text))
 
 
+class _NonVisibleHtmlContentStripper(_HiddenElementStripper):
+    def __init__(self, text: str):
+        super().__init__(text, self._html_tag_is_non_visible_content)
+        self._svg_depth = 0
+        self._math_depth = 0
+
+    def _html_tag_is_non_visible_content(self, tag: str, _attrs) -> bool:
+        if tag in _HTML_ALWAYS_NON_VISIBLE_CONTENT_TAGS:
+            return True
+
+        return (
+            tag in _HTML_CONDITIONAL_NON_VISIBLE_CONTENT_TAGS
+            and not self._svg_depth
+            and not self._math_depth
+        )
+
+    def handle_starttag(self, tag, attrs):
+        super().handle_starttag(tag, attrs)
+
+        local_tag = _xml_local_tag_name(tag)
+        if local_tag == "svg":
+            self._svg_depth += 1
+        elif local_tag == "math":
+            self._math_depth += 1
+
+    def handle_endtag(self, tag):
+        super().handle_endtag(tag)
+
+        local_tag = _xml_local_tag_name(tag)
+        if local_tag == "svg" and self._svg_depth:
+            self._svg_depth -= 1
+        elif local_tag == "math" and self._math_depth:
+            self._math_depth -= 1
+
+
 def _unclosed_html_start_tag_is_hidden_form_control(fragment: str) -> bool:
     index = 1
     while index < len(fragment) and fragment[index].isspace():
@@ -6529,6 +6583,23 @@ def _strip_accessibility_hidden_html_traps(text: str) -> str:
     return _remove_spans(text, parser.spans)
 
 
+def _strip_html_non_visible_content_traps(text: str) -> str:
+    if not text or "<" not in text:
+        return text
+    if not _HTML_NON_VISIBLE_CONTENT_TAG_CANDIDATE_RE.search(text):
+        return text
+
+    spans = _unclosed_html_non_visible_content_spans(text)
+    parser = _NonVisibleHtmlContentStripper(text)
+    try:
+        parser.feed(text)
+        parser.close()
+    except Exception:
+        return _remove_spans(text, spans + parser.spans)
+
+    return _remove_spans(text, spans + parser.spans)
+
+
 def _strip_css_hidden_html_traps(text: str) -> str:
     if not text or "<" not in text:
         return text
@@ -6631,6 +6702,7 @@ def strip_hidden_declaration_traps(text: str) -> str:
     stripped = _strip_html_raw_text_traps(stripped)
     stripped = _strip_html_embedded_content_traps(stripped)
     stripped = _strip_html_template_traps(stripped)
+    stripped = _strip_html_non_visible_content_traps(stripped)
     stripped = _strip_accessibility_hidden_html_traps(stripped)
     stripped = _strip_inline_xml_hidden_node_traps(stripped)
     return _strip_xml_html_declaration_traps(stripped)
