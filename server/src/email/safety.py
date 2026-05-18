@@ -1767,6 +1767,13 @@ _HTML_ACCESSIBILITY_HIDDEN_CANDIDATE_RE = re.compile(
     r"""(?i)<[a-z](?:"[^"]*"|'[^']*'|[^'"<>])*?\s"""
     r"""(?:aria-hidden|hidden)(?=\s|=|/?>)"""
 )
+_HTML_STYLE_TAG_CANDIDATE_RE = re.compile(r"(?is)<style(?=[\s>/])")
+_HTML_STYLE_ATTR_CANDIDATE_RE = re.compile(
+    r"""(?is)<[a-z](?:"[^"]*"|'[^']*'|[^'"<>])*?\sstyle\s*="""
+)
+_HTML_SELECTOR_ATTR_CANDIDATE_RE = re.compile(
+    r"""(?is)<[a-z](?:"[^"]*"|'[^']*'|[^'"<>])*?\s(?:class|id)\s*="""
+)
 _HTML_VOID_TAGS = {
     "area",
     "base",
@@ -5786,6 +5793,74 @@ def _html_attrs_accessibility_hidden(attrs) -> bool:
     return False
 
 
+def _html_attr_values_by_name(attrs) -> dict:
+    attrs_by_name = {}
+    for name, value in attrs:
+        if name is None:
+            continue
+
+        attr_name = str(name).lower()
+        attrs_by_name.setdefault(attr_name, []).append(str(value or ""))
+
+    return attrs_by_name
+
+
+def _html_attrs_by_name(attrs) -> dict:
+    attrs_by_name = {}
+    for attr_name, values in _html_attr_values_by_name(attrs).items():
+        separator = ";" if attr_name == "style" else " "
+        attrs_by_name[attr_name] = separator.join(values)
+
+    return attrs_by_name
+
+
+def _html_attrs_css_hidden_or_suppressed(
+    fetcher_module,
+    attrs_by_name: dict,
+    attr_values_by_name: dict,
+) -> bool:
+    if fetcher_module._html_attrs_hidden_or_suppressed(attrs_by_name):
+        return True
+
+    return any(
+        fetcher_module._html_attrs_hidden_or_suppressed({"style": style})
+        for style in attr_values_by_name.get("style", [])
+    )
+
+
+def _html_attrs_match_any_hidden_stylesheet_selector(
+    fetcher_module,
+    tag: str,
+    attrs_by_name: dict,
+    attr_values_by_name: dict,
+    hidden_stylesheet_selectors,
+) -> bool:
+    if fetcher_module._html_attrs_match_hidden_stylesheet_selector(
+        tag,
+        attrs_by_name,
+        hidden_stylesheet_selectors,
+    ):
+        return True
+
+    for element_id in attr_values_by_name.get("id", []):
+        attrs_for_id = dict(attrs_by_name)
+        attrs_for_id["id"] = element_id
+        if fetcher_module._html_attrs_match_hidden_stylesheet_selector(
+            tag,
+            attrs_for_id,
+            hidden_stylesheet_selectors,
+        ):
+            return True
+
+    return False
+
+
+def _email_fetcher_css_helpers():
+    from src.email import fetcher
+
+    return fetcher
+
+
 def _xml_local_tag_name(tag: str) -> str:
     return str(tag or "").lower().rsplit(":", 1)[-1]
 
@@ -5961,10 +6036,11 @@ class _InlineXmlHiddenNodeStripper(HTMLParser):
             self._finish_hidden_node(end)
 
 
-class _AccessibilityHiddenElementStripper(HTMLParser):
-    def __init__(self, text: str):
+class _HiddenElementStripper(HTMLParser):
+    def __init__(self, text: str, hidden_attrs_predicate):
         super().__init__(convert_charrefs=False)
         self._text = text
+        self._hidden_attrs_predicate = hidden_attrs_predicate
         self._line_offsets = _line_start_offsets(text)
         self._hidden_start = None
         self._hidden_stack: List[str] = []
@@ -6017,7 +6093,7 @@ class _AccessibilityHiddenElementStripper(HTMLParser):
                 self._hidden_stack.append(local_tag)
             return
 
-        if not _html_attrs_accessibility_hidden(attrs):
+        if not self._hidden_attrs_predicate(local_tag, attrs):
             return
 
         end = self._tag_end_index(start)
@@ -6037,7 +6113,7 @@ class _AccessibilityHiddenElementStripper(HTMLParser):
                 self._hidden_stack.append(local_tag)
             return
 
-        if not _html_attrs_accessibility_hidden(attrs):
+        if not self._hidden_attrs_predicate(local_tag, attrs):
             return
 
         end = self._tag_end_index(start)
@@ -6067,7 +6143,61 @@ def _strip_accessibility_hidden_html_traps(text: str) -> str:
     if not _HTML_ACCESSIBILITY_HIDDEN_CANDIDATE_RE.search(text):
         return text
 
-    parser = _AccessibilityHiddenElementStripper(text)
+    parser = _HiddenElementStripper(
+        text,
+        lambda _tag, attrs: _html_attrs_accessibility_hidden(attrs),
+    )
+    try:
+        parser.feed(text)
+        parser.close()
+    except Exception:
+        return text
+
+    return _remove_spans(text, parser.spans)
+
+
+def _strip_css_hidden_html_traps(text: str) -> str:
+    if not text or "<" not in text:
+        return text
+
+    has_inline_style = bool(_HTML_STYLE_ATTR_CANDIDATE_RE.search(text))
+    has_stylesheet_candidate = bool(
+        _HTML_STYLE_TAG_CANDIDATE_RE.search(text)
+        and _HTML_SELECTOR_ATTR_CANDIDATE_RE.search(text)
+    )
+    if not has_inline_style and not has_stylesheet_candidate:
+        return text
+
+    fetcher_module = _email_fetcher_css_helpers()
+
+    try:
+        hidden_stylesheet_selectors = (
+            fetcher_module._hidden_stylesheet_selectors(text)
+            if has_stylesheet_candidate
+            else []
+        )
+    except Exception:
+        hidden_stylesheet_selectors = []
+
+    if not has_inline_style and not hidden_stylesheet_selectors:
+        return text
+
+    def hidden_by_css(tag: str, attrs) -> bool:
+        attr_values_by_name = _html_attr_values_by_name(attrs)
+        attrs_by_name = _html_attrs_by_name(attrs)
+        return _html_attrs_css_hidden_or_suppressed(
+            fetcher_module,
+            attrs_by_name,
+            attr_values_by_name,
+        ) or _html_attrs_match_any_hidden_stylesheet_selector(
+            fetcher_module,
+            tag,
+            attrs_by_name,
+            attr_values_by_name,
+            hidden_stylesheet_selectors,
+        )
+
+    parser = _HiddenElementStripper(text, hidden_by_css)
     try:
         parser.feed(text)
         parser.close()
@@ -6115,9 +6245,11 @@ def strip_hidden_declaration_traps(text: str) -> str:
     if not text:
         return ""
 
-    # Strip regular/conditional comments first so commented faux
-    # raw-text/template tags cannot affect hidden block matching.
+    # Strip comments before CSS/HTML matching so commented faux tags cannot
+    # seed hidden block detection. CSS runs before raw <style> tags are removed
+    # so stylesheet-hidden elements can still be matched.
     stripped = _strip_html_comment_traps(str(text))
+    stripped = _strip_css_hidden_html_traps(stripped)
     stripped = _strip_html_raw_text_traps(stripped)
     stripped = _strip_html_template_traps(stripped)
     stripped = _strip_accessibility_hidden_html_traps(stripped)
