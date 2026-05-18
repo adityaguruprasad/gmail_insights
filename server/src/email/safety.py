@@ -1716,6 +1716,27 @@ _HTML_DOWNLEVEL_REVEALED_CONDITIONAL_COMMENT_RE = re.compile(
     r"<!\[\s*if\b[\s\S]*?\]>[\s\S]*?(?:<!\[\s*endif\s*\]>|$)",
     re.IGNORECASE,
 )
+# Cheap tag-local pre-check; HTMLParser below enforces exact attr semantics.
+_HTML_ACCESSIBILITY_HIDDEN_CANDIDATE_RE = re.compile(
+    r"""(?i)<[a-z](?:"[^"]*"|'[^']*'|[^'"<>])*?\s"""
+    r"""(?:aria-hidden|hidden)(?=\s|=|/?>)"""
+)
+_HTML_VOID_TAGS = {
+    "area",
+    "base",
+    "br",
+    "col",
+    "embed",
+    "hr",
+    "img",
+    "input",
+    "link",
+    "meta",
+    "param",
+    "source",
+    "track",
+    "wbr",
+}
 _INLINE_XML_CONTEXT_PREFIXES = {"svg", "math", "mml"}
 _INLINE_XML_HIDDEN_NODE_TAGS = {
     "annotation",
@@ -5535,6 +5556,22 @@ def _strip_html_comment_traps(text: str) -> str:
     return _HTML_DOWNLEVEL_REVEALED_CONDITIONAL_COMMENT_RE.sub(" ", text)
 
 
+def _html_attrs_accessibility_hidden(attrs) -> bool:
+    # Intentional asymmetry: hidden is boolean/presence-based, while
+    # aria-hidden only hides when its value is true.
+    for name, value in attrs:
+        attr_name = str(name or "").lower()
+        if attr_name == "hidden":
+            return True
+        if (
+            attr_name == "aria-hidden"
+            and ("" if value is None else str(value)).strip().lower() == "true"
+        ):
+            return True
+
+    return False
+
+
 def _xml_local_tag_name(tag: str) -> str:
     return str(tag or "").lower().rsplit(":", 1)[-1]
 
@@ -5710,6 +5747,122 @@ class _InlineXmlHiddenNodeStripper(HTMLParser):
             self._finish_hidden_node(end)
 
 
+class _AccessibilityHiddenElementStripper(HTMLParser):
+    def __init__(self, text: str):
+        super().__init__(convert_charrefs=False)
+        self._text = text
+        self._line_offsets = _line_start_offsets(text)
+        self._hidden_start = None
+        self._hidden_stack: List[str] = []
+        self.spans: List[Tuple[int, int]] = []
+
+    def _absolute_index(self) -> int:
+        line, offset = self.getpos()
+        line_index = max(0, min(line - 1, len(self._line_offsets) - 1))
+        return self._line_offsets[line_index] + offset
+
+    def _tag_end_index(self, start: int) -> int:
+        quote = None
+        for index in range(start, len(self._text)):
+            char = self._text[index]
+            if quote:
+                if char == quote:
+                    quote = None
+            elif char in ("'", '"'):
+                quote = char
+            elif char == ">":
+                return index + 1
+
+        return len(self._text)
+
+    def _finish_hidden_element(self, end: int) -> None:
+        if self._hidden_start is not None:
+            self.spans.append((self._hidden_start, end))
+        self._hidden_start = None
+        self._hidden_stack = []
+
+    def _end_hidden_element(self, tag: str, end: int) -> None:
+        local_tag = str(tag or "").lower()
+        if local_tag not in self._hidden_stack:
+            return
+
+        while self._hidden_stack:
+            open_tag = self._hidden_stack.pop()
+            if open_tag == local_tag:
+                break
+
+        if not self._hidden_stack:
+            self._finish_hidden_element(end)
+
+    def handle_starttag(self, tag, attrs):
+        start = self._absolute_index()
+        local_tag = str(tag or "").lower()
+
+        if self._hidden_stack:
+            if local_tag not in _HTML_VOID_TAGS:
+                self._hidden_stack.append(local_tag)
+            return
+
+        if not _html_attrs_accessibility_hidden(attrs):
+            return
+
+        end = self._tag_end_index(start)
+        if local_tag in _HTML_VOID_TAGS:
+            self.spans.append((start, end))
+            return
+
+        self._hidden_start = start
+        self._hidden_stack = [local_tag]
+
+    def handle_startendtag(self, tag, attrs):
+        start = self._absolute_index()
+        local_tag = str(tag or "").lower()
+
+        if self._hidden_stack:
+            if local_tag not in _HTML_VOID_TAGS:
+                self._hidden_stack.append(local_tag)
+            return
+
+        if not _html_attrs_accessibility_hidden(attrs):
+            return
+
+        end = self._tag_end_index(start)
+        if local_tag in _HTML_VOID_TAGS:
+            self.spans.append((start, end))
+            return
+
+        self._hidden_start = start
+        self._hidden_stack = [local_tag]
+
+    def handle_endtag(self, tag):
+        if not self._hidden_stack:
+            return
+
+        start = self._absolute_index()
+        self._end_hidden_element(tag, self._tag_end_index(start))
+
+    def close(self):
+        super().close()
+        if self._hidden_stack and self._hidden_start is not None:
+            self._finish_hidden_element(len(self._text))
+
+
+def _strip_accessibility_hidden_html_traps(text: str) -> str:
+    if not text or "<" not in text:
+        return text
+    if not _HTML_ACCESSIBILITY_HIDDEN_CANDIDATE_RE.search(text):
+        return text
+
+    parser = _AccessibilityHiddenElementStripper(text)
+    try:
+        parser.feed(text)
+        parser.close()
+    except Exception:
+        return text
+
+    return _remove_spans(text, parser.spans)
+
+
 def _strip_inline_xml_hidden_node_traps(text: str) -> str:
     if not text or "<" not in text:
         return text
@@ -5748,7 +5901,8 @@ def strip_hidden_declaration_traps(text: str) -> str:
     if not text:
         return ""
 
-    stripped = _strip_inline_xml_hidden_node_traps(str(text))
+    stripped = _strip_accessibility_hidden_html_traps(str(text))
+    stripped = _strip_inline_xml_hidden_node_traps(stripped)
     return _strip_xml_html_declaration_traps(stripped)
 
 
@@ -7293,8 +7447,7 @@ def sanitize_untrusted_email_text(text: str) -> str:
     sanitized = text.replace("\r\n", "\n").replace("\r", "\n")
     sanitized = _normalize_prompt_controls(sanitized)
     sanitized = _strip_html_comment_traps(sanitized)
-    sanitized = _strip_inline_xml_hidden_node_traps(sanitized)
-    sanitized = _strip_xml_html_declaration_traps(sanitized)
+    sanitized = strip_hidden_declaration_traps(sanitized)
     sanitized = _redact_saml_sso_artifacts(sanitized)
     sanitized = _redact_oauth_device_verification_uri_complete(sanitized)
     sanitized = _redact_oauth_oidc_authorization_artifacts(sanitized)
