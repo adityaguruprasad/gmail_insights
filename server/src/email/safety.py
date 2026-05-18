@@ -1862,13 +1862,26 @@ _NFKC_SERIALIZED_ROLE_FIELD_RE = re.compile(
 _MODEL_CONTROL_TOKEN_RE = re.compile(
     rf"(?i)"
     rf"<\|\s*im_start\s*\|>[ \t]*(?:{_PROMPT_ROLE_TAGS})?"
+    rf"|<\|\s*start\s*\|>[ \t]*(?:{_PROMPT_ROLE_TAGS})?"
+    r"|<\|\s*channel\s*\|>[ \t]*(?:analysis|commentary|final)?"
     rf"|<\|\s*start_header_id\s*\|>[ \t]*(?:{_PROMPT_ROLE_TAGS})"
     rf"[ \t]*<\|\s*end_header_id\s*\|>"
-    r"|<\|\s*(?:im_end|end|endoftext|eot_id|start_header_id|end_header_id|"
+    r"|<\|\s*(?:im_end|end|endoftext|eot_id|message|return|constrain|"
+    r"start_header_id|end_header_id|"
     rf"{_PROMPT_ROLE_TAGS})\s*\|>"
     r"|\[/?INST\]"
     r"|<</?SYS>>"
 )
+
+
+def _blank_model_control_tokens_for_detection(text: str) -> str:
+    # Keep matches equal length so downstream offset maps and span slices stay valid.
+    return _MODEL_CONTROL_TOKEN_RE.sub(
+        lambda match: " " * (match.end() - match.start()),
+        text,
+    )
+
+
 # 32 spaces/tabs is generous for padded markers but finite for predictable matching.
 _AGENT_TOOL_MARKER_SEPARATOR = r"(?:[_-]|[ \t]{1,32})?"
 _AGENT_TOOL_MARKER_NOUN = (
@@ -7608,16 +7621,17 @@ def neutralize_safety_metadata_misrepresentation(
 
     for line in text.splitlines():
         block_line = False
+        detection_line = _blank_model_control_tokens_for_detection(line)
 
-        if _SAFETY_METADATA_DIRECTIVE_LINE_RE.search(line):
+        if _SAFETY_METADATA_DIRECTIVE_LINE_RE.search(detection_line):
             findings.add("security_warning_suppression")
             block_line = True
 
         if has_security_warnings and not block_line:
-            if _SECURITY_WARNING_ABSENCE_CLAIM_RE.search(line):
+            if _SECURITY_WARNING_ABSENCE_CLAIM_RE.search(detection_line):
                 findings.add("security_warning_misrepresentation")
                 block_line = True
-            elif _RISKY_CONTENT_SAFE_CLAIM_RE.search(line):
+            elif _RISKY_CONTENT_SAFE_CLAIM_RE.search(detection_line):
                 findings.add("security_warning_misrepresentation")
                 block_line = True
 
@@ -7682,6 +7696,7 @@ def _canonicalize_directive_role_prefix_for_detection(line: str) -> str:
 
 
 def _directive_actions(line: str) -> List[str]:
+    line = _blank_model_control_tokens_for_detection(line)
     line = _canonicalize_directive_role_prefix_for_detection(line)
     actions = [
         action
@@ -7697,6 +7712,7 @@ def _directive_actions(line: str) -> List[str]:
 
 
 def _directive_match_spans(line: str, action: str) -> List[Tuple[int, int]]:
+    line = _blank_model_control_tokens_for_detection(line)
     canonicalized, offset_map = _canonicalize_directive_role_prefix_with_offsets(line)
     return [
         (offset_map[match.start()], offset_map[match.end()])
