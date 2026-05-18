@@ -320,7 +320,30 @@ _CSS_ESCAPE_RE = re.compile(
     r"\\(?:([0-9A-Fa-f]{1,6})(?:\r\n|[ \t\r\n\f])?|([^\r\n\f]))"
 )
 _CSS_IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
-_HiddenStylesheetSelector = Tuple[Optional[str], Optional[str], Tuple[str, ...]]
+_CSS_UNQUOTED_ATTRIBUTE_VALUE_RE = re.compile(r"[A-Za-z0-9_-]+")
+_HiddenStylesheetAttribute = Tuple[str, Optional[str]]
+_HiddenStylesheetSelector = Tuple[
+    Optional[str],
+    Optional[str],
+    Tuple[str, ...],
+    Tuple[_HiddenStylesheetAttribute, ...],
+]
+
+
+def _find_unquoted_css_char(value: str, target: str) -> int:
+    quote = None
+    for index, char in enumerate(value):
+        if quote:
+            if char == quote:
+                quote = None
+            continue
+        if char in "'\"":
+            quote = char
+            continue
+        if char == target:
+            return index
+
+    return -1
 
 
 def _html_tag_drops_content(
@@ -869,17 +892,68 @@ def _html_attrs_hidden_or_suppressed(attrs_by_name: Dict[str, str]) -> bool:
     return False
 
 
+def _parse_css_attribute_selector(
+    selector: str,
+    start_index: int,
+) -> Optional[Tuple[_HiddenStylesheetAttribute, int]]:
+    quote = None
+    end_index = -1
+    for index in range(start_index + 1, len(selector)):
+        char = selector[index]
+        if quote:
+            if char == quote:
+                quote = None
+            continue
+        if char in "'\"":
+            quote = char
+            continue
+        if char == "]":
+            end_index = index
+            break
+
+    if end_index == -1 or quote:
+        return None
+
+    content = selector[start_index + 1 : end_index].strip()
+    if not content:
+        return None
+
+    equals_index = _find_unquoted_css_char(content, "=")
+    if equals_index == -1:
+        attr_name = content
+        attr_value = None
+    else:
+        attr_name = content[:equals_index].strip()
+        attr_value = content[equals_index + 1 :].strip()
+        if not attr_name:
+            return None
+        if attr_name[-1:] in "*^$~|":
+            return None
+
+        if len(attr_value) >= 2 and attr_value[0] in "'\"":
+            if attr_value[-1] != attr_value[0]:
+                return None
+            if attr_value.find(attr_value[0], 1) != len(attr_value) - 1:
+                return None
+            attr_value = attr_value[1:-1]
+        elif not _CSS_UNQUOTED_ATTRIBUTE_VALUE_RE.fullmatch(attr_value):
+            return None
+
+    if not _CSS_IDENTIFIER_RE.fullmatch(attr_name):
+        return None
+
+    # Lowercase attribute names to match _html_attrs_by_name/HTMLParser normalization.
+    return (attr_name.lower(), attr_value), end_index + 1
+
+
 def _parse_simple_css_selector(selector: str):
-    # Intentionally narrow: simple class/id selectors, optionally tag-qualified
-    # (e.g. .foo, #bar, span.foo.bar). Combinators, pseudo selectors,
-    # attribute selectors, and bare tag selectors are ignored to avoid
+    # Intentionally narrow: simple class/id/attribute selectors, optionally
+    # tag-qualified (e.g. .foo, #bar, span.foo.bar, [data-hide],
+    # div.notice[data-state=hidden]). Combinators, pseudo selectors, substring
+    # attribute operators, and bare tag selectors are ignored to avoid
     # over-hiding broad email content.
     selector = _decode_css_selector_escapes(selector.strip())
-    if (
-        not selector
-        or selector.startswith("@")
-        or any(char in selector for char in " >+~[:*")
-    ):
+    if not selector or selector.startswith("@"):
         return None
 
     tag = None
@@ -891,8 +965,18 @@ def _parse_simple_css_selector(selector: str):
 
     selector_id = None
     classes = []
+    attributes = []
     while index < len(selector):
         marker = selector[index]
+        if marker == "[":
+            parsed_attribute = _parse_css_attribute_selector(selector, index)
+            if parsed_attribute is None:
+                return None
+
+            attribute, index = parsed_attribute
+            attributes.append(attribute)
+            continue
+
         if marker not in ".#":
             return None
 
@@ -909,10 +993,38 @@ def _parse_simple_css_selector(selector: str):
             classes.append(token)
         index = token_match.end()
 
-    if selector_id is None and not classes:
+    if selector_id is None and not classes and not attributes:
         return None
 
-    return tag, selector_id, tuple(classes)
+    return tag, selector_id, tuple(classes), tuple(attributes)
+
+
+def _split_css_selector_list(selectors: str) -> List[str]:
+    parts = []
+    start_index = 0
+    quote = None
+    escaped = False
+
+    for index, char in enumerate(selectors):
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if quote:
+            if char == quote:
+                quote = None
+            continue
+        if char in "'\"":
+            quote = char
+            continue
+        if char == ",":
+            parts.append(selectors[start_index:index])
+            start_index = index + 1
+
+    parts.append(selectors[start_index:])
+    return parts
 
 
 def _hidden_stylesheet_selectors(content: str) -> List[_HiddenStylesheetSelector]:
@@ -931,7 +1043,7 @@ def _hidden_stylesheet_selectors(content: str) -> List[_HiddenStylesheetSelector
         if not _html_attrs_hidden_or_suppressed({"style": declarations}):
             continue
 
-        for selector_text in rule_match.group("selectors").split(","):
+        for selector_text in _split_css_selector_list(rule_match.group("selectors")):
             selector = _parse_simple_css_selector(selector_text)
             if selector is None or selector in seen:
                 continue
@@ -953,12 +1065,26 @@ def _html_attrs_match_hidden_stylesheet_selector(
     element_id = attrs_by_name.get("id", "")
     class_names = set(attrs_by_name.get("class", "").split())
 
-    for selector_tag, selector_id, selector_classes in hidden_stylesheet_selectors:
+    for (
+        selector_tag,
+        selector_id,
+        selector_classes,
+        selector_attributes,
+    ) in hidden_stylesheet_selectors:
         if selector_tag and selector_tag != tag:
             continue
         if selector_id and selector_id != element_id:
             continue
         if selector_classes and not set(selector_classes).issubset(class_names):
+            continue
+        if not all(
+            attr_name in attrs_by_name
+            and (
+                attr_value is None
+                or attrs_by_name.get(attr_name) == attr_value
+            )
+            for attr_name, attr_value in selector_attributes
+        ):
             continue
 
         return True

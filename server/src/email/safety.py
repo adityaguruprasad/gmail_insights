@@ -1791,7 +1791,8 @@ _HTML_STYLE_ATTR_CANDIDATE_RE = re.compile(
     r"""(?is)<[a-z](?:"[^"]*"|'[^']*'|[^'"<>])*?\sstyle\s*="""
 )
 _HTML_SELECTOR_ATTR_CANDIDATE_RE = re.compile(
-    r"""(?is)<[a-z](?:"[^"]*"|'[^']*'|[^'"<>])*?\s(?:class|id)\s*="""
+    r"""(?is)<[a-z](?:"[^"]*"|'[^']*'|[^'"<>])*?"""
+    r"""\s[a-z_:][a-z0-9_:-]*(?=\s|=|/?>)"""
 )
 _HTML_FORM_CONTROL_CANDIDATE_RE = re.compile(
     r"(?is)<input(?=[\s/>])"
