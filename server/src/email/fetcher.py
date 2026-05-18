@@ -42,7 +42,7 @@ _AUTHENTICATION_RESULT_RE = re.compile(
 )
 
 
-def _decode_base64_urlsafe(data: Optional[str]) -> str:
+def _decode_base64_urlsafe(data: Optional[str], charset: str = "utf-8") -> str:
     if not data:
         return ""
 
@@ -54,9 +54,14 @@ def _decode_base64_urlsafe(data: Optional[str]) -> str:
             altchars=b"-_",
             validate=True,
         )
-        return decoded.decode("utf-8", errors="replace")
     except Exception:
         return ""
+
+    encoding = str(charset or "utf-8").strip() or "utf-8"
+    try:
+        return decoded.decode(encoding, errors="replace")
+    except (LookupError, UnicodeError, ValueError):
+        return decoded.decode("utf-8", errors="replace")
 
 
 _HTML_CONTENT_TAGS_TO_DROP = {
@@ -1546,6 +1551,13 @@ def _header_parameter(headers: List[Dict], key: str, parameter: str) -> str:
     return str(params.get(parameter, "") or "")
 
 
+def _part_charset(part: Dict) -> str:
+    return (
+        _header_parameter(part.get("headers", []) or [], "Content-Type", "charset")
+        or "utf-8"
+    )
+
+
 def _decode_attachment_filename(filename: str) -> str:
     return _decode_mime_header_value(filename)
 
@@ -1689,7 +1701,7 @@ def _find_decoded_mime_part(payload: Dict, mime_type: str) -> Optional[str]:
         data = payload.get("body", {}).get("data")
         if data is None:
             return None
-        decoded = _decode_base64_urlsafe(data)
+        decoded = _decode_base64_urlsafe(data, _part_charset(payload))
         if decoded:
             return decoded
         return None
@@ -1710,7 +1722,7 @@ def _find_decoded_mime_parts(payload: Dict, mime_type: str) -> List[str]:
     if _base_mime_type(payload.get("mimeType", "")) == mime_type:
         data = payload.get("body", {}).get("data")
         if data is not None:
-            decoded = _decode_base64_urlsafe(data)
+            decoded = _decode_base64_urlsafe(data, _part_charset(payload))
             if decoded:
                 decoded_parts.append(decoded)
 
