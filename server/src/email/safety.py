@@ -1758,6 +1758,10 @@ _HTML_DOWNLEVEL_REVEALED_CONDITIONAL_COMMENT_RE = re.compile(
 )
 _HTML_TEMPLATE_OPEN_RE = re.compile(r"(?is)<template(?=[\s>/])")
 _HTML_TEMPLATE_CLOSE_RE = re.compile(r"(?is)</template\s*>")
+_HTML_RAW_TEXT_TAG_OPEN_RE = re.compile(r"(?is)<(?P<tag>script|style)(?=[\s>/])")
+_HTML_RAW_TEXT_TAG_CLOSE_RES = {
+    tag: re.compile(rf"(?is)</{tag}\s*>") for tag in ("script", "style")
+}
 # Cheap tag-local pre-check; HTMLParser below enforces exact attr semantics.
 _HTML_ACCESSIBILITY_HIDDEN_CANDIDATE_RE = re.compile(
     r"""(?i)<[a-z](?:"[^"]*"|'[^']*'|[^'"<>])*?\s"""
@@ -5738,6 +5742,34 @@ def _strip_html_template_traps(text: str) -> str:
     return _remove_spans(text, spans)
 
 
+def _strip_html_raw_text_traps(text: str) -> str:
+    if not text or "<" not in text:
+        return text
+    if not _HTML_RAW_TEXT_TAG_OPEN_RE.search(text):
+        return text
+
+    spans: List[Tuple[int, int]] = []
+    search_pos = 0
+    while True:
+        open_match = _HTML_RAW_TEXT_TAG_OPEN_RE.search(text, search_pos)
+        if not open_match:
+            break
+
+        start = open_match.start()
+        open_end, open_closed = _html_tag_end_index_and_closed(text, start)
+        if not open_closed:
+            spans.append((start, len(text)))
+            break
+
+        tag = open_match.group("tag").lower()
+        close_match = _HTML_RAW_TEXT_TAG_CLOSE_RES[tag].search(text, open_end)
+        span_end = close_match.end() if close_match else len(text)
+        spans.append((start, span_end))
+        search_pos = span_end
+
+    return _remove_spans(text, spans)
+
+
 def _html_attrs_accessibility_hidden(attrs) -> bool:
     # Intentional asymmetry: hidden is boolean/presence-based, while
     # aria-hidden only hides when its value is true.
@@ -6084,8 +6116,9 @@ def strip_hidden_declaration_traps(text: str) -> str:
         return ""
 
     # Strip regular/conditional comments first so commented faux
-    # <template>/</template> tags cannot affect template depth matching.
+    # raw-text/template tags cannot affect hidden block matching.
     stripped = _strip_html_comment_traps(str(text))
+    stripped = _strip_html_raw_text_traps(stripped)
     stripped = _strip_html_template_traps(stripped)
     stripped = _strip_accessibility_hidden_html_traps(stripped)
     stripped = _strip_inline_xml_hidden_node_traps(stripped)
