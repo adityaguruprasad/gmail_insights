@@ -335,6 +335,20 @@ def _oidc_id_token_fixture():
     )
 
 
+def _compact_jwe_fixture():
+    return _fixture_secret(
+        "eyJhbGciOiJkaXIifQ",
+        ".",
+        "ZW5jcnlwdGVkLWtleS0xMjM0NTY3ODkw",
+        ".",
+        "aXYxMjM0NTY3ODkw",
+        ".",
+        "Y2lwaGVydGV4dC1mb3ItZmFrZS1qd2UtYXJ0aWZhY3Q",
+        ".",
+        "YXV0aC10YWctZmFrZS0xMjM0",
+    )
+
+
 def _saml_response_fixture():
     return _fixture_secret(
         "PHNhbWxwOlJlc3BvbnNlIElEPSJhYmMiPjxzYW1sOkFzc2VydGlvbj5",
@@ -1521,6 +1535,41 @@ class SafetyPolicyTests(unittest.TestCase):
                 self.assertNotIn(secret, redacted)
                 self.assertIn(marker, redacted)
 
+    def test_redaction_removes_standalone_compact_jwe_tokens(self):
+        token = _compact_jwe_fixture()
+        text = f"Encrypted OIDC artifact {token}."
+
+        for redactor in (
+            redact_credential_content,
+            redact_response_metadata_content,
+            redact_sensitive_content,
+            sanitize_untrusted_email_text,
+        ):
+            with self.subTest(redactor=redactor.__name__):
+                redacted = redactor(text)
+
+                self.assertEqual(redacted, "Encrypted OIDC artifact [REDACTED_JWE].")
+                self.assertNotIn(token, redacted)
+                for segment in token.split("."):
+                    self.assertNotIn(segment, redacted)
+
+    def test_compact_jwe_redaction_preserves_benign_dotted_text_and_jwt_behavior(self):
+        jwt = _oidc_id_token_fixture()
+        text = (
+            "Open example.com and report.final.v2.pdf. "
+            "The alpha.beta.gamma.delta.epsilon note is benign. "
+            f"JWT {jwt}"
+        )
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertIn("example.com", redacted)
+        self.assertIn("report.final.v2.pdf", redacted)
+        self.assertIn("alpha.beta.gamma.delta.epsilon", redacted)
+        self.assertIn("JWT [REDACTED_JWT]", redacted)
+        self.assertNotIn(jwt, redacted)
+        self.assertNotIn("[REDACTED_JWE]", redacted)
+
     def test_redaction_removes_provider_shaped_unlabeled_api_tokens(self):
         cases = [
             (
@@ -1815,6 +1864,17 @@ class SafetyPolicyTests(unittest.TestCase):
 
         self.assertEqual(redacted, 'id_token = "[REDACTED_JWT]"')
         self.assertNotIn(id_token, redacted)
+
+    def test_redaction_removes_id_token_assignment_jwes(self):
+        id_token = _compact_jwe_fixture()
+        text = f'id_token = "{id_token}"'
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(redacted, 'id_token = "[REDACTED_JWE]"')
+        self.assertNotIn(id_token, redacted)
+        for segment in id_token.split("."):
+            self.assertNotIn(segment, redacted)
 
     def test_redaction_preserves_benign_client_id_assignment_values(self):
         text = (
@@ -3070,6 +3130,41 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertNotIn(fragment_client_secret, redacted)
         self.assertNotIn(google_client_secret, redacted)
         self.assertNotIn(id_token, redacted)
+
+    def test_redaction_redacts_oauth_oidc_id_token_jwe_url_parameters(self):
+        id_token = _compact_jwe_fixture()
+        text = (
+            "Review URL: https://accounts.example.test/oauth/callback"
+            f"?client_id=public-client&id_token={id_token}&next=%2Fhome."
+        )
+
+        redacted = redact_sensitive_content(text)
+
+        self.assertEqual(
+            redacted,
+            "Review URL: https://accounts.example.test/oauth/callback"
+            "?client_id=public-client&id_token=[REDACTED_JWE]&next=%2Fhome.",
+        )
+        self.assertNotIn(id_token, redacted)
+        for segment in id_token.split("."):
+            self.assertNotIn(segment, redacted)
+
+        encoded_id_token = id_token.replace(".", "%2E")
+        encoded_text = (
+            "Review URL: https://accounts.example.test/oauth/callback"
+            f"?client_id=public-client&id_token={encoded_id_token}&next=%2Fhome."
+        )
+
+        encoded_redacted = redact_sensitive_content(encoded_text)
+
+        self.assertEqual(
+            encoded_redacted,
+            "Review URL: https://accounts.example.test/oauth/callback"
+            "?client_id=public-client&id_token=[REDACTED_JWE]&next=%2Fhome.",
+        )
+        self.assertNotIn(encoded_id_token, encoded_redacted)
+        for segment in id_token.split("."):
+            self.assertNotIn(segment, encoded_redacted)
 
     def test_redaction_redacts_saml_fields_after_context(self):
         saml_response = _saml_response_fixture()

@@ -84,6 +84,20 @@ def _fixture_google_oauth_token():
     )
 
 
+def _fixture_compact_jwe():
+    return _fixture_secret(
+        "eyJhbGciOiJkaXIifQ",
+        ".",
+        "ZW5jcnlwdGVkLWtleS0xMjM0NTY3ODkw",
+        ".",
+        "aXYxMjM0NTY3ODkw",
+        ".",
+        "Y2lwaGVydGV4dC1mb3ItZmFrZS1qd2UtYXJ0aWZhY3Q",
+        ".",
+        "YXV0aC10YWctZmFrZS0xMjM0",
+    )
+
+
 def _fixture_npm_access_token():
     return _fixture_secret(
         "a1b2",
@@ -4575,6 +4589,52 @@ class ProcessorPromptTests(unittest.TestCase):
         self.assertNotIn("4242 4242 4242 4242", returned_metadata)
         self.assertNotIn("021000021", returned_metadata)
         self.assertIn("benefits@example.com", result["sender"])
+
+    def test_prompt_summary_warnings_and_public_fields_redact_compact_jwe_tokens(self):
+        token = _fixture_compact_jwe()
+        callback_url = f"https://accounts.example.test/callback?id_token={token}"
+        email = {
+            "id": "metadata-jwe-token-1",
+            "subject": f"Encrypted id_token {token}",
+            "sender": f"Security Bot {token} <security@example.test>",
+            "date": "2026-05-13",
+            "snippet": f"OIDC callback {callback_url}",
+            "security_warnings": [
+                f"Forwarded encrypted token {token}",
+            ],
+            "content": f"Copied authentication response: id_token={token}",
+            "is_archived": False,
+        }
+        captured_prompt = {}
+
+        def fake_create(**kwargs):
+            captured_prompt["prompt"] = kwargs["prompt"]
+            return types.SimpleNamespace(completion=f"Summary copied {token}.")
+
+        with patch.object(
+            processor.anthropic.completions,
+            "create",
+            side_effect=fake_create,
+        ):
+            result = processor.extract_insights(email)
+
+        prompt = captured_prompt["prompt"]
+        returned_text = (
+            result["subject"]
+            + " "
+            + result["sender"]
+            + " "
+            + result["summary"]
+            + " "
+            + " ".join(result["security_warnings"])
+        )
+
+        for segment in token.split("."):
+            self.assertNotIn(segment, prompt)
+            self.assertNotIn(segment, returned_text)
+        self.assertIn("[REDACTED_JWE]", prompt)
+        self.assertIn("[REDACTED_JWE]", returned_text)
+        self.assertIn("security@example.test", result["sender"])
 
     def test_prompt_summary_warnings_and_public_fields_redact_dates_of_birth(self):
         subject_dob = "1990-01-31"

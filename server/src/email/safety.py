@@ -536,10 +536,26 @@ _TAX_ID_BEFORE_CONTEXT_RE = re.compile(
 )
 _GOOGLE_OAUTH_TOKEN_RE = re.compile(r"\bya29\.[A-Za-z0-9._-]+\b")
 _GOOGLE_REFRESH_TOKEN_RE = re.compile(r"\b1//[A-Za-z0-9._-]+\b")
+_COMPACT_JWE_PLACEHOLDER = "[REDACTED_JWE]"
+_COMPACT_JWE_VALUE_PATTERN = (
+    r"eyJ[A-Za-z0-9_-]{5,512}"
+    r"\.[A-Za-z0-9_-]{0,2048}"
+    r"\.[A-Za-z0-9_-]{8,512}"
+    r"\.[A-Za-z0-9_-]{16,8192}"
+    r"\.[A-Za-z0-9_-]{16,512}"
+)
+_COMPACT_JWE_RE = re.compile(
+    rf"(?<![A-Za-z0-9_.-]){_COMPACT_JWE_VALUE_PATTERN}"
+    rf"(?![A-Za-z0-9_-]|\.[A-Za-z0-9_-])"
+)
+_COMPACT_JWE_VALUE_RE = re.compile(rf"^{_COMPACT_JWE_VALUE_PATTERN}$")
 _JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b")
+_JWT_VALUE_PATTERN = (
+    r"eyJ[A-Za-z0-9_-]{5,}={0,2}\.[A-Za-z0-9_-]{5,}={0,2}\."
+    r"[A-Za-z0-9_-]{5,}={0,2}"
+)
 _JWT_VALUE_RE = re.compile(
-    r"^eyJ[A-Za-z0-9_-]{5,}={0,2}\.[A-Za-z0-9_-]{5,}={0,2}\."
-    r"[A-Za-z0-9_-]{5,}={0,2}$"
+    rf"^{_JWT_VALUE_PATTERN}$"
 )
 _OAUTH_CLIENT_SECRET_PLACEHOLDER = "[REDACTED_OAUTH_CLIENT_SECRET]"
 _OAUTH_CLIENT_SECRET_NAME = (
@@ -560,8 +576,7 @@ _OAUTH_CLIENT_SECRET_ASSIGNMENT_RE = re.compile(
     re.IGNORECASE,
 )
 _OIDC_ID_TOKEN_VALUE = (
-    r"eyJ[A-Za-z0-9_-]{5,}={0,2}\.[A-Za-z0-9_-]{5,}={0,2}\."
-    r"[A-Za-z0-9_-]{5,}={0,2}"
+    rf"(?:{_COMPACT_JWE_VALUE_PATTERN}|{_JWT_VALUE_PATTERN})"
 )
 _OIDC_ID_TOKEN_ASSIGNMENT_RE = re.compile(
     rf"(?P<prefix>(?<![A-Za-z0-9_])(?P<key_quote>[\"'])?"
@@ -6578,16 +6593,24 @@ def _is_redacted_or_raw_jwt(value: str) -> bool:
     )
 
 
+def _is_redacted_or_raw_jwe(value: str) -> bool:
+    decoded_value = unquote_plus(value)
+    return decoded_value == _COMPACT_JWE_PLACEHOLDER or bool(
+        _COMPACT_JWE_VALUE_RE.fullmatch(decoded_value)
+    )
+
+
 def _credential_query_param_placeholder(name: str, value: str):
     normalized_name = _normalized_query_param_name(name)
     if saml_placeholder := _saml_query_param_placeholder(name):
         return saml_placeholder
     if normalized_name in _OAUTH_CLIENT_SECRET_QUERY_PARAM_NAMES:
         return _OAUTH_CLIENT_SECRET_PLACEHOLDER
-    if normalized_name in _OIDC_ID_TOKEN_QUERY_PARAM_NAMES and _is_redacted_or_raw_jwt(
-        value,
-    ):
-        return "[REDACTED_JWT]"
+    if normalized_name in _OIDC_ID_TOKEN_QUERY_PARAM_NAMES:
+        if _is_redacted_or_raw_jwe(value):
+            return _COMPACT_JWE_PLACEHOLDER
+        if _is_redacted_or_raw_jwt(value):
+            return "[REDACTED_JWT]"
     if normalized_name in _CREDENTIAL_QUERY_PARAM_NAMES:
         return _CREDENTIAL_QUERY_VALUE_PLACEHOLDER
 
@@ -7049,7 +7072,12 @@ def _redact_oauth_client_secret(match: re.Match) -> str:
 
 
 def _redact_oidc_id_token(match: re.Match) -> str:
-    return _replace_match_group(match, "id_token", "[REDACTED_JWT]")
+    placeholder = (
+        _COMPACT_JWE_PLACEHOLDER
+        if _COMPACT_JWE_VALUE_RE.fullmatch(match.group("id_token"))
+        else "[REDACTED_JWT]"
+    )
+    return _replace_match_group(match, "id_token", placeholder)
 
 
 def _redact_oauth_oidc_assignments(text: str) -> str:
@@ -7058,6 +7086,10 @@ def _redact_oauth_oidc_assignments(text: str) -> str:
         text,
     )
     return _OIDC_ID_TOKEN_ASSIGNMENT_RE.sub(_redact_oidc_id_token, redacted)
+
+
+def _redact_compact_jwes(text: str) -> str:
+    return _COMPACT_JWE_RE.sub(_COMPACT_JWE_PLACEHOLDER, text)
 
 
 def _redact_aws_secret_access_key(match: re.Match) -> str:
@@ -7547,6 +7579,7 @@ def redact_credential_content(text: str) -> str:
     redacted = _redact_cookie_artifacts(redacted)
     redacted = _GOOGLE_OAUTH_TOKEN_RE.sub("[REDACTED_GOOGLE_TOKEN]", redacted)
     redacted = _GOOGLE_REFRESH_TOKEN_RE.sub("[REDACTED_GOOGLE_REFRESH_TOKEN]", redacted)
+    redacted = _redact_compact_jwes(redacted)
     redacted = _JWT_RE.sub("[REDACTED_JWT]", redacted)
     redacted = _AWS_ACCESS_KEY_ID_RE.sub("[REDACTED_AWS_KEY]", redacted)
     redacted = _redact_aws_secret_access_keys(redacted)
@@ -7623,6 +7656,7 @@ def sanitize_untrusted_email_text(text: str) -> str:
     sanitized = _redact_oauth_device_verification_uri_complete(sanitized)
     sanitized = _redact_oauth_oidc_authorization_artifacts(sanitized)
     sanitized = _redact_cookie_artifacts(sanitized)
+    sanitized = _redact_compact_jwes(sanitized)
     sanitized = _redact_provider_webhook_urls(sanitized)
     sanitized = _redact_url_userinfo_credentials(sanitized)
     sanitized = _redact_authenticator_enrollment_secrets(sanitized)
