@@ -1,5 +1,6 @@
 import re
 import unicodedata
+from html import unescape as html_unescape
 from html.parser import HTMLParser
 from typing import Iterable, List, Set, Tuple
 from urllib.parse import quote_plus, unquote, unquote_plus, urlsplit
@@ -1773,6 +1774,9 @@ _HTML_STYLE_ATTR_CANDIDATE_RE = re.compile(
 )
 _HTML_SELECTOR_ATTR_CANDIDATE_RE = re.compile(
     r"""(?is)<[a-z](?:"[^"]*"|'[^']*'|[^'"<>])*?\s(?:class|id)\s*="""
+)
+_HTML_FORM_CONTROL_CANDIDATE_RE = re.compile(
+    r"(?is)<input(?=[\s/>])"
 )
 _HTML_VOID_TAGS = {
     "area",
@@ -5793,6 +5797,31 @@ def _html_attrs_accessibility_hidden(attrs) -> bool:
     return False
 
 
+def _html_input_type_is_hidden(
+    value: str,
+    allow_malformed_prefix: bool = False,
+) -> bool:
+    normalized = html_unescape(str(value or "")).strip().lower()
+    if normalized == "hidden":
+        return True
+    if not allow_malformed_prefix:
+        return False
+
+    # Unclosed/malformed attrs can smear following tokens into the type value.
+    first_token = re.split(r"[\s/>]", normalized, maxsplit=1)[0]
+    return first_token == "hidden"
+
+
+def _html_attrs_hidden_form_control(tag: str, attrs) -> bool:
+    if str(tag or "").lower() != "input":
+        return False
+
+    return any(
+        _html_input_type_is_hidden(value)
+        for value in _html_attr_values_by_name(attrs).get("type", [])
+    )
+
+
 def _html_attr_values_by_name(attrs) -> dict:
     attrs_by_name = {}
     for name, value in attrs:
@@ -6137,6 +6166,113 @@ class _HiddenElementStripper(HTMLParser):
             self._finish_hidden_element(len(self._text))
 
 
+def _unclosed_html_start_tag_is_hidden_form_control(fragment: str) -> bool:
+    index = 1
+    while index < len(fragment) and fragment[index].isspace():
+        index += 1
+
+    tag_start = index
+    while (
+        index < len(fragment)
+        and not fragment[index].isspace()
+        and fragment[index] not in "/>"
+    ):
+        index += 1
+
+    if _xml_local_tag_name(fragment[tag_start:index]) != "input":
+        return False
+
+    while index < len(fragment):
+        while index < len(fragment) and fragment[index].isspace():
+            index += 1
+        if index >= len(fragment):
+            break
+        if fragment[index] in "/>":
+            index += 1
+            continue
+
+        name_start = index
+        while (
+            index < len(fragment)
+            and not fragment[index].isspace()
+            and fragment[index] not in "=/>"
+        ):
+            index += 1
+        if name_start == index:
+            index += 1
+            continue
+
+        attr_name = fragment[name_start:index].lower()
+        while index < len(fragment) and fragment[index].isspace():
+            index += 1
+
+        value = ""
+        if index < len(fragment) and fragment[index] == "=":
+            index += 1
+            while index < len(fragment) and fragment[index].isspace():
+                index += 1
+            if index < len(fragment) and fragment[index] in ("'", '"'):
+                quote = fragment[index]
+                index += 1
+                value_start = index
+                close_index = fragment.find(quote, index)
+                if close_index == -1:
+                    value = fragment[value_start:]
+                    index = len(fragment)
+                else:
+                    value = fragment[value_start:close_index]
+                    index = close_index + 1
+            else:
+                value_start = index
+                while (
+                    index < len(fragment)
+                    and not fragment[index].isspace()
+                    and fragment[index] not in "/>"
+                ):
+                    index += 1
+                value = fragment[value_start:index]
+
+        if attr_name == "type" and _html_input_type_is_hidden(
+            value,
+            allow_malformed_prefix=True,
+        ):
+            return True
+
+    return False
+
+
+def _unclosed_hidden_form_control_spans(text: str) -> List[Tuple[int, int]]:
+    spans = []
+    for match in _HTML_FORM_CONTROL_CANDIDATE_RE.finditer(text):
+        start = match.start()
+        tag_end, closed = _html_tag_end_index_and_closed(text, start)
+        if closed:
+            continue
+        if _unclosed_html_start_tag_is_hidden_form_control(text[start:tag_end]):
+            # An unclosed hidden input fail-closes through the end of the field.
+            spans.append((start, len(text)))
+            break
+
+    return spans
+
+
+def _strip_hidden_form_control_traps(text: str) -> str:
+    if not text or "<" not in text:
+        return text
+    if not _HTML_FORM_CONTROL_CANDIDATE_RE.search(text):
+        return text
+
+    spans = _unclosed_hidden_form_control_spans(text)
+    parser = _HiddenElementStripper(text, _html_attrs_hidden_form_control)
+    try:
+        parser.feed(text)
+        parser.close()
+    except Exception:
+        return _remove_spans(text, spans + parser.spans)
+
+    return _remove_spans(text, spans + parser.spans)
+
+
 def _strip_accessibility_hidden_html_traps(text: str) -> str:
     if not text or "<" not in text:
         return text
@@ -6250,6 +6386,7 @@ def strip_hidden_declaration_traps(text: str) -> str:
     # so stylesheet-hidden elements can still be matched.
     stripped = _strip_html_comment_traps(str(text))
     stripped = _strip_css_hidden_html_traps(stripped)
+    stripped = _strip_hidden_form_control_traps(stripped)
     stripped = _strip_html_raw_text_traps(stripped)
     stripped = _strip_html_template_traps(stripped)
     stripped = _strip_accessibility_hidden_html_traps(stripped)
