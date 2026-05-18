@@ -665,9 +665,12 @@ _WEBHOOK_SIGNING_SECRET_AFTER_CONTEXT_RE = re.compile(
     re.IGNORECASE,
 )
 _OPENAI_API_KEY_PLACEHOLDER = "[REDACTED_OPENAI_API_KEY]"
+_OPENAI_API_KEY_VALUE_PATTERN = (
+    r"sk-(?:proj-[A-Za-z0-9_-]{32,}|(?!ant-)[A-Za-z0-9]{32,})"
+)
 _OPENAI_API_KEY_RE = re.compile(
     r"(?<![A-Za-z0-9_-])"
-    r"sk-(?:proj-[A-Za-z0-9_-]{32,}|(?!ant-)[A-Za-z0-9]{32,})"
+    rf"{_OPENAI_API_KEY_VALUE_PATTERN}"
     r"(?![A-Za-z0-9_-])"
 )
 _ANTHROPIC_API_KEY_PLACEHOLDER = "[REDACTED_ANTHROPIC_API_KEY]"
@@ -1632,6 +1635,21 @@ _PROMPT_ROLE_NAMES = ("system", "assistant", "user", "developer", "tool", "human
 
 _PROMPT_ROLE_NAME_SET = frozenset(_PROMPT_ROLE_NAMES)
 _PROMPT_ROLE_TAGS_ASCII = "|".join(_PROMPT_ROLE_NAMES)
+_SECRET_BOUNDARY_CHAR_RE = re.compile(r"[A-Za-z0-9_-]")
+_PROMPT_CONTROL_OBFUSCATED_SECRET_MAX_GAP = 32
+_ASCII_PROMPT_CONTROL_CHARACTERS = "".join(
+    chr(codepoint)
+    for start, end in (
+        (0x00, 0x08),
+        (0x0B, 0x0C),
+        (0x0E, 0x1F),
+        (0x7F, 0x9F),
+    )
+    for codepoint in range(start, end + 1)
+)
+_PROMPT_CONTROL_OBFUSCATED_SECRET_GAP_CHARACTERS = frozenset(
+    _INVISIBLE_PROMPT_CONTROL_CHARACTERS + _ASCII_PROMPT_CONTROL_CHARACTERS
+)
 
 def _replace_invisible_prompt_controls_with_spaces(text: str) -> str:
     return text.translate(_INVISIBLE_PROMPT_CONTROL_TRANSLATION)
@@ -1641,6 +1659,183 @@ def _normalize_prompt_controls(text: str) -> str:
     text = _ANSI_PROMPT_CONTROL_SEQUENCE_RE.sub(" ", text)
     text = _replace_invisible_prompt_controls_with_spaces(text)
     return _ASCII_PROMPT_CONTROL_RE.sub(" ", text)
+
+
+def _is_prompt_control_obfuscated_secret_gap(char: str) -> bool:
+    return char in _PROMPT_CONTROL_OBFUSCATED_SECRET_GAP_CHARACTERS
+
+
+def _consume_prompt_control_obfuscated_secret_gap(text: str, index: int) -> int:
+    gap_count = 0
+    while (
+        index < len(text)
+        and gap_count < _PROMPT_CONTROL_OBFUSCATED_SECRET_MAX_GAP
+        and _is_prompt_control_obfuscated_secret_gap(text[index])
+    ):
+        index += 1
+        gap_count += 1
+
+    return index
+
+
+def _consume_prompt_control_obfuscated_secret_trailing_gap(
+    text: str, index: int
+) -> int:
+    gap_end = _consume_prompt_control_obfuscated_secret_gap(text, index)
+    if (
+        gap_end < len(text)
+        and _is_prompt_control_obfuscated_secret_gap(text[gap_end])
+    ):
+        return index
+
+    return gap_end
+
+
+def _consume_obfuscated_literal(text: str, index: int, literal: str):
+    for expected_char in literal:
+        if index >= len(text) or text[index] != expected_char:
+            return None
+        index += 1
+        index = _consume_prompt_control_obfuscated_secret_gap(text, index)
+
+    return index
+
+
+def _openai_project_api_key_body_char(char: str) -> bool:
+    return char.isascii() and (char.isalnum() or char in "_-")
+
+
+def _openai_user_api_key_body_char(char: str) -> bool:
+    return char.isascii() and char.isalnum()
+
+
+def _consume_obfuscated_openai_api_key_body(
+    text: str,
+    index: int,
+    body_char_predicate,
+):
+    body_char_count = 0
+    body_end = None
+
+    while index < len(text) and body_char_predicate(text[index]):
+        body_char_count += 1
+        index += 1
+        body_end = index
+        index = _consume_prompt_control_obfuscated_secret_gap(text, index)
+
+    if body_char_count < 32:
+        return None
+
+    return body_end
+
+
+def _has_secret_boundary_before(text: str, start: int) -> bool:
+    index = start - 1
+    if index < 0:
+        return True
+
+    if text[index] in " \t\f\v":
+        return True
+
+    while index >= 0 and _is_prompt_control_obfuscated_secret_gap(text[index]):
+        index -= 1
+
+    return index < 0 or not _SECRET_BOUNDARY_CHAR_RE.fullmatch(text[index])
+
+
+def _has_secret_boundary_after(text: str, end: int) -> bool:
+    if end >= len(text):
+        return True
+
+    if text[end] in " \t\f\v":
+        return True
+
+    index = end
+    while index < len(text) and _is_prompt_control_obfuscated_secret_gap(text[index]):
+        index += 1
+
+    return index >= len(text) or not _SECRET_BOUNDARY_CHAR_RE.fullmatch(text[index])
+
+
+def _consume_obfuscated_openai_api_key(text: str, start: int):
+    index = _consume_obfuscated_literal(text, start, "sk-")
+    if index is None:
+        return None
+
+    project_body_start = _consume_obfuscated_literal(text, index, "proj-")
+    if project_body_start is not None:
+        return _consume_obfuscated_openai_api_key_body(
+            text,
+            project_body_start,
+            _openai_project_api_key_body_char,
+        )
+
+    if _consume_obfuscated_literal(text, index, "ant-") is not None:
+        return None
+
+    return _consume_obfuscated_openai_api_key_body(
+        text,
+        index,
+        _openai_user_api_key_body_char,
+    )
+
+
+def _replace_spans(text: str, spans: List[Tuple[int, int]], replacement: str) -> str:
+    if not spans:
+        return text
+
+    chunks = []
+    cursor = 0
+    for start, end in sorted(spans):
+        start = max(0, min(start, len(text)))
+        end = max(start, min(end, len(text)))
+        if start < cursor:
+            if end > cursor:
+                cursor = end
+            continue
+
+        chunks.append(text[cursor:start])
+        chunks.append(replacement)
+        cursor = end
+
+    chunks.append(text[cursor:])
+    return "".join(chunks)
+
+
+def _redact_prompt_control_obfuscated_openai_api_keys(text: str) -> str:
+    # OpenAI key matching is intentionally case-sensitive to match _OPENAI_API_KEY_RE.
+    if not text or "s" not in text:
+        return text
+
+    spans = []
+    search_pos = 0
+    while True:
+        start = text.find("s", search_pos)
+        if start == -1:
+            break
+
+        if not _has_secret_boundary_before(text, start):
+            search_pos = start + 1
+            continue
+
+        end = _consume_obfuscated_openai_api_key(text, start)
+        if end is None or not _has_secret_boundary_after(text, end):
+            search_pos = start + 1
+            continue
+        if not any(
+            _is_prompt_control_obfuscated_secret_gap(char)
+            for char in text[start:end]
+        ):
+            search_pos = start + 1
+            continue
+
+        span_end = _consume_prompt_control_obfuscated_secret_trailing_gap(
+            text, end
+        )
+        spans.append((start, span_end))
+        search_pos = span_end
+
+    return _replace_spans(text, spans, _OPENAI_API_KEY_PLACEHOLDER)
 
 
 def _prompt_ascii_word(word: str) -> str:
@@ -8205,6 +8400,7 @@ def redact_credential_content(text: str) -> str:
     redacted = _redact_npm_access_tokens(redacted)
     redacted = _redact_provider_webhook_urls(redacted)
     # Provider-shaped keys run before generic api_key redaction to keep specific placeholders.
+    redacted = _redact_prompt_control_obfuscated_openai_api_keys(redacted)
     redacted = _OPENAI_API_KEY_RE.sub(_OPENAI_API_KEY_PLACEHOLDER, redacted)
     redacted = _ANTHROPIC_API_KEY_RE.sub(_ANTHROPIC_API_KEY_PLACEHOLDER, redacted)
     redacted = _GOOGLE_API_KEY_RE.sub(_GOOGLE_API_KEY_PLACEHOLDER, redacted)
@@ -8266,6 +8462,7 @@ def sanitize_untrusted_email_text(text: str) -> str:
         return ""
 
     sanitized = text.replace("\r\n", "\n").replace("\r", "\n")
+    sanitized = _redact_prompt_control_obfuscated_openai_api_keys(sanitized)
     sanitized = _normalize_prompt_controls(sanitized)
     sanitized = _strip_html_comment_traps(sanitized)
     sanitized = strip_hidden_declaration_traps(sanitized)

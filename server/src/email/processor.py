@@ -260,6 +260,8 @@ def extract_insights(email, redact_sensitive: bool = True):
     )
 
     sanitized_completion = strip_hidden_declaration_traps(response.completion.strip())
+    if redact_sensitive:
+        sanitized_completion = redact_sensitive_content(sanitized_completion)
     guarded_summary, blocked_suggestions = neutralize_unsafe_action_suggestions(
         sanitized_completion
     )

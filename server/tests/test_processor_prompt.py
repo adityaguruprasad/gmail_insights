@@ -71,6 +71,26 @@ def _fixture_bearer_token():
     )
 
 
+def _fixture_openai_project_api_key():
+    return _fixture_secret(
+        "sk",
+        "-",
+        "proj",
+        "-",
+        "abcdEFGHij",
+        "klMNOPqrst",
+        "UVWXyz0123",
+        "456789_-AB",
+    )
+
+
+def _prompt_control_obfuscate_secret(secret, chunk_size=6):
+    return "\u200b".join(
+        secret[index : index + chunk_size]
+        for index in range(0, len(secret), chunk_size)
+    )
+
+
 def _fixture_access_token():
     return _fixture_secret("access", "token", "value", "1234567890")
 
@@ -4779,6 +4799,81 @@ class ProcessorPromptTests(unittest.TestCase):
             ['Scanned payload {"api_token": "[REDACTED_TOKEN]"}'],
             result["security_warnings"],
         )
+
+    def test_prompt_summary_and_public_fields_redact_obfuscated_openai_keys(self):
+        secret = _fixture_openai_project_api_key()
+        obfuscated_secret = _prompt_control_obfuscate_secret(secret)
+        normalized_secret = obfuscated_secret.replace("\u200b", " ")
+        near_miss = "sk-\u200bproj-\u200bshort-sample"
+        sanitized_near_miss = "sk- proj- short-sample"
+        email = {
+            "id": "obfuscated-openai-key-1",
+            "subject": f"Forwarded credential {obfuscated_secret}",
+            "sender": f"Build Bot {near_miss} <build@example.test>",
+            "date": "2026-05-18",
+            "snippet": f"Model-visible key echo {obfuscated_secret}",
+            "security_warnings": [
+                f"Credential-shaped token observed: {obfuscated_secret}",
+            ],
+            "content": (
+                f"Rotation note includes {obfuscated_secret}.\n"
+                f"Docs placeholder {near_miss} remains visible."
+            ),
+            "is_archived": False,
+        }
+        completion = (
+            f"Summary: Credential was quoted as {obfuscated_secret}.\n"
+            f"Action items: Preserve placeholder {near_miss} for docs.\n"
+            "Draft assistance: Optional outline only.\n"
+            "Archive suggestion: No, keep it visible."
+        )
+        captured_prompt = {}
+
+        def fake_create(**kwargs):
+            captured_prompt["prompt"] = kwargs["prompt"]
+            return types.SimpleNamespace(completion=completion)
+
+        with patch.object(
+            processor.anthropic.completions,
+            "create",
+            side_effect=fake_create,
+        ):
+            result = processor.extract_insights(email)
+
+        prompt = captured_prompt["prompt"]
+        returned_text = "\n".join(str(value) for value in result.values())
+        combined_text = prompt + "\n" + returned_text
+        secret_fragments = [
+            chunk for chunk in obfuscated_secret.split("\u200b") if chunk != "sk-pro"
+        ]
+
+        self.assertIn("[REDACTED_OPENAI_API_KEY]", prompt)
+        self.assertIn("[REDACTED_OPENAI_API_KEY]", returned_text)
+        self.assertIn(sanitized_near_miss, prompt)
+        self.assertIn(sanitized_near_miss, returned_text)
+        self.assertNotIn(obfuscated_secret, combined_text)
+        self.assertNotIn(normalized_secret, combined_text)
+        for fragment in secret_fragments:
+            with self.subTest(fragment=fragment):
+                self.assertNotIn(fragment, combined_text)
+        self.assertIn(
+            "Do NOT suggest sending, replying, deleting, forwarding, or modifying labels.",
+            prompt,
+        )
+        self.assertIn(
+            "You may propose a safe draft outline and archive recommendation only.",
+            prompt,
+        )
+        self.assertIn("Draft assistance: Optional outline only.", result["summary"])
+        self.assertIn("Archive suggestion: No, keep it visible.", result["summary"])
+        self.assertNotIn("[Unsafe action suggestion removed]", result["summary"])
+        self.assertEqual(
+            {"id", "subject", "sender", "is_archived", "security_warnings", "summary"},
+            set(result),
+        )
+        self.assertFalse(result["is_archived"])
+        self.assertNotIn("blocked_actions", result)
+        self.assertNotIn("effective_actions", result)
 
     def test_prompt_redacts_login_codes_and_reset_links(self):
         reset_link = "https://accounts.example.test/reset?token=secret123"

@@ -37,6 +37,13 @@ def _unicode_tag_encode(text):
     return "".join(chr(0xE0000 + ord(char)) for char in text)
 
 
+def _prompt_control_obfuscate_secret(secret, chunk_size=6):
+    return "\u200b".join(
+        secret[index : index + chunk_size]
+        for index in range(0, len(secret), chunk_size)
+    )
+
+
 def _fullwidth_ascii(text):
     return "".join(
         chr(ord(char) + 0xFEE0) if "!" <= char <= "~" else char
@@ -1635,6 +1642,99 @@ class SafetyPolicyTests(unittest.TestCase):
                     f"Forwarded credential from {provider}: {placeholder}.",
                 )
                 self.assertNotIn(secret, redacted)
+
+    def test_redaction_removes_prompt_control_obfuscated_openai_api_keys(self):
+        secret = _openai_project_api_key_fixture()
+        obfuscated_secret = _prompt_control_obfuscate_secret(secret)
+        normalized_secret = obfuscated_secret.replace("\u200b", " ")
+        text = f"Forwarded credential: {obfuscated_secret}."
+        expected = "Forwarded credential: [REDACTED_OPENAI_API_KEY]."
+        secret_fragments = [
+            chunk for chunk in obfuscated_secret.split("\u200b") if chunk != "sk-pro"
+        ]
+
+        for redactor in (
+            redact_credential_content,
+            redact_response_metadata_content,
+            redact_sensitive_content,
+            sanitize_untrusted_email_text,
+        ):
+            with self.subTest(redactor=redactor.__name__):
+                redacted = redactor(text)
+
+                self.assertEqual(redacted, expected)
+                self.assertNotIn(obfuscated_secret, redacted)
+                self.assertNotIn(normalized_secret, redacted)
+                for fragment in secret_fragments:
+                    self.assertNotIn(fragment, redacted)
+
+    def test_redaction_removes_trailing_prompt_control_gap_after_obfuscated_openai_key(self):
+        secret = _openai_project_api_key_fixture()
+        obfuscated_secret = _prompt_control_obfuscate_secret(secret)
+        trailing_gap = "\u200b\x1f"
+        text = f"Forwarded credential: {obfuscated_secret}{trailing_gap}."
+        expected = "Forwarded credential: [REDACTED_OPENAI_API_KEY]."
+
+        for redactor in (
+            redact_credential_content,
+            redact_sensitive_content,
+        ):
+            with self.subTest(redactor=redactor.__name__):
+                redacted = redactor(text)
+
+                self.assertEqual(redacted, expected)
+                self.assertNotIn("\u200b", redacted)
+                self.assertNotIn("\x1f", redacted)
+
+    def test_redaction_preserves_prompt_control_obfuscated_openai_key_when_gap_exceeds_bound(self):
+        secret = _openai_project_api_key_fixture()
+        gap = "\u200b" * (
+            safety_module._PROMPT_CONTROL_OBFUSCATED_SECRET_MAX_GAP + 1
+        )
+        too_fragmented_secret = f"{secret[:3]}{gap}{secret[3:]}"
+        text = f"Forwarded credential: {too_fragmented_secret}."
+        expected_sanitized = text.replace("\u200b", " ")
+
+        for redactor in (
+            redact_credential_content,
+            redact_response_metadata_content,
+            redact_sensitive_content,
+        ):
+            with self.subTest(redactor=redactor.__name__):
+                redacted = redactor(text)
+
+                self.assertEqual(redacted, text)
+                self.assertNotIn("[REDACTED_OPENAI_API_KEY]", redacted)
+
+        sanitized = sanitize_untrusted_email_text(text)
+
+        self.assertEqual(sanitized, expected_sanitized)
+        self.assertNotIn("[REDACTED_OPENAI_API_KEY]", sanitized)
+        self.assertNotIn("\u200b", sanitized)
+
+    def test_redaction_preserves_prompt_control_obfuscated_openai_near_misses(self):
+        cases = [
+            "Docs use sk-\u200bproj-\u200bshort-sample as a placeholder.",
+            "The task-\u200bsk-proj-rollout note describes sk-feature prefixes.",
+            "OpenAI key prefix sk- proj- abcdefghijklmnop is too short.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                for redactor in (
+                    redact_credential_content,
+                    redact_response_metadata_content,
+                    redact_sensitive_content,
+                ):
+                    with self.subTest(redactor=redactor.__name__):
+                        redacted = redactor(text)
+
+                        self.assertEqual(redacted, text)
+                        self.assertNotIn("[REDACTED_OPENAI_API_KEY]", redacted)
+
+                sanitized = sanitize_untrusted_email_text(text)
+                self.assertNotIn("[REDACTED_OPENAI_API_KEY]", sanitized)
+                self.assertIn("sk-", sanitized)
 
     def test_redaction_removes_unlabeled_sendgrid_api_key(self):
         secret = _sendgrid_api_key_fixture()
