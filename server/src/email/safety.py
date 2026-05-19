@@ -2163,6 +2163,62 @@ def _blank_model_control_tokens_for_detection(text: str) -> str:
     )
 
 
+def _decode_html_character_references_if_security_relevant(
+    text: str,
+    decoded_is_security_relevant,
+    *,
+    include_adjacent_lines: bool = False,
+) -> str:
+    if not text or "&" not in text:
+        return text
+
+    lines = text.splitlines(keepends=True)
+    decoded_lines = []
+    decoded_line_indexes = set()
+
+    for index, line in enumerate(lines):
+        if "&" not in line:
+            decoded_lines.append(line)
+            continue
+
+        decoded_line = html_unescape(line)
+        if decoded_line == line:
+            decoded_lines.append(line)
+            continue
+
+        decoded_line = _normalize_prompt_controls(decoded_line)
+        decoded_lines.append(decoded_line)
+        if decoded_is_security_relevant(decoded_line):
+            decoded_line_indexes.add(index)
+
+    if include_adjacent_lines:
+        for index in range(len(lines) - 1):
+            if index in decoded_line_indexes or index + 1 in decoded_line_indexes:
+                continue
+
+            original_pair = lines[index] + lines[index + 1]
+            decoded_pair = decoded_lines[index] + decoded_lines[index + 1]
+            if decoded_pair == original_pair:
+                continue
+
+            if decoded_is_security_relevant(original_pair):
+                continue
+
+            if decoded_is_security_relevant(decoded_pair):
+                if decoded_lines[index] != lines[index]:
+                    decoded_line_indexes.add(index)
+                if decoded_lines[index + 1] != lines[index + 1]:
+                    decoded_line_indexes.add(index + 1)
+
+    if not decoded_line_indexes:
+        return text
+
+    return "".join(
+        decoded_line if index in decoded_line_indexes else lines[index]
+        for index, decoded_line in enumerate(decoded_lines)
+    )
+
+
 # 32 spaces/tabs is generous for padded markers but finite for predictable matching.
 _AGENT_TOOL_MARKER_SEPARATOR = r"(?:[_-]|[ \t]{1,32})?"
 _AGENT_TOOL_MARKER_NOUN = (
@@ -8498,6 +8554,63 @@ def redact_sensitive_content(text: str) -> str:
     return redacted
 
 
+def _neutralize_prompt_framing(text: str) -> str:
+    neutralized = _PROMPT_BOUNDARY_MARKER_RE.sub(
+        "[quoted-prompt-boundary]",
+        text,
+    )
+    neutralized = _NFKC_PROMPT_BOUNDARY_MARKER_RE.sub(
+        "[quoted-prompt-boundary]",
+        neutralized,
+    )
+    neutralized = _MODEL_CONTROL_TOKEN_RE.sub(
+        "[quoted-model-control-token]",
+        neutralized,
+    )
+    neutralized = _neutralize_agent_tool_invocation_markers(neutralized)
+    neutralized = _NFKC_SERIALIZED_ROLE_FIELD_RE.sub(
+        _quote_serialized_role_field,
+        neutralized,
+    )
+    neutralized = _SERIALIZED_ROLE_FIELD_RE.sub(
+        _quote_serialized_role_field,
+        neutralized,
+    )
+    neutralized = _NFKC_MARKDOWN_ROLE_HEADING_RE.sub(
+        _quote_markdown_role_heading,
+        neutralized,
+    )
+    neutralized = _MARKDOWN_ROLE_HEADING_RE.sub(
+        _quote_markdown_role_heading,
+        neutralized,
+    )
+    neutralized = _NFKC_MARKDOWN_ROLE_FENCE_RE.sub(
+        _quote_markdown_role_heading,
+        neutralized,
+    )
+    neutralized = _MARKDOWN_ROLE_FENCE_RE.sub(
+        _quote_markdown_role_heading,
+        neutralized,
+    )
+    neutralized = _NFKC_ROLE_TAG_RE.sub(_quote_line_role_tag, neutralized)
+    neutralized = _ROLE_TAG_RE.sub(_quote_line_role_tag, neutralized)
+    neutralized = _NFKC_INLINE_ROLE_TAG_RE.sub(_quote_inline_role_tag, neutralized)
+    neutralized = _INLINE_ROLE_TAG_RE.sub(_quote_inline_role_tag, neutralized)
+    neutralized = _INSTRUCTION_PHRASE_RE.sub(
+        r"[quoted-instruction: \1]",
+        neutralized,
+    )
+    neutralized = _SAFETY_METADATA_DIRECTIVE_RE.sub(
+        lambda match: f"[quoted-safety-directive: {match.group(1)}]",
+        neutralized,
+    )
+    return _INSTRUCTION_XML_TAG_RE.sub("[quoted-xml-tag]", neutralized)
+
+
+def _decoded_text_has_prompt_framing(text: str) -> bool:
+    return _neutralize_prompt_framing(text) != text
+
+
 def sanitize_untrusted_email_text(text: str) -> str:
     """Neutralize prompt-injection framing while preserving semantic text."""
     if not text:
@@ -8508,6 +8621,10 @@ def sanitize_untrusted_email_text(text: str) -> str:
     sanitized = _normalize_prompt_controls(sanitized)
     sanitized = _strip_html_comment_traps(sanitized)
     sanitized = strip_hidden_declaration_traps(sanitized)
+    sanitized = _decode_html_character_references_if_security_relevant(
+        sanitized,
+        _decoded_text_has_prompt_framing,
+    )
     sanitized = _redact_saml_sso_artifacts(sanitized)
     sanitized = _redact_oauth_device_verification_uri_complete(sanitized)
     sanitized = _redact_oauth_oidc_authorization_artifacts(sanitized)
@@ -8518,54 +8635,32 @@ def sanitize_untrusted_email_text(text: str) -> str:
     sanitized = _redact_authenticator_enrollment_secrets(sanitized)
     sanitized = _redact_npm_access_tokens(sanitized)
     sanitized = _redact_password_manager_secrets(sanitized)
-    sanitized = _PROMPT_BOUNDARY_MARKER_RE.sub(
-        "[quoted-prompt-boundary]",
-        sanitized,
+    return _neutralize_prompt_framing(sanitized)
+
+
+def _line_has_safety_metadata_manipulation(
+    line: str,
+    has_security_warnings: bool,
+) -> bool:
+    detection_line = _blank_model_control_tokens_for_detection(line)
+
+    if _SAFETY_METADATA_DIRECTIVE_LINE_RE.search(detection_line):
+        return True
+
+    return has_security_warnings and (
+        _SECURITY_WARNING_ABSENCE_CLAIM_RE.search(detection_line)
+        or _RISKY_CONTENT_SAFE_CLAIM_RE.search(detection_line)
     )
-    sanitized = _NFKC_PROMPT_BOUNDARY_MARKER_RE.sub(
-        "[quoted-prompt-boundary]",
-        sanitized,
+
+
+def _text_has_safety_metadata_manipulation(
+    text: str,
+    has_security_warnings: bool,
+) -> bool:
+    return any(
+        _line_has_safety_metadata_manipulation(line, has_security_warnings)
+        for line in text.splitlines()
     )
-    sanitized = _MODEL_CONTROL_TOKEN_RE.sub(
-        "[quoted-model-control-token]",
-        sanitized,
-    )
-    sanitized = _neutralize_agent_tool_invocation_markers(sanitized)
-    sanitized = _NFKC_SERIALIZED_ROLE_FIELD_RE.sub(
-        _quote_serialized_role_field,
-        sanitized,
-    )
-    sanitized = _SERIALIZED_ROLE_FIELD_RE.sub(
-        _quote_serialized_role_field,
-        sanitized,
-    )
-    sanitized = _NFKC_MARKDOWN_ROLE_HEADING_RE.sub(
-        _quote_markdown_role_heading,
-        sanitized,
-    )
-    sanitized = _MARKDOWN_ROLE_HEADING_RE.sub(
-        _quote_markdown_role_heading,
-        sanitized,
-    )
-    sanitized = _NFKC_MARKDOWN_ROLE_FENCE_RE.sub(
-        _quote_markdown_role_heading,
-        sanitized,
-    )
-    sanitized = _MARKDOWN_ROLE_FENCE_RE.sub(
-        _quote_markdown_role_heading,
-        sanitized,
-    )
-    sanitized = _NFKC_ROLE_TAG_RE.sub(_quote_line_role_tag, sanitized)
-    sanitized = _ROLE_TAG_RE.sub(_quote_line_role_tag, sanitized)
-    sanitized = _NFKC_INLINE_ROLE_TAG_RE.sub(_quote_inline_role_tag, sanitized)
-    sanitized = _INLINE_ROLE_TAG_RE.sub(_quote_inline_role_tag, sanitized)
-    sanitized = _INSTRUCTION_PHRASE_RE.sub(r"[quoted-instruction: \1]", sanitized)
-    sanitized = _SAFETY_METADATA_DIRECTIVE_RE.sub(
-        lambda match: f"[quoted-safety-directive: {match.group(1)}]",
-        sanitized,
-    )
-    sanitized = _INSTRUCTION_XML_TAG_RE.sub("[quoted-xml-tag]", sanitized)
-    return sanitized
 
 
 def neutralize_safety_metadata_misrepresentation(
@@ -8577,18 +8672,28 @@ def neutralize_safety_metadata_misrepresentation(
         return "", []
 
     text = _normalize_prompt_controls(text)
+    text = _decode_html_character_references_if_security_relevant(
+        text,
+        lambda decoded: _text_has_safety_metadata_manipulation(
+            decoded,
+            has_security_warnings,
+        ),
+    )
     findings = set()
     guarded_lines = []
 
     for line in text.splitlines():
         block_line = False
-        detection_line = _blank_model_control_tokens_for_detection(line)
 
-        if _SAFETY_METADATA_DIRECTIVE_LINE_RE.search(detection_line):
+        if _line_has_safety_metadata_manipulation(
+            line,
+            has_security_warnings=False,
+        ):
             findings.add("security_warning_suppression")
             block_line = True
 
         if has_security_warnings and not block_line:
+            detection_line = _blank_model_control_tokens_for_detection(line)
             if _SECURITY_WARNING_ABSENCE_CLAIM_RE.search(detection_line):
                 findings.add("security_warning_misrepresentation")
                 block_line = True
@@ -8975,12 +9080,29 @@ def _suppress_split_line_form_send_overlaps(
             direct_actions_by_index[line_index].discard("send")
 
 
+def _text_has_unsafe_action_suggestions(text: str) -> bool:
+    lines = text.splitlines()
+
+    if any(_directive_actions(line) for line in lines):
+        return True
+
+    return any(
+        _directive_actions(f"{lines[index]} {lines[index + 1]}")
+        for index in range(len(lines) - 1)
+    )
+
+
 def neutralize_unsafe_action_suggestions(text: str) -> Tuple[str, List[str]]:
     """Remove unsafe action-suggestion lines from model output."""
     if not text:
         return "", []
 
     text = _normalize_prompt_controls(text)
+    text = _decode_html_character_references_if_security_relevant(
+        text,
+        _text_has_unsafe_action_suggestions,
+        include_adjacent_lines=True,
+    )
     lines = text.splitlines()
     blocked_found = set()
     blocked_line_indexes = set()
