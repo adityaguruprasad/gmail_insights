@@ -5514,6 +5514,43 @@ class ProcessorPromptTests(unittest.TestCase):
         self.assertIn("Archive suggestion: No, still active.", result["summary"])
         self.assertNotIn("blocked_suggestions", result)
 
+    def test_extract_insights_neutralizes_mailbox_access_removal_suggestions(self):
+        email = {
+            "id": "mailbox-access-removal-1",
+            "subject": "Delegation review",
+            "sender": "ops@example.com",
+            "is_archived": False,
+        }
+        completion = (
+            "Summary: Delegation review requested.\n"
+            "Action item: revoke mailbox access from the vendor.\n"
+            "Draft assistance: Prepare a read-only summary.\n"
+            "Archive suggestion: No, keep it visible."
+        )
+
+        with patch.object(
+            processor.anthropic.completions,
+            "create",
+            return_value=types.SimpleNamespace(completion=completion),
+        ), patch.object(processor.logger, "warning") as warning_mock:
+            result = processor.extract_insights(email, redact_sensitive=False)
+
+        self.assertIn("[Unsafe action suggestion removed]", result["summary"])
+        self.assertNotIn("revoke mailbox access", result["summary"])
+        self.assertIn("Summary: Delegation review requested.", result["summary"])
+        self.assertIn(
+            "Draft assistance: Prepare a read-only summary.",
+            result["summary"],
+        )
+        self.assertIn("Archive suggestion: No, keep it visible.", result["summary"])
+        self.assertTrue(
+            any(
+                "revoke_mailbox_access" in str(call.args)
+                for call in warning_mock.call_args_list
+            )
+        )
+        self.assertNotIn("blocked_actions", result)
+
     def test_extract_insights_removes_html_comment_traps_from_outputs(self):
         email = {
             "id": "comment-trap-1",

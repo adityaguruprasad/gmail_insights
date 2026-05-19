@@ -82,6 +82,7 @@ BLOCKED_ACTIONS = {
     "password_manager_action",
     "authorize_app",
     "grant_mailbox_access",
+    "revoke_mailbox_access",
     "change_security_settings",
     "change_trusted_devices",
     "change_session_settings",
@@ -4231,6 +4232,7 @@ _DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS = {
     "password_manager_action",
     "authorize_app",
     "grant_mailbox_access",
+    "revoke_mailbox_access",
     "change_security_settings",
     "change_trusted_devices",
     "change_session_settings",
@@ -4263,6 +4265,7 @@ _DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS = {
     "password_manager_action",
     "authorize_app",
     "grant_mailbox_access",
+    "revoke_mailbox_access",
     "change_security_settings",
     "change_trusted_devices",
     "change_session_settings",
@@ -5514,6 +5517,26 @@ _DIRECTIVE_PATTERNS = {
             rf"{_AUTOMATION_CONNECTOR_TARGET}\s+"
             rf"(?:with|for|to|on|in|using)\s+"
             rf"{_MAILBOX_ACCESS_RESOURCE}{_TARGET_END}"
+        ),
+    ],
+    "revoke_mailbox_access": [
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:remove|delete|revoke)\s+"
+            rf"{_MAILBOX_ACCESS_GRANTEE_TARGET}\s+(?:as|from)\s+(?:an?\s+)?"
+            rf"{_MAILBOX_DELEGATE_ROLE}{_MAILBOX_ACCESS_CONTEXT_SUFFIX}"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:remove|delete|revoke)\s+"
+            rf"{_MAILBOX_ACCESS_PERMISSION}\s+(?:from|for)\s+"
+            rf"{_MAILBOX_ACCESS_GRANTEE_TARGET}{_MAILBOX_ACCESS_CONTEXT_SUFFIX}"
+            rf"{_TARGET_END}"
+        ),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:remove|delete|revoke)\s+"
+            rf"{_MAILBOX_ACCESS_GRANTEE_TARGET}'?s\s+"
+            rf"{_MAILBOX_ACCESS_PERMISSION}{_MAILBOX_ACCESS_CONTEXT_SUFFIX}"
+            rf"{_TARGET_END}"
         ),
     ],
     "manage_passkeys": [

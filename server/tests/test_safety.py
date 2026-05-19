@@ -1003,6 +1003,20 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(safety["blocked_actions"], ["grant_mailbox_access"])
         self.assertIn("grant_mailbox_access", safety_module.BLOCKED_ACTIONS)
 
+    def test_mailbox_access_revoke_action_is_supported_but_blocked(self):
+        effective, blocked = evaluate_requested_actions(["revoke_mailbox_access"])
+
+        self.assertEqual(effective, ["read", "summarize"])
+        self.assertEqual(blocked, ["revoke_mailbox_access"])
+        self.assertNotIn("revoke_mailbox_access", effective)
+
+        safety = safety_metadata("revoke_mailbox_access")
+        self.assertEqual(safety["mode"], "read_only")
+        self.assertEqual(safety["effective_actions"], ["read", "summarize"])
+        self.assertEqual(safety["blocked_actions"], ["revoke_mailbox_access"])
+        self.assertIn("revoke_mailbox_access", safety_module.BLOCKED_ACTIONS)
+        self.assertNotIn("revoke_mailbox_access", safety_module.ALLOWED_ACTIONS)
+
     def test_security_settings_action_is_supported_but_blocked(self):
         effective, blocked = evaluate_requested_actions(
             ["read", "change_security_settings"]
@@ -9233,6 +9247,24 @@ class SafetyPolicyTests(unittest.TestCase):
                 self.assertEqual(guarded, "[Unsafe action suggestion removed]")
                 self.assertEqual(blocked, ["grant_mailbox_access"])
 
+    def test_neutralize_unsafe_action_suggestions_blocks_mailbox_access_removals(self):
+        cases = [
+            "Remove the sender as a delegate.",
+            "Revoke the vendor as a delegate.",
+            "Delete accounting@example.com from mailbox delegates.",
+            "Remove mailbox access from the assistant.",
+            "Remove the vendor's mailbox access.",
+            "Revoke Gmail access from the vendor.",
+            "Action item: revoke mailbox access from the security team.",
+            "Recommended action: remove the assistant's inbox delegation.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(guarded, "[Unsafe action suggestion removed]")
+                self.assertEqual(blocked, ["revoke_mailbox_access"])
+
     def test_neutralize_unsafe_action_suggestions_blocks_split_line_mailbox_access_grants(self):
         cases = [
             "Add the sender\nas a delegate",
@@ -9250,6 +9282,24 @@ class SafetyPolicyTests(unittest.TestCase):
                 )
                 self.assertEqual(blocked, ["grant_mailbox_access"])
 
+    def test_neutralize_unsafe_action_suggestions_blocks_split_line_mailbox_access_removals(
+        self,
+    ):
+        cases = [
+            "Remove accounting@example.com\nfrom mailbox delegates.",
+            "Action item: revoke mailbox access\nfrom the assistant.",
+            "Remove the assistant's\ninbox delegation.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                guarded, blocked = neutralize_unsafe_action_suggestions(text)
+                self.assertEqual(
+                    guarded,
+                    "[Unsafe action suggestion removed]\n[Unsafe action suggestion removed]",
+                )
+                self.assertEqual(blocked, ["revoke_mailbox_access"])
+
     def test_neutralize_unsafe_action_suggestions_preserves_mailbox_access_descriptions(self):
         text = (
             "The email mentions delegate access for manual review.\n"
@@ -9259,6 +9309,12 @@ class SafetyPolicyTests(unittest.TestCase):
             "Automation workflows are disabled by policy for this inbox.\n"
             "The email mentions an automation workflow but requests no setup.\n"
             "Do not add the sender as a delegate.\n"
+            "Do not revoke mailbox access from the vendor.\n"
+            "Do not remove the vendor as a delegate.\n"
+            "Do not delete accounting@example.com as a delegate.\n"
+            "The email mentions removing delegate access for manual review.\n"
+            "The assistant's inbox delegation was removed yesterday.\n"
+            "The vendor's mailbox access was removed yesterday.\n"
             "Provide the assistant with account access.\n"
             "The OAuth client requests account access for manual review."
         )
@@ -9267,15 +9323,17 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertEqual(blocked, [])
 
     def test_mailbox_access_split_line_handling_uses_directive_sets_without_action_words(self):
-        self.assertIn(
-            "grant_mailbox_access",
-            safety_module._DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS,
-        )
-        self.assertIn(
-            "grant_mailbox_access",
-            safety_module._DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS,
-        )
-        self.assertNotIn("grant_mailbox_access", safety_module._ACTION_WORD_PATTERNS)
+        for action in ("grant_mailbox_access", "revoke_mailbox_access"):
+            with self.subTest(action=action):
+                self.assertIn(
+                    action,
+                    safety_module._DIRECTIVE_ONLY_SPLIT_LINE_ACTIONS,
+                )
+                self.assertIn(
+                    action,
+                    safety_module._DIRECTIVE_SPAN_SPLIT_LINE_ACTIONS,
+                )
+                self.assertNotIn(action, safety_module._ACTION_WORD_PATTERNS)
 
     def test_neutralize_unsafe_action_suggestions_blocks_security_setting_directives(self):
         cases = [
