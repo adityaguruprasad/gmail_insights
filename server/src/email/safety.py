@@ -8595,6 +8595,77 @@ def redact_sensitive_content(text: str) -> str:
     return redacted
 
 
+_PUBLIC_PROMPT_MARKER_DETAIL_START_RE = re.compile(
+    r"\[(?P<marker>quoted-instruction|quoted-safety-directive):",
+    re.IGNORECASE,
+)
+_PUBLIC_PROMPT_MARKER_DETAIL_REPLACEMENTS = {
+    "quoted-instruction": "[quoted-instruction]",
+    "quoted-safety-directive": "[quoted-safety-directive]",
+}
+
+
+def _find_public_prompt_marker_detail_end(
+    text: str,
+    detail_start: int,
+) -> int | None:
+    if detail_start >= len(text) or text[detail_start] == "]":
+        return None
+
+    depth = 1
+    for index in range(detail_start, len(text)):
+        char = text[index]
+        if char == "[":
+            depth += 1
+        elif char == "]":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+
+    return None
+
+
+def declassify_public_prompt_marker_details(text: str) -> str:
+    """Collapse quoted prompt-marker details before returning public metadata."""
+    if not text:
+        return ""
+
+    public_text = str(text)
+    collapsed_parts = []
+    copied_until = 0
+    search_start = 0
+
+    while True:
+        match = _PUBLIC_PROMPT_MARKER_DETAIL_START_RE.search(
+            public_text,
+            search_start,
+        )
+        if not match:
+            break
+
+        marker_end = _find_public_prompt_marker_detail_end(
+            public_text,
+            match.end(),
+        )
+        if marker_end is None:
+            search_start = match.end()
+            continue
+
+        collapsed_parts.append(public_text[copied_until : match.start()])
+        replacement = _PUBLIC_PROMPT_MARKER_DETAIL_REPLACEMENTS[
+            match.group("marker").lower()
+        ]
+        collapsed_parts.append(replacement)
+        copied_until = marker_end
+        search_start = marker_end
+
+    if not collapsed_parts:
+        return public_text
+
+    collapsed_parts.append(public_text[copied_until:])
+    return "".join(collapsed_parts)
+
+
 def _neutralize_prompt_framing(text: str) -> str:
     neutralized = _PROMPT_BOUNDARY_MARKER_RE.sub(
         "[quoted-prompt-boundary]",

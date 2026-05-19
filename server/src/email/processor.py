@@ -4,6 +4,7 @@ import re
 from anthropic import Anthropic, HUMAN_PROMPT, AI_PROMPT
 from src.config.settings import ANTHROPIC_API_KEY
 from src.email.safety import (
+    declassify_public_prompt_marker_details,
     neutralize_unsafe_action_suggestions,
     neutralize_safety_metadata_misrepresentation,
     redact_response_metadata_content,
@@ -26,14 +27,6 @@ SUMMARY_MAX_RETURNED_LENGTH = 4000
 SECURITY_WARNING_MAX_RETURNED_LENGTH = 500
 SECURITY_WARNINGS_MAX_PER_EMAIL = 10
 
-_QUOTED_INSTRUCTION_DETAIL_RE = re.compile(
-    r"\[quoted-instruction:[^\]]+\]",
-    re.IGNORECASE,
-)
-_QUOTED_SAFETY_DIRECTIVE_DETAIL_RE = re.compile(
-    r"\[quoted-safety-directive:[^\]]+\]",
-    re.IGNORECASE,
-)
 _INLINE_ROLE_TAG_RE = re.compile(
     r"\b(system|assistant|user|developer|tool)\s*:\s*",
     re.IGNORECASE,
@@ -94,14 +87,8 @@ def _prepare_returned_untrusted_field(value):
 
     # Preserve ordinary contact metadata while removing credentials and high-risk
     # identifiers that can appear in subjects or display names.
-    return sanitize_untrusted_email_text(redact_response_metadata_content(str(value)))
-
-
-def _declassify_public_prompt_marker_details(text: str) -> str:
-    text = _QUOTED_INSTRUCTION_DETAIL_RE.sub("[quoted-instruction]", text)
-    return _QUOTED_SAFETY_DIRECTIVE_DETAIL_RE.sub(
-        "[quoted-safety-directive]",
-        text,
+    return declassify_public_prompt_marker_details(
+        sanitize_untrusted_email_text(redact_response_metadata_content(str(value)))
     )
 
 
@@ -148,7 +135,7 @@ def _prepare_security_warning_list(
             lambda match: f"[quoted-role {match.group(1).lower()}] ",
             text,
         )
-        text = _declassify_public_prompt_marker_details(text)
+        text = declassify_public_prompt_marker_details(text)
         text = " ".join(text.split())
         if max_length is not None:
             text = _clip_returned_security_warning(text, max_length=max_length)
@@ -277,7 +264,7 @@ def extract_insights(email, redact_sensitive: bool = True):
     )
     guarded_summary = sanitize_untrusted_email_text(guarded_summary)
     guarded_summary = redact_sensitive_content(guarded_summary)
-    guarded_summary = _declassify_public_prompt_marker_details(guarded_summary)
+    guarded_summary = declassify_public_prompt_marker_details(guarded_summary)
     guarded_summary = _clip_generated_summary(guarded_summary)
 
     if blocked_suggestions:

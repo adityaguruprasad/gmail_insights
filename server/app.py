@@ -10,6 +10,7 @@ from src.email.fetcher import get_emails_from_domains, get_emails_by_query
 from src.email.processor import extract_insights
 from src.email.safety import (
     BLOCKED_ACTIONS,
+    declassify_public_prompt_marker_details,
     redact_credential_content,
     redact_response_metadata_content,
     safety_metadata,
@@ -73,7 +74,9 @@ def _redact_log_text(text):
 
 
 def _redact_public_request_text(text):
-    return sanitize_untrusted_email_text(redact_response_metadata_content(text))
+    return declassify_public_prompt_marker_details(
+        sanitize_untrusted_email_text(redact_response_metadata_content(text))
+    )
 
 
 def _log_unhandled_api_exception(route):
