@@ -913,6 +913,11 @@ _AUTHENTICATOR_SECRET_BEFORE_CONTEXT_RE = re.compile(
 _SENSITIVE_LINK_URL_TARGET = (
     r"(?:https?://[^\s<>\]\"']{1,2048}|www\.[^\s<>\]\"']{1,2048})"
 )
+_UNSAFE_INLINE_URL_PLACEHOLDER = "[REDACTED_UNSAFE_URL]"
+_UNSAFE_INLINE_URL_RE = re.compile(
+    r"(?i)(?:^|(?<=[\s('\"<\[{=,;>\]\})*_~`]))"
+    r"(?P<url>(?:javascript|vbscript|data|file|blob):[^\s<>\]\"']+)"
+)
 _CREDENTIAL_QUERY_VALUE_PLACEHOLDER = "[REDACTED_CREDENTIAL_QUERY_VALUE]"
 _OAUTH_AUTHORIZATION_CODE_PLACEHOLDER = "[REDACTED_OAUTH_AUTHORIZATION_CODE]"
 _OAUTH_DEVICE_USER_CODE_PLACEHOLDER = "[REDACTED_OAUTH_DEVICE_USER_CODE]"
@@ -7125,6 +7130,19 @@ def _redact_url_userinfo_credentials(text: str) -> str:
     )
 
 
+def _redact_unsafe_inline_url(match: re.Match) -> str:
+    _, trailing_punctuation = _split_url_trailing_punctuation(match.group("url"))
+    return _UNSAFE_INLINE_URL_PLACEHOLDER + trailing_punctuation
+
+
+def _redact_unsafe_inline_urls(text: str) -> str:
+    return _UNSAFE_INLINE_URL_RE.sub(_redact_unsafe_inline_url, text)
+
+
+def _text_has_unsafe_inline_urls(text: str) -> bool:
+    return bool(_UNSAFE_INLINE_URL_RE.search(text))
+
+
 def _is_sensitive_cookie_name(name: str) -> bool:
     return bool(_query_param_name_aliases(name).intersection(_COOKIE_SECRET_NAMES))
 
@@ -8634,6 +8652,10 @@ def _decoded_text_has_prompt_framing(text: str) -> bool:
     return _neutralize_prompt_framing(text) != text
 
 
+def _decoded_text_has_untrusted_security_controls(text: str) -> bool:
+    return _decoded_text_has_prompt_framing(text) or _text_has_unsafe_inline_urls(text)
+
+
 def sanitize_untrusted_email_text(text: str) -> str:
     """Neutralize prompt-injection framing while preserving semantic text."""
     if not text:
@@ -8646,8 +8668,9 @@ def sanitize_untrusted_email_text(text: str) -> str:
     sanitized = strip_hidden_declaration_traps(sanitized)
     sanitized = _decode_html_character_references_if_security_relevant(
         sanitized,
-        _decoded_text_has_prompt_framing,
+        _decoded_text_has_untrusted_security_controls,
     )
+    sanitized = _redact_unsafe_inline_urls(sanitized)
     sanitized = _redact_saml_sso_artifacts(sanitized)
     sanitized = _redact_oauth_device_verification_uri_complete(sanitized)
     sanitized = _redact_oauth_oidc_authorization_artifacts(sanitized)
