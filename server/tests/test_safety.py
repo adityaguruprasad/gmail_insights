@@ -7947,9 +7947,13 @@ class SafetyPolicyTests(unittest.TestCase):
             ("Recommended action: click the tracking link.", "click_link"),
             ("Action item: please first click the link.", "click_link"),
             ("Recommended action: open the attached invoice.", "open_attachment"),
+            ("Recommended action: preview the attached invoice.", "open_attachment"),
+            ("Action item: view the attachment.", "open_attachment"),
             ("Download the attached invoice and review it.", "download_attachment"),
             ("Open the PDF.", "open_attachment"),
+            ("Preview the PDF.", "open_attachment"),
             ("Open the invoice.", "open_attachment"),
+            ("View the invoice.", "open_attachment"),
             ("Open the report now please.", "open_attachment"),
             ("Open the file please.", "open_attachment"),
             ("Action item: open the document.", "open_attachment"),
@@ -8090,7 +8094,9 @@ class SafetyPolicyTests(unittest.TestCase):
             ("Navigate to the\nwebsite.", "open_link"),
             ("Download the\nattachment.", "download_attachment"),
             ("Open the attached\nPDF.", "open_attachment"),
+            ("Preview the attached\nPDF.", "open_attachment"),
             ("Open the\nPDF.", "open_attachment"),
+            ("View the\nattachment.", "open_attachment"),
             ("Download the\ninvoice.", "download_attachment"),
             ("Recommended action: click\nthe tracking link.", "click_link"),
         ]
@@ -11040,6 +11046,9 @@ class SafetyPolicyTests(unittest.TestCase):
             "The primary button text is Continue.\n"
             "The reset link text is included for reference.\n"
             "The email asks the user to tap a link, but no automated action is required.\n"
+            "The attachment preview is unavailable in the message.\n"
+            "The attached invoice preview text is included for reference.\n"
+            "The report view metrics are summarized for manual review.\n"
             "Draft assistance: mention the attachment without opening it."
         )
         guarded, blocked = neutralize_unsafe_action_suggestions(text)

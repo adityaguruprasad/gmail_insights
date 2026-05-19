@@ -4781,7 +4781,10 @@ _DIRECTIVE_PATTERNS = {
         ),
     ],
     "open_attachment": [
-        re.compile(rf"{_ACTION_SUGGESTION_START}open\s+{_ATTACHMENT_TARGET}"),
+        re.compile(
+            rf"{_ACTION_SUGGESTION_START}(?:open|view|preview)\s+"
+            rf"{_ATTACHMENT_TARGET}"
+        ),
     ],
     "download_attachment": [
         re.compile(rf"{_ACTION_SUGGESTION_START}download\s+{_ATTACHMENT_TARGET}"),

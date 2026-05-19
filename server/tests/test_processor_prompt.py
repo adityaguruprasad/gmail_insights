@@ -5746,6 +5746,54 @@ class ProcessorPromptTests(unittest.TestCase):
             set(result),
         )
 
+    def test_extract_insights_blocks_attachment_view_suggestions_without_mutation_surface(self):
+        email = {
+            "id": "email-1",
+            "subject": "Invoice attachment",
+            "sender": "ops@example.com",
+            "is_archived": False,
+        }
+        completion = (
+            "Summary: The sender included an invoice attachment.\n"
+            "Action items: Preview the attached PDF.\n"
+            "Action items: The attachment preview text is unavailable in the message.\n"
+            "Draft assistance: Mention that the user can review metadata only.\n"
+            "Archive suggestion: No, keep it visible."
+        )
+
+        with patch.object(
+            processor.anthropic.completions,
+            "create",
+            return_value=types.SimpleNamespace(completion=completion),
+        ):
+            result = processor.extract_insights(email, redact_sensitive=False)
+
+        self.assertIn("[Unsafe action suggestion removed]", result["summary"])
+        self.assertNotIn("Preview the attached PDF", result["summary"])
+        self.assertIn(
+            "Action items: The attachment preview text is unavailable in the message.",
+            result["summary"],
+        )
+        self.assertIn(
+            "Draft assistance: Mention that the user can review metadata only.",
+            result["summary"],
+        )
+        self.assertIn("Archive suggestion: No, keep it visible.", result["summary"])
+        self.assertEqual(
+            {
+                "id",
+                "subject",
+                "sender",
+                "is_archived",
+                "security_warnings",
+                "summary",
+            },
+            set(result),
+        )
+        self.assertFalse(result["is_archived"])
+        self.assertNotIn("blocked_actions", result)
+        self.assertNotIn("effective_actions", result)
+
     def test_extract_insights_clips_long_completion_with_marker(self):
         email = {
             "id": "email-1",
