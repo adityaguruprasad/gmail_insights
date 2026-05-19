@@ -1957,6 +1957,20 @@ _NFKC_PROMPT_ROLE_TAG = rf"[^\W\d_]{{1,{_NFKC_PROMPT_ROLE_TAG_MAX_LENGTH}}}"
 _PROMPT_BOUNDARY_MARKER_RE = re.compile(
     r"(?i)\b(?:BEGIN|END)_UNTRUSTED_EMAIL\b"
 )
+_PROMPT_BOUNDARY_WORD_CHAR = r"A-Za-z0-9_Ａ-Ｚａ-ｚ０-９＿"
+_NFKC_PROMPT_BOUNDARY_SEPARATOR = (
+    rf"{_NFKC_AGENT_TOOL_INTERIOR_MARK}[_＿]{_NFKC_AGENT_TOOL_INTERIOR_MARK}"
+)
+_NFKC_PROMPT_BOUNDARY_MARKER_RE = re.compile(
+    rf"(?i)(?<![{_PROMPT_BOUNDARY_WORD_CHAR}])"
+    rf"(?:{_nfkc_agent_tool_literal_pattern('BEGIN')}|"
+    rf"{_nfkc_agent_tool_literal_pattern('END')})"
+    rf"{_NFKC_PROMPT_BOUNDARY_SEPARATOR}"
+    rf"{_nfkc_agent_tool_literal_pattern('UNTRUSTED')}"
+    rf"{_NFKC_PROMPT_BOUNDARY_SEPARATOR}"
+    rf"{_nfkc_agent_tool_literal_pattern('EMAIL')}"
+    rf"(?![{_PROMPT_BOUNDARY_WORD_CHAR}])"
+)
 # HTML comments are hidden in rendered email. Treat an unclosed opener as
 # hidden through end-of-field so malformed prompt traps fail closed.
 _HTML_COMMENT_RE = re.compile(r"<!--[\s\S]*?(?:-->|$)")
@@ -8505,6 +8519,10 @@ def sanitize_untrusted_email_text(text: str) -> str:
     sanitized = _redact_npm_access_tokens(sanitized)
     sanitized = _redact_password_manager_secrets(sanitized)
     sanitized = _PROMPT_BOUNDARY_MARKER_RE.sub(
+        "[quoted-prompt-boundary]",
+        sanitized,
+    )
+    sanitized = _NFKC_PROMPT_BOUNDARY_MARKER_RE.sub(
         "[quoted-prompt-boundary]",
         sanitized,
     )
